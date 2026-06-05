@@ -368,7 +368,10 @@ def _parse_unix_timestamp(value: JsonValue) -> datetime | None:
     timestamp = float(value)
     if not math.isfinite(timestamp):
         return None
-    return datetime.fromtimestamp(timestamp, tz=UTC)
+    try:
+        return datetime.fromtimestamp(timestamp, tz=UTC)
+    except (OverflowError, OSError, ValueError):
+        return None
 
 
 def _reddit_thread_platform_extension(

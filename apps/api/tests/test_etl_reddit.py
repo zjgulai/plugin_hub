@@ -234,6 +234,23 @@ def test_invalid_reddit_created_utc_rejects_bool() -> None:
     assert "invalid_created_utc" in voc.quality_flags
 
 
+def test_out_of_range_reddit_created_utc_is_flagged_without_raising() -> None:
+    voc = map_reddit_thread_to_voc(
+        collection_run_id="run_red_007",
+        source_url="https://www.reddit.com/r/Coffee/comments/thread123/example/",
+        raw_thread={
+            "name": "t3_thread123",
+            "title": "Out of range timestamp",
+            "selftext": "Timestamp should be flagged.",
+            "created_utc": 10**20,
+        },
+        coverage_confidence=0.7,
+    )
+
+    assert voc.created_at is None
+    assert "invalid_created_utc" in voc.quality_flags
+
+
 def test_thread_missing_name_uses_t3_id_and_missing_text_flags() -> None:
     voc = map_reddit_thread_to_voc(
         collection_run_id="run_red_008",
