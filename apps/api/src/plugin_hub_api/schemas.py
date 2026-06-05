@@ -1,12 +1,42 @@
 from __future__ import annotations
 
+import math
 from datetime import datetime
+from decimal import Decimal
 from enum import StrEnum
 
-from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, field_validator
 
 type JsonScalar = str | int | float | bool | None
 type JsonValue = JsonScalar | list[JsonValue] | dict[str, JsonValue]
+
+
+def ensure_json_value(value: object) -> JsonValue:
+    if value is None or isinstance(value, str | bool | int):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("json_value_must_be_finite")
+        return value
+    if isinstance(value, Decimal):
+        raise ValueError("value_must_be_json_serializable")
+    if isinstance(value, list):
+        return [ensure_json_value(item) for item in value]
+    if isinstance(value, dict):
+        output: dict[str, JsonValue] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ValueError("json_object_keys_must_be_strings")
+            output[key] = ensure_json_value(item)
+        return output
+    raise ValueError("value_must_be_json_serializable")
+
+
+def ensure_json_object(value: object) -> dict[str, JsonValue]:
+    checked = ensure_json_value(value)
+    if not isinstance(checked, dict):
+        raise ValueError("json_object_required")
+    return checked
 
 
 class StrictBaseModel(BaseModel):
@@ -32,6 +62,11 @@ class CollectionRunCreate(StrictBaseModel):
     stop_reason: str | None = None
     coverage_confidence: float = Field(ge=0.0, le=1.0, strict=True)
 
+    @field_validator("coverage_scope", mode="before")
+    @classmethod
+    def validate_coverage_scope(cls, value: object) -> dict[str, JsonValue]:
+        return ensure_json_object(value)
+
 
 class CollectionRun(CollectionRunCreate):
     collection_run_id: str
@@ -47,6 +82,11 @@ class RawSourceItem(StrictBaseModel):
     raw_payload: dict[str, JsonValue]
     raw_payload_hash: str
     captured_at: datetime
+
+    @field_validator("raw_payload", mode="before")
+    @classmethod
+    def validate_raw_payload(cls, value: object) -> dict[str, JsonValue]:
+        return ensure_json_object(value)
 
 
 class CanonicalVocUnit(StrictBaseModel):
@@ -77,3 +117,8 @@ class CanonicalVocUnit(StrictBaseModel):
     quality_flags: list[str] = Field(default_factory=list)
     coverage_confidence: float = Field(ge=0.0, le=1.0, strict=True)
     platform_extension: dict[str, JsonValue] = Field(default_factory=dict)
+
+    @field_validator("platform_extension", mode="before")
+    @classmethod
+    def validate_platform_extension(cls, value: object) -> dict[str, JsonValue]:
+        return ensure_json_object(value)
