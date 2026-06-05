@@ -164,6 +164,53 @@ def test_reddit_comment_without_thread_linkage_returns_422(client: TestClient) -
     assert response.json()["detail"] == "reddit_comment_thread_id_required"
 
 
+def test_reddit_comment_invalid_link_id_returns_422_without_persistence(
+    client: TestClient,
+) -> None:
+    raw_item = _reddit_comment_item()
+    raw_payload = cast(dict[str, object], raw_item["raw_payload"])
+    raw_payload["link_id"] = "not-a-thread"
+
+    response = client.post(
+        "/api/collection-runs",
+        json={
+            "run": _collection_run(
+                platform="reddit",
+                source_url="https://www.reddit.com/r/Coffee/comments/thread123/example/comment456/",
+            ),
+            "raw_items": [raw_item],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "reddit_comment_thread_id_required"
+    assert client.get("/api/voc-units", params={"platform": "reddit"}).json()["items"] == []
+
+
+def test_reddit_comment_mismatched_thread_ids_returns_422_without_persistence(
+    client: TestClient,
+) -> None:
+    raw_item = _reddit_comment_item()
+    raw_payload = cast(dict[str, object], raw_item["raw_payload"])
+    raw_payload["link_id"] = "t3_thread123"
+    raw_payload["thread_id"] = "t3_other"
+
+    response = client.post(
+        "/api/collection-runs",
+        json={
+            "run": _collection_run(
+                platform="reddit",
+                source_url="https://www.reddit.com/r/Coffee/comments/thread123/example/comment456/",
+            ),
+            "raw_items": [raw_item],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "reddit_comment_thread_id_required"
+    assert client.get("/api/voc-units", params={"platform": "reddit"}).json()["items"] == []
+
+
 def test_get_voc_units_serializes_url_and_platform_extension(client: TestClient) -> None:
     response = client.post(
         "/api/collection-runs",

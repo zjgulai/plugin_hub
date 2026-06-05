@@ -3,7 +3,7 @@ from __future__ import annotations
 import secrets
 from collections.abc import Generator
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
@@ -128,14 +128,27 @@ def _map_raw_item(
 
 
 def _reddit_comment_thread_id(raw_payload: dict[str, JsonValue]) -> str:
-    link_id = raw_payload.get("link_id")
-    if isinstance(link_id, str) and link_id != "":
-        return link_id
+    link_id = _optional_reddit_thread_fullname(raw_payload.get("link_id"))
+    thread_id = _optional_reddit_thread_fullname(raw_payload.get("thread_id"))
+    candidates = [value for value in (link_id, thread_id) if value is not None]
+    if not candidates:
+        _raise_reddit_comment_thread_id_required()
 
-    thread_id = raw_payload.get("thread_id")
-    if isinstance(thread_id, str) and thread_id != "":
-        return thread_id
+    if len(candidates) == 2 and candidates[0] != candidates[1]:
+        _raise_reddit_comment_thread_id_required()
 
+    return candidates[0]
+
+
+def _optional_reddit_thread_fullname(value: JsonValue | None) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str) and value.startswith("t3_") and len(value) > len("t3_"):
+        return value
+    _raise_reddit_comment_thread_id_required()
+
+
+def _raise_reddit_comment_thread_id_required() -> NoReturn:
     raise HTTPException(
         status_code=422,
         detail="reddit_comment_thread_id_required",
