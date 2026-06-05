@@ -12,6 +12,7 @@ export default defineConfig({
     emptyOutDir: true,
     lib: {
       entry: {
+        "amazon-parser": "./src/lib/amazon-parser.ts",
         contracts: "./src/types/contracts.ts",
         "page-detect": "./src/lib/page-detect.ts"
       },
