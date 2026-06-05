@@ -33,7 +33,7 @@ def generate_strategy_notes(units: list[CanonicalVocUnit]) -> list[dict[str, Jso
             },
         )
         evidence["count"] = _evidence_count(evidence) + 1
-        _append_example(evidence, unit.body)
+        _append_example(evidence, unit)
         evidence["evidence_strength"] = min(
             _evidence_strength(evidence),
             unit.coverage_confidence,
@@ -57,10 +57,21 @@ def _topic_for_body(body: str) -> str:
     return "general"
 
 
-def _append_example(evidence: TopicEvidence, body: str) -> None:
+def _append_example(evidence: TopicEvidence, unit: CanonicalVocUnit) -> None:
     examples = _examples(evidence)
     if len(examples) < 3:
-        examples.append(body)
+        examples.append(_evidence_example(unit))
+
+
+def _evidence_example(unit: CanonicalVocUnit) -> dict[str, JsonValue]:
+    return {
+        "body": unit.body,
+        "source_object_id": unit.source_object_id,
+        "source_url": str(unit.model_dump(mode="json")["source_url"]),
+        "platform": unit.platform.value,
+        "source_kind": unit.source_kind.value,
+        "collection_run_id": unit.collection_run_id,
+    }
 
 
 def _strategy_note(*, topic: str, evidence: TopicEvidence) -> dict[str, JsonValue]:
@@ -84,10 +95,10 @@ def _evidence_count(evidence: TopicEvidence) -> int:
     return value
 
 
-def _examples(evidence: TopicEvidence) -> list[str]:
+def _examples(evidence: TopicEvidence) -> list[dict[str, JsonValue]]:
     value = evidence["examples"]
-    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-        raise TypeError("strategy_note_examples_must_be_strings")
+    if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+        raise TypeError("strategy_note_examples_must_be_objects")
     return value
 
 

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import cast
 
 from fastapi.testclient import TestClient
 
-from plugin_hub_api.schemas import CanonicalVocUnit
+from plugin_hub_api.schemas import CanonicalVocUnit, JsonValue
 from plugin_hub_api.services.insights import generate_strategy_notes
 
 
@@ -34,8 +35,22 @@ def test_generate_strategy_notes_groups_loud_and_noise_as_noise() -> None:
             "topic": "noise",
             "evidence_count": 2,
             "evidence_examples": [
-                "The grinder is very loud during every morning use.",
-                "The motor noise makes it hard to use in an apartment.",
+                {
+                    "body": "The grinder is very loud during every morning use.",
+                    "source_object_id": "RLOUD",
+                    "source_url": "https://example.com/source",
+                    "platform": "amazon",
+                    "source_kind": "amazon_review",
+                    "collection_run_id": "run_insights",
+                },
+                {
+                    "body": "The motor noise makes it hard to use in an apartment.",
+                    "source_object_id": "t1_noise",
+                    "source_url": "https://example.com/source",
+                    "platform": "reddit",
+                    "source_kind": "reddit_comment",
+                    "collection_run_id": "run_insights",
+                },
             ],
             "recommendation": (
                 "Prioritize reducing noise complaints in product messaging and fixes."
@@ -73,11 +88,48 @@ def test_generate_strategy_notes_preserves_low_quality_evidence_flags() -> None:
     assert note["topic"] == "durability"
     assert note["evidence_count"] == 2
     assert note["evidence_strength"] == 0.42
-    assert note["evidence_examples"] == [
-        "The lid broke after three days.",
-        "It stopped working after one week.",
-    ]
+    examples = cast(list[dict[str, JsonValue]], note["evidence_examples"])
+    assert examples[0]["body"] == "The lid broke after three days."
+    assert examples[0]["source_object_id"] == "RBROKEN"
+    assert examples[0]["source_url"] == "https://example.com/source"
+    assert examples[0]["platform"] == "amazon"
+    assert examples[0]["collection_run_id"] == "run_insights"
+    assert examples[1]["body"] == "It stopped working after one week."
     assert note["quality_flags"] == ["invalid_created_at", "missing_review_id"]
+
+
+def test_generate_strategy_notes_empty_units_returns_empty_list() -> None:
+    assert generate_strategy_notes([]) == []
+
+
+def test_generate_strategy_notes_sorts_equal_counts_by_topic() -> None:
+    notes = generate_strategy_notes(
+        [
+            _voc_unit(
+                platform="amazon",
+                source_kind="amazon_review",
+                source_object_id="RPRICE",
+                body="The price is expensive.",
+                coverage_confidence=0.8,
+            ),
+            _voc_unit(
+                platform="amazon",
+                source_kind="amazon_review",
+                source_object_id="RNOISE",
+                body="The grinder is loud.",
+                coverage_confidence=0.8,
+            ),
+            _voc_unit(
+                platform="amazon",
+                source_kind="amazon_review",
+                source_object_id="RDURABILITY",
+                body="The handle broke.",
+                coverage_confidence=0.8,
+            ),
+        ]
+    )
+
+    assert [note["topic"] for note in notes] == ["durability", "noise", "price"]
 
 
 def test_get_strategy_notes_from_collection_runs_by_platform(client: TestClient) -> None:
@@ -124,9 +176,13 @@ def test_get_strategy_notes_from_collection_runs_by_platform(client: TestClient)
     assert len(notes) == 1
     assert notes[0]["topic"] == "noise"
     assert notes[0]["evidence_strength"] == 0.64
-    assert notes[0]["evidence_examples"] == [
-        "The fan noise is loud enough to wake everyone."
-    ]
+    examples = notes[0]["evidence_examples"]
+    assert examples[0]["body"] == "The fan noise is loud enough to wake everyone."
+    assert examples[0]["source_object_id"] == "RLOUD"
+    assert examples[0]["source_url"] == "https://www.amazon.com/product-reviews/B000000001"
+    assert examples[0]["platform"] == "amazon"
+    assert examples[0]["source_kind"] == "amazon_review"
+    assert examples[0]["collection_run_id"].startswith("run_")
 
     all_response = client.get("/api/insights/strategy-notes")
 
