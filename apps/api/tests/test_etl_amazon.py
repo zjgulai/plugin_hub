@@ -152,6 +152,22 @@ def test_invalid_captured_at_gets_quality_flag_and_aware_fallback() -> None:
     assert voc.captured_at.tzinfo is not None
 
 
+def test_non_string_captured_at_gets_quality_flag_and_aware_fallback() -> None:
+    voc = map_amazon_review_to_voc(
+        collection_run_id="run_amz_006",
+        source_url="https://www.amazon.com/product-reviews/B000000001",
+        raw_review={
+            "review_id": "R126B",
+            "body": "Captured time field has wrong type.",
+            "captured_at": 123,
+        },
+        coverage_confidence=0.6,
+    )
+
+    assert "invalid_captured_at" in voc.quality_flags
+    assert voc.captured_at.tzinfo is not None
+
+
 def test_invalid_created_at_gets_quality_flag_and_none_created_at() -> None:
     voc = map_amazon_review_to_voc(
         collection_run_id="run_amz_007",
@@ -161,6 +177,23 @@ def test_invalid_created_at_gets_quality_flag_and_none_created_at() -> None:
             "body": "Created time field is invalid.",
             "captured_at": "2026-06-05T00:00:00+00:00",
             "created_at": "not-a-datetime",
+        },
+        coverage_confidence=0.6,
+    )
+
+    assert "invalid_created_at" in voc.quality_flags
+    assert voc.created_at is None
+
+
+def test_non_string_created_at_gets_quality_flag_and_none_created_at() -> None:
+    voc = map_amazon_review_to_voc(
+        collection_run_id="run_amz_007",
+        source_url="https://www.amazon.com/product-reviews/B000000001",
+        raw_review={
+            "review_id": "R127B",
+            "body": "Created time field has wrong type.",
+            "captured_at": "2026-06-05T00:00:00+00:00",
+            "created_at": 123,
         },
         coverage_confidence=0.6,
     )

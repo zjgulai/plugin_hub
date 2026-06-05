@@ -113,8 +113,7 @@ def _captured_at_with_flags(
 
     parsed = _parse_datetime(value)
     if parsed is None:
-        if isinstance(value, str):
-            quality_flags.append("invalid_captured_at")
+        quality_flags.append("invalid_captured_at")
         return datetime.now(tz=UTC)
 
     if isinstance(value, str) and _datetime_string_is_naive(value):
@@ -131,7 +130,7 @@ def _created_at_with_flags(
         return None
 
     parsed = _parse_datetime(value)
-    if parsed is None and isinstance(value, str):
+    if parsed is None:
         quality_flags.append("invalid_created_at")
     return parsed
 
