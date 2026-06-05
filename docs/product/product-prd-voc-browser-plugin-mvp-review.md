@@ -527,3 +527,9 @@ P0 成功标准：
 - Reddit 保留 thread/comment 关系，不把评论树压平成无上下文文本。
 - raw、canonical、extension、relation、enriched 五层职责清晰。
 - AI 输出必须回溯证据，避免把低可信采集结果包装成确定结论。
+
+## 18. Implementation Plan Link
+
+The reviewed implementation plan is stored at:
+
+- `docs/workflows/workflow-implementation-plan-voc-browser-plugin-mvp-review.md`

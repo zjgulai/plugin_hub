@@ -1,0 +1,39 @@
+[
+  {
+    "kind": "Listing",
+    "data": {
+      "children": [
+        {
+          "kind": "t3",
+          "data": {
+            "name": "t3_thread123",
+            "id": "thread123",
+            "title": "Quiet grinder?",
+            "selftext": "Need a quiet grinder.",
+            "subreddit": "Coffee",
+            "created_utc": 1780602718
+          }
+        }
+      ]
+    }
+  },
+  {
+    "kind": "Listing",
+    "data": {
+      "children": [
+        {
+          "kind": "t1",
+          "data": {
+            "name": "t1_comment456",
+            "id": "comment456",
+            "body": "Noise is the real issue.",
+            "parent_id": "t3_thread123",
+            "link_id": "t3_thread123",
+            "depth": 0,
+            "replies": ""
+          }
+        }
+      ]
+    }
+  }
+]
