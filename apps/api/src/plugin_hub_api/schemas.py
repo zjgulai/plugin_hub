@@ -2,9 +2,15 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
+
+type JsonScalar = str | int | float | bool | None
+type JsonValue = JsonScalar | list[JsonValue] | dict[str, JsonValue]
+
+
+class StrictBaseModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
 
 class Platform(StrEnum):
@@ -18,13 +24,13 @@ class SourceKind(StrEnum):
     REDDIT_COMMENT = "reddit_comment"
 
 
-class CollectionRunCreate(BaseModel):
+class CollectionRunCreate(StrictBaseModel):
     platform: Platform
-    source_url: str
+    source_url: AnyHttpUrl
     capture_method: str
-    coverage_scope: dict[str, Any] = Field(default_factory=dict)
+    coverage_scope: dict[str, JsonValue] = Field(default_factory=dict)
     stop_reason: str | None = None
-    coverage_confidence: float = Field(ge=0.0, le=1.0)
+    coverage_confidence: float = Field(ge=0.0, le=1.0, strict=True)
 
 
 class CollectionRun(CollectionRunCreate):
@@ -32,23 +38,23 @@ class CollectionRun(CollectionRunCreate):
     created_at: datetime
 
 
-class RawSourceItem(BaseModel):
+class RawSourceItem(StrictBaseModel):
     platform: Platform
     source_kind: SourceKind
     source_object_id: str
     raw_schema_version: str
     parser_version: str
-    raw_payload: dict[str, Any]
+    raw_payload: dict[str, JsonValue]
     raw_payload_hash: str
     captured_at: datetime
 
 
-class CanonicalVocUnit(BaseModel):
+class CanonicalVocUnit(StrictBaseModel):
     platform: Platform
     source_kind: SourceKind
     source_object_id: str
     collection_run_id: str
-    source_url: str | HttpUrl
+    source_url: AnyHttpUrl
     captured_at: datetime
     created_at: datetime | None = None
     author_display: str | None = None
@@ -69,5 +75,5 @@ class CanonicalVocUnit(BaseModel):
     depth: int | None = None
     reply_role: str | None = None
     quality_flags: list[str] = Field(default_factory=list)
-    coverage_confidence: float = Field(ge=0.0, le=1.0)
-    platform_extension: dict[str, Any] = Field(default_factory=dict)
+    coverage_confidence: float = Field(ge=0.0, le=1.0, strict=True)
+    platform_extension: dict[str, JsonValue] = Field(default_factory=dict)
