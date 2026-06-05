@@ -97,6 +97,41 @@ def test_reddit_more_node_is_not_treated_as_comment_body() -> None:
     assert voc.platform_extension["more_node_count"] == 2
 
 
+def test_reddit_more_node_without_id_gets_stable_missing_more_id() -> None:
+    raw_more: dict[str, JsonValue] = {
+        "kind": "more",
+        "parent_id": "t1_parent999",
+        "children": ["abc", "def"],
+        "depth": 1,
+    }
+
+    first = map_reddit_comment_to_voc(
+        collection_run_id="run_red_002",
+        source_url="https://www.reddit.com/r/Coffee/comments/thread123/example/",
+        thread_id="t3_thread123",
+        raw_comment=raw_more,
+        coverage_confidence=0.5,
+    )
+    second = map_reddit_comment_to_voc(
+        collection_run_id="run_red_002",
+        source_url="https://www.reddit.com/r/Coffee/comments/thread123/example/",
+        thread_id="t3_thread123",
+        raw_comment={
+            "depth": 1,
+            "children": ["abc", "def"],
+            "parent_id": "t1_parent999",
+            "kind": "more",
+        },
+        coverage_confidence=0.5,
+    )
+
+    assert first.source_object_id.startswith("more_missing_id_")
+    assert first.source_object_id == second.source_object_id
+    assert first.body == ""
+    assert first.quality_flags == ["reddit_more_node"]
+    assert "missing_comment_body" not in first.quality_flags
+
+
 def test_deleted_or_removed_comment_body_gets_quality_flag() -> None:
     deleted = map_reddit_comment_to_voc(
         collection_run_id="run_red_003",
@@ -155,6 +190,54 @@ def test_reddit_top_level_comment_reply_role_from_parent_or_depth() -> None:
 
     assert from_parent.reply_role == "top_level_reply"
     assert from_depth.reply_role == "top_level_reply"
+
+
+def test_missing_reddit_comment_context_and_body_gets_quality_flags() -> None:
+    voc = map_reddit_comment_to_voc(
+        collection_run_id="run_red_004",
+        source_url="https://www.reddit.com/r/Coffee/comments/thread123/example/missing-context/",
+        thread_id="t3_thread123",
+        raw_comment={
+            "name": "t1_missing_context",
+        },
+        coverage_confidence=0.7,
+    )
+
+    assert voc.body == ""
+    assert voc.parent_id is None
+    assert voc.depth is None
+    assert voc.reply_role == "unknown_reply_role"
+    assert "missing_parent_id" in voc.quality_flags
+    assert "missing_depth" in voc.quality_flags
+    assert "missing_comment_body" in voc.quality_flags
+
+
+def test_reddit_comment_extension_keeps_context_fields_and_comment_flair() -> None:
+    voc = map_reddit_comment_to_voc(
+        collection_run_id="run_red_004",
+        source_url="https://www.reddit.com/r/Coffee/comments/thread123/example/comment789/",
+        thread_id="t3_thread123",
+        raw_comment={
+            "name": "t1_comment789",
+            "body": "Flair and subreddit context.",
+            "parent_id": "t3_thread123",
+            "depth": 0,
+            "subreddit": "Coffee",
+            "subreddit_name_prefixed": "r/Coffee",
+            "permalink": "/r/Coffee/comments/thread123/example/comment789/",
+            "comment_flair": "Owner",
+            "author_flair_text": "Fallback flair",
+        },
+        coverage_confidence=0.7,
+    )
+
+    assert voc.platform_extension["subreddit"] == "Coffee"
+    assert voc.platform_extension["subreddit_name_prefixed"] == "r/Coffee"
+    assert (
+        voc.platform_extension["permalink"]
+        == "/r/Coffee/comments/thread123/example/comment789/"
+    )
+    assert voc.platform_extension["comment_flair"] == "Owner"
 
 
 def test_missing_reddit_comment_id_is_stable_and_flagged() -> None:
@@ -232,6 +315,40 @@ def test_invalid_reddit_created_utc_rejects_bool() -> None:
 
     assert voc.created_at is None
     assert "invalid_created_utc" in voc.quality_flags
+
+
+def test_invalid_reddit_created_utc_rejects_nan_and_infinity() -> None:
+    nan_voc = map_reddit_comment_to_voc(
+        collection_run_id="run_red_007",
+        source_url="https://www.reddit.com/r/Coffee/comments/thread123/example/nan-time/",
+        thread_id="t3_thread123",
+        raw_comment={
+            "name": "t1_nan_time",
+            "body": "NaN timestamp.",
+            "parent_id": "t3_thread123",
+            "depth": 0,
+            "created_utc": float("nan"),
+        },
+        coverage_confidence=0.7,
+    )
+    inf_voc = map_reddit_comment_to_voc(
+        collection_run_id="run_red_007",
+        source_url="https://www.reddit.com/r/Coffee/comments/thread123/example/inf-time/",
+        thread_id="t3_thread123",
+        raw_comment={
+            "name": "t1_inf_time",
+            "body": "Infinity timestamp.",
+            "parent_id": "t3_thread123",
+            "depth": 0,
+            "created_utc": float("inf"),
+        },
+        coverage_confidence=0.7,
+    )
+
+    assert nan_voc.created_at is None
+    assert inf_voc.created_at is None
+    assert "invalid_created_utc" in nan_voc.quality_flags
+    assert "invalid_created_utc" in inf_voc.quality_flags
 
 
 def test_out_of_range_reddit_created_utc_is_flagged_without_raising() -> None:

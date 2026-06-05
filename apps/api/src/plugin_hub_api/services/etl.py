@@ -42,6 +42,9 @@ REDDIT_COMMENT_EXTENSION_KEYS = (
     "is_submitter",
     "link_id",
     "controversiality",
+    "subreddit",
+    "subreddit_name_prefixed",
+    "permalink",
 )
 
 
@@ -125,8 +128,8 @@ def map_reddit_comment_to_voc(
     quality_flags: list[str] = []
     source_object_id = _reddit_comment_source_object_id(raw_comment, quality_flags)
     body = _reddit_comment_body(raw_comment, quality_flags)
-    parent_id = _string_or_none(raw_comment.get("parent_id"))
-    depth = _reddit_comment_depth(raw_comment.get("depth"))
+    parent_id = _reddit_comment_parent_id(raw_comment, quality_flags)
+    depth = _reddit_comment_depth(raw_comment, quality_flags)
 
     return CanonicalVocUnit.model_validate(
         {
@@ -275,8 +278,8 @@ def _reddit_comment_source_object_id(
             quality_flags.append("reddit_more_node")
             return f"more_{more_id}"
 
-        quality_flags.extend(["reddit_more_node", "missing_comment_id"])
-        return _stable_missing_id("reddit_missing_comment_id", raw_comment)
+        quality_flags.append("reddit_more_node")
+        return _stable_missing_id("more_missing_id", raw_comment)
 
     name = _string_or_none(raw_comment.get("name"))
     if name is not None:
@@ -320,6 +323,7 @@ def _reddit_comment_body(
 
     body = _string_or_none(raw_comment.get("body"))
     if body is None:
+        quality_flags.append("missing_comment_body")
         return ""
     if body in {"[deleted]", "[removed]"}:
         quality_flags.append("reddit_deleted_or_removed")
@@ -330,11 +334,29 @@ def _reddit_comment_is_more_node(raw_comment: dict[str, JsonValue]) -> bool:
     return raw_comment.get("kind") == "more"
 
 
-def _reddit_comment_depth(value: JsonValue) -> int | None:
+def _reddit_comment_parent_id(
+    raw_comment: dict[str, JsonValue],
+    quality_flags: list[str],
+) -> str | None:
+    parent_id = _string_or_none(raw_comment.get("parent_id"))
+    if parent_id is None and not _reddit_comment_is_more_node(raw_comment):
+        quality_flags.append("missing_parent_id")
+    return parent_id
+
+
+def _reddit_comment_depth(
+    raw_comment: dict[str, JsonValue],
+    quality_flags: list[str],
+) -> int | None:
+    value = raw_comment.get("depth")
     if isinstance(value, bool):
+        if not _reddit_comment_is_more_node(raw_comment):
+            quality_flags.append("missing_depth")
         return None
     if isinstance(value, int):
         return value
+    if not _reddit_comment_is_more_node(raw_comment):
+        quality_flags.append("missing_depth")
     return None
 
 
@@ -346,7 +368,9 @@ def _reddit_comment_reply_role(
 ) -> str:
     if parent_id == thread_id or depth == 0:
         return "top_level_reply"
-    return "nested_reply"
+    if parent_id is not None and depth is not None:
+        return "nested_reply"
+    return "unknown_reply_role"
 
 
 def _created_utc_with_flags(
@@ -391,6 +415,11 @@ def _reddit_comment_platform_extension(
     for key in REDDIT_COMMENT_EXTENSION_KEYS:
         if key in raw_comment:
             extension[key] = ensure_json_value(raw_comment[key])
+    comment_flair = raw_comment.get("comment_flair")
+    if comment_flair is None:
+        comment_flair = raw_comment.get("author_flair_text")
+    if comment_flair is not None:
+        extension["comment_flair"] = ensure_json_value(comment_flair)
     extension["more_node_count"] = _reddit_more_node_count(raw_comment)
     return extension
 
