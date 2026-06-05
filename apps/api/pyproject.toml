@@ -10,6 +10,10 @@ dependencies = [
   "uvicorn[standard]>=0.34.0",
 ]
 
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [dependency-groups]
 dev = [
   "httpx>=0.28.0",
@@ -25,6 +29,9 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/plugin_hub_api"]
 
 [tool.mypy]
 python_version = "3.12"

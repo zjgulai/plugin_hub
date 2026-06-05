@@ -10,7 +10,7 @@ VOC-first Chrome extension and private backend for Amazon and Reddit customer vo
 - Schema-based VOC ETL
 - VOC Hub review surface
 
-## Local Apps
+## Planned Local Apps
 
 - `apps/api`: FastAPI backend
 - `apps/extension`: Chrome extension
