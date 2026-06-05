@@ -35,7 +35,7 @@ def map_amazon_review_to_voc(
     quality_flags: list[str] = []
     source_object_id = _review_source_object_id(raw_review, quality_flags)
     body = _review_body(raw_review, quality_flags)
-    captured_at = _parse_datetime(raw_review.get("captured_at")) or datetime.now(tz=UTC)
+    captured_at = _captured_at_with_flags(raw_review, quality_flags)
 
     return CanonicalVocUnit.model_validate(
         {
@@ -45,7 +45,7 @@ def map_amazon_review_to_voc(
             "collection_run_id": collection_run_id,
             "source_url": source_url,
             "captured_at": captured_at,
-            "created_at": _parse_datetime(raw_review.get("created_at")),
+            "created_at": _created_at_with_flags(raw_review, quality_flags),
             "author_display": _string_or_none(raw_review.get("author")),
             "title": _string_or_none(raw_review.get("title")),
             "body": body,
@@ -95,12 +95,56 @@ def _parse_datetime(value: JsonValue) -> datetime | None:
         return None
 
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = _parse_datetime_string(value)
     except ValueError:
         return None
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=UTC)
     return parsed
+
+
+def _captured_at_with_flags(
+    raw_review: dict[str, JsonValue],
+    quality_flags: list[str],
+) -> datetime:
+    value = raw_review.get("captured_at")
+    if value is None:
+        return datetime.now(tz=UTC)
+
+    parsed = _parse_datetime(value)
+    if parsed is None:
+        if isinstance(value, str):
+            quality_flags.append("invalid_captured_at")
+        return datetime.now(tz=UTC)
+
+    if isinstance(value, str) and _datetime_string_is_naive(value):
+        quality_flags.append("naive_captured_at_assumed_utc")
+    return parsed
+
+
+def _created_at_with_flags(
+    raw_review: dict[str, JsonValue],
+    quality_flags: list[str],
+) -> datetime | None:
+    value = raw_review.get("created_at")
+    if value is None:
+        return None
+
+    parsed = _parse_datetime(value)
+    if parsed is None and isinstance(value, str):
+        quality_flags.append("invalid_created_at")
+    return parsed
+
+
+def _datetime_string_is_naive(value: str) -> bool:
+    try:
+        return _parse_datetime_string(value).tzinfo is None
+    except ValueError:
+        return False
+
+
+def _parse_datetime_string(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 def _amazon_platform_extension(

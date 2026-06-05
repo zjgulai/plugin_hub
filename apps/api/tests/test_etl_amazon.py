@@ -109,3 +109,110 @@ def test_amazon_review_dump_json_serializes_extension_and_source_url() -> None:
         "badges": ["deal"],
     }
     assert voc.model_dump_json()
+
+
+def test_missing_review_id_stable_hash_ignores_dict_insertion_order() -> None:
+    first = map_amazon_review_to_voc(
+        collection_run_id="run_amz_005",
+        source_url="https://www.amazon.com/product-reviews/B000000001",
+        raw_review={
+            "rating": 3,
+            "body": "Useful enough.",
+            "captured_at": "2026-06-05T00:00:00+00:00",
+        },
+        coverage_confidence=0.6,
+    )
+    second = map_amazon_review_to_voc(
+        collection_run_id="run_amz_005",
+        source_url="https://www.amazon.com/product-reviews/B000000001",
+        raw_review={
+            "captured_at": "2026-06-05T00:00:00+00:00",
+            "body": "Useful enough.",
+            "rating": 3,
+        },
+        coverage_confidence=0.6,
+    )
+
+    assert first.source_object_id == second.source_object_id
+
+
+def test_invalid_captured_at_gets_quality_flag_and_aware_fallback() -> None:
+    voc = map_amazon_review_to_voc(
+        collection_run_id="run_amz_006",
+        source_url="https://www.amazon.com/product-reviews/B000000001",
+        raw_review={
+            "review_id": "R126",
+            "body": "Time field is invalid.",
+            "captured_at": "not-a-datetime",
+        },
+        coverage_confidence=0.6,
+    )
+
+    assert "invalid_captured_at" in voc.quality_flags
+    assert voc.captured_at.tzinfo is not None
+
+
+def test_invalid_created_at_gets_quality_flag_and_none_created_at() -> None:
+    voc = map_amazon_review_to_voc(
+        collection_run_id="run_amz_007",
+        source_url="https://www.amazon.com/product-reviews/B000000001",
+        raw_review={
+            "review_id": "R127",
+            "body": "Created time field is invalid.",
+            "captured_at": "2026-06-05T00:00:00+00:00",
+            "created_at": "not-a-datetime",
+        },
+        coverage_confidence=0.6,
+    )
+
+    assert "invalid_created_at" in voc.quality_flags
+    assert voc.created_at is None
+
+
+def test_captured_at_accepts_z_suffix_as_aware_utc_datetime() -> None:
+    voc = map_amazon_review_to_voc(
+        collection_run_id="run_amz_008",
+        source_url="https://www.amazon.com/product-reviews/B000000001",
+        raw_review={
+            "review_id": "R128",
+            "body": "Z suffix time.",
+            "captured_at": "2026-06-05T00:00:00Z",
+        },
+        coverage_confidence=0.6,
+    )
+
+    assert voc.captured_at.isoformat() == "2026-06-05T00:00:00+00:00"
+    assert voc.captured_at.tzinfo is not None
+
+
+def test_naive_captured_at_assumes_utc_and_gets_quality_flag() -> None:
+    voc = map_amazon_review_to_voc(
+        collection_run_id="run_amz_009",
+        source_url="https://www.amazon.com/product-reviews/B000000001",
+        raw_review={
+            "review_id": "R129",
+            "body": "Naive captured time.",
+            "captured_at": "2026-06-05T00:00:00",
+        },
+        coverage_confidence=0.6,
+    )
+
+    assert voc.captured_at.isoformat() == "2026-06-05T00:00:00+00:00"
+    assert voc.captured_at.tzinfo is not None
+    assert "naive_captured_at_assumed_utc" in voc.quality_flags
+
+
+def test_mixed_media_refs_are_dropped() -> None:
+    voc = map_amazon_review_to_voc(
+        collection_run_id="run_amz_010",
+        source_url="https://www.amazon.com/product-reviews/B000000001",
+        raw_review={
+            "review_id": "R130",
+            "body": "Mixed media refs.",
+            "media_refs": ["https://images.example/review-2.jpg", 1],
+            "captured_at": "2026-06-05T00:00:00+00:00",
+        },
+        coverage_confidence=0.6,
+    )
+
+    assert voc.media_refs == []
