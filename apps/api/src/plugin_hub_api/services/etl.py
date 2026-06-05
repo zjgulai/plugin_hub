@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from datetime import UTC, datetime
 
 from plugin_hub_api.schemas import (
@@ -22,6 +23,25 @@ AMAZON_EXTENSION_KEYS = (
     "sort_by",
     "filter_by_star",
     "variant_context",
+)
+
+REDDIT_THREAD_EXTENSION_KEYS = (
+    ("subreddit", "subreddit"),
+    ("subreddit_name_prefixed", "subreddit_name_prefixed"),
+    ("link_flair_text", "post_flair"),
+    ("score", "score"),
+    ("upvote_ratio", "upvote_ratio"),
+    ("num_comments", "num_comments"),
+    ("locked", "locked"),
+    ("archived", "archived"),
+    ("stickied", "stickied"),
+)
+
+REDDIT_COMMENT_EXTENSION_KEYS = (
+    "score",
+    "is_submitter",
+    "link_id",
+    "controversiality",
 )
 
 
@@ -57,6 +77,79 @@ def map_amazon_review_to_voc(
             "quality_flags": quality_flags,
             "coverage_confidence": coverage_confidence,
             "platform_extension": _amazon_platform_extension(raw_review),
+        }
+    )
+
+
+def map_reddit_thread_to_voc(
+    *,
+    collection_run_id: str,
+    source_url: str,
+    raw_thread: dict[str, JsonValue],
+    coverage_confidence: float,
+) -> CanonicalVocUnit:
+    quality_flags: list[str] = []
+    source_object_id = _reddit_thread_source_object_id(raw_thread, quality_flags)
+    title = _reddit_thread_title(raw_thread, quality_flags)
+    body = _reddit_thread_body(raw_thread, quality_flags)
+
+    return CanonicalVocUnit.model_validate(
+        {
+            "platform": Platform.REDDIT,
+            "source_kind": SourceKind.REDDIT_THREAD,
+            "source_object_id": source_object_id,
+            "collection_run_id": collection_run_id,
+            "source_url": source_url,
+            "captured_at": datetime.now(tz=UTC),
+            "created_at": _created_utc_with_flags(raw_thread, quality_flags),
+            "author_display": _string_or_none(raw_thread.get("author")),
+            "title": title,
+            "body": body,
+            "thread_id": source_object_id,
+            "reply_role": "thread_root",
+            "quality_flags": quality_flags,
+            "coverage_confidence": coverage_confidence,
+            "platform_extension": _reddit_thread_platform_extension(raw_thread),
+        }
+    )
+
+
+def map_reddit_comment_to_voc(
+    *,
+    collection_run_id: str,
+    source_url: str,
+    thread_id: str,
+    raw_comment: dict[str, JsonValue],
+    coverage_confidence: float,
+) -> CanonicalVocUnit:
+    quality_flags: list[str] = []
+    source_object_id = _reddit_comment_source_object_id(raw_comment, quality_flags)
+    body = _reddit_comment_body(raw_comment, quality_flags)
+    parent_id = _string_or_none(raw_comment.get("parent_id"))
+    depth = _reddit_comment_depth(raw_comment.get("depth"))
+
+    return CanonicalVocUnit.model_validate(
+        {
+            "platform": Platform.REDDIT,
+            "source_kind": SourceKind.REDDIT_COMMENT,
+            "source_object_id": source_object_id,
+            "collection_run_id": collection_run_id,
+            "source_url": source_url,
+            "captured_at": datetime.now(tz=UTC),
+            "created_at": _created_utc_with_flags(raw_comment, quality_flags),
+            "author_display": _string_or_none(raw_comment.get("author")),
+            "body": body,
+            "thread_id": thread_id,
+            "parent_id": parent_id,
+            "depth": depth,
+            "reply_role": _reddit_comment_reply_role(
+                thread_id=thread_id,
+                parent_id=parent_id,
+                depth=depth,
+            ),
+            "quality_flags": quality_flags,
+            "coverage_confidence": coverage_confidence,
+            "platform_extension": _reddit_comment_platform_extension(raw_comment),
         }
     )
 
@@ -154,6 +247,156 @@ def _amazon_platform_extension(
         if key in raw_review:
             extension[key] = ensure_json_value(raw_review[key])
     return extension
+
+
+def _reddit_thread_source_object_id(
+    raw_thread: dict[str, JsonValue],
+    quality_flags: list[str],
+) -> str:
+    name = _string_or_none(raw_thread.get("name"))
+    if name is not None:
+        return name
+
+    thread_id = _string_or_none(raw_thread.get("id"))
+    if thread_id is not None:
+        return f"t3_{thread_id}"
+
+    quality_flags.append("missing_thread_id")
+    return _stable_missing_id("reddit_missing_thread_id", raw_thread)
+
+
+def _reddit_comment_source_object_id(
+    raw_comment: dict[str, JsonValue],
+    quality_flags: list[str],
+) -> str:
+    if _reddit_comment_is_more_node(raw_comment):
+        more_id = _string_or_none(raw_comment.get("id"))
+        if more_id is not None:
+            quality_flags.append("reddit_more_node")
+            return f"more_{more_id}"
+
+        quality_flags.extend(["reddit_more_node", "missing_comment_id"])
+        return _stable_missing_id("reddit_missing_comment_id", raw_comment)
+
+    name = _string_or_none(raw_comment.get("name"))
+    if name is not None:
+        return name
+
+    comment_id = _string_or_none(raw_comment.get("id"))
+    if comment_id is not None:
+        return f"t1_{comment_id}"
+
+    quality_flags.append("missing_comment_id")
+    return _stable_missing_id("reddit_missing_comment_id", raw_comment)
+
+
+def _reddit_thread_title(
+    raw_thread: dict[str, JsonValue],
+    quality_flags: list[str],
+) -> str | None:
+    title = _string_or_none(raw_thread.get("title"))
+    if title is None:
+        quality_flags.append("missing_thread_title")
+    return title
+
+
+def _reddit_thread_body(
+    raw_thread: dict[str, JsonValue],
+    quality_flags: list[str],
+) -> str:
+    body = _string_or_none(raw_thread.get("selftext"))
+    if body is None:
+        quality_flags.append("missing_thread_body")
+        return ""
+    return body
+
+
+def _reddit_comment_body(
+    raw_comment: dict[str, JsonValue],
+    quality_flags: list[str],
+) -> str:
+    if _reddit_comment_is_more_node(raw_comment):
+        return ""
+
+    body = _string_or_none(raw_comment.get("body"))
+    if body is None:
+        return ""
+    if body in {"[deleted]", "[removed]"}:
+        quality_flags.append("reddit_deleted_or_removed")
+    return body
+
+
+def _reddit_comment_is_more_node(raw_comment: dict[str, JsonValue]) -> bool:
+    return raw_comment.get("kind") == "more"
+
+
+def _reddit_comment_depth(value: JsonValue) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    return None
+
+
+def _reddit_comment_reply_role(
+    *,
+    thread_id: str,
+    parent_id: str | None,
+    depth: int | None,
+) -> str:
+    if parent_id == thread_id or depth == 0:
+        return "top_level_reply"
+    return "nested_reply"
+
+
+def _created_utc_with_flags(
+    raw_payload: dict[str, JsonValue],
+    quality_flags: list[str],
+) -> datetime | None:
+    if "created_utc" not in raw_payload:
+        return None
+
+    parsed = _parse_unix_timestamp(raw_payload["created_utc"])
+    if parsed is None:
+        quality_flags.append("invalid_created_utc")
+    return parsed
+
+
+def _parse_unix_timestamp(value: JsonValue) -> datetime | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    timestamp = float(value)
+    if not math.isfinite(timestamp):
+        return None
+    return datetime.fromtimestamp(timestamp, tz=UTC)
+
+
+def _reddit_thread_platform_extension(
+    raw_thread: dict[str, JsonValue],
+) -> dict[str, JsonValue]:
+    extension: dict[str, JsonValue] = {}
+    for raw_key, extension_key in REDDIT_THREAD_EXTENSION_KEYS:
+        if raw_key in raw_thread:
+            extension[extension_key] = ensure_json_value(raw_thread[raw_key])
+    return extension
+
+
+def _reddit_comment_platform_extension(
+    raw_comment: dict[str, JsonValue],
+) -> dict[str, JsonValue]:
+    extension: dict[str, JsonValue] = {}
+    for key in REDDIT_COMMENT_EXTENSION_KEYS:
+        if key in raw_comment:
+            extension[key] = ensure_json_value(raw_comment[key])
+    extension["more_node_count"] = _reddit_more_node_count(raw_comment)
+    return extension
+
+
+def _reddit_more_node_count(raw_comment: dict[str, JsonValue]) -> int:
+    children = raw_comment.get("children")
+    if isinstance(children, list):
+        return len(children)
+    return 0
 
 
 def _media_refs(value: JsonValue) -> list[str]:
