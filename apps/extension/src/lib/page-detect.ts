@@ -24,6 +24,7 @@ const UNKNOWN_PAGE: UnknownPage = {
 
 const AMAZON_ASIN_PATTERN = /^[A-Z0-9]{10}$/;
 const REDDIT_THREAD_ID_PATTERN = /^[A-Za-z0-9_]+$/;
+const AMAZON_BASE_HOSTNAME = "amazon.com";
 
 export function detectPage(url: string): DetectedPage {
   let parsedUrl: URL;
@@ -49,7 +50,7 @@ export function detectPage(url: string): DetectedPage {
 }
 
 function isAmazonHostname(hostname: string): boolean {
-  return hostname.startsWith("amazon.") || hostname.includes(".amazon.");
+  return hostname === AMAZON_BASE_HOSTNAME || hostname.endsWith(`.${AMAZON_BASE_HOSTNAME}`);
 }
 
 function isRedditHostname(hostname: string): boolean {

@@ -26,6 +26,11 @@ export interface CollectionRun extends CollectionRunCreate {
   created_at: string;
 }
 
+export interface CollectionRunPayload {
+  run: CollectionRunCreate;
+  raw_items: RawSourceItem[];
+}
+
 export interface RawSourceItem {
   platform: Platform;
   source_kind: SourceKind;

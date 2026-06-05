@@ -48,6 +48,21 @@ describe("detectPage", () => {
     });
   });
 
+  it("does not detect spoofed Amazon hostnames", () => {
+    expect(detectPage("https://amazon.com.evil.example/product-reviews/B000000001")).toEqual({
+      platform: "unknown",
+      pageKind: "unknown"
+    });
+    expect(detectPage("https://www.amazon.evil.example/product-reviews/B000000001")).toEqual({
+      platform: "unknown",
+      pageKind: "unknown"
+    });
+    expect(detectPage("https://notamazon.com/product-reviews/B000000001")).toEqual({
+      platform: "unknown",
+      pageKind: "unknown"
+    });
+  });
+
   it("does not detect non-thread Reddit URLs", () => {
     expect(detectPage("https://www.reddit.com/r/example/")).toEqual({
       platform: "unknown",

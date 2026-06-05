@@ -9,6 +9,14 @@ export default defineConfig({
   },
   build: {
     outDir: "dist",
-    emptyOutDir: true
+    emptyOutDir: true,
+    lib: {
+      entry: {
+        contracts: "./src/types/contracts.ts",
+        "page-detect": "./src/lib/page-detect.ts"
+      },
+      formats: ["es"],
+      fileName: (_format, entryName) => `${entryName}.js`
+    }
   }
 });
