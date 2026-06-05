@@ -46,6 +46,8 @@ def map_amazon_review_to_voc(
             "author_display": _string_or_none(raw_review.get("author")),
             "title": _string_or_none(raw_review.get("title")),
             "body": body,
+            "media_refs": _media_refs(raw_review.get("media_refs")),
+            "commercial_object_type": "amazon_asin",
             "asin": _string_or_none(raw_review.get("asin")),
             "parent_asin": _string_or_none(raw_review.get("parent_asin")),
             "marketplace": _string_or_none(raw_review.get("marketplace")),
@@ -106,6 +108,12 @@ def _amazon_platform_extension(
         if key in raw_review:
             extension[key] = ensure_json_value(raw_review[key])
     return extension
+
+
+def _media_refs(value: JsonValue) -> list[str]:
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return [item for item in value if isinstance(item, str)]
+    return []
 
 
 def _string_or_none(value: JsonValue) -> str | None:

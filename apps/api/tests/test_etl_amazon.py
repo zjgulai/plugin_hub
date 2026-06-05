@@ -19,6 +19,7 @@ def test_maps_amazon_review_to_canonical_voc_unit() -> None:
             "author": "Amazon Customer",
             "verified_purchase": True,
             "helpful_vote": 8,
+            "media_refs": ["https://images.example/review-1.jpg"],
             "review_page": 2,
             "sort_by": "recent",
             "filter_by_star": "critical",
@@ -32,6 +33,8 @@ def test_maps_amazon_review_to_canonical_voc_unit() -> None:
     assert voc.source_object_id == "R123"
     assert voc.asin == "B000000001"
     assert voc.parent_asin == "B000PARENT1"
+    assert voc.media_refs == ["https://images.example/review-1.jpg"]
+    assert voc.commercial_object_type == "amazon_asin"
     assert voc.platform_extension["rating"] == 2
     assert voc.platform_extension["verified_purchase"] is True
     assert voc.quality_flags == []
