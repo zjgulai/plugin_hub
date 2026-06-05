@@ -21,9 +21,12 @@ def test_maps_amazon_review_to_canonical_voc_unit() -> None:
             "helpful_vote": 8,
             "media_refs": ["https://images.example/review-1.jpg"],
             "review_page": 2,
+            "review_position": 3,
+            "reviewer_profile_url": "https://www.amazon.com/gp/profile/amzn1.account.TEST",
             "sort_by": "recent",
             "filter_by_star": "critical",
             "captured_at": "2026-06-05T00:00:00+00:00",
+            "created_at": "2026-06-04T12:00:00+00:00",
         },
         coverage_confidence=0.82,
     )
@@ -35,8 +38,15 @@ def test_maps_amazon_review_to_canonical_voc_unit() -> None:
     assert voc.parent_asin == "B000PARENT1"
     assert voc.media_refs == ["https://images.example/review-1.jpg"]
     assert voc.commercial_object_type == "amazon_asin"
+    assert voc.created_at is not None
+    assert voc.created_at.isoformat() == "2026-06-04T12:00:00+00:00"
     assert voc.platform_extension["rating"] == 2
     assert voc.platform_extension["verified_purchase"] is True
+    assert voc.platform_extension["review_position"] == 3
+    assert (
+        voc.platform_extension["reviewer_profile_url"]
+        == "https://www.amazon.com/gp/profile/amzn1.account.TEST"
+    )
     assert voc.quality_flags == []
 
 
