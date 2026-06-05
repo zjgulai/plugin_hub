@@ -42,11 +42,15 @@ def test_maps_amazon_review_to_canonical_voc_unit() -> None:
     assert voc.created_at.isoformat() == "2026-06-04T12:00:00+00:00"
     assert voc.platform_extension["rating"] == 2
     assert voc.platform_extension["verified_purchase"] is True
+    assert voc.platform_extension["helpful_vote"] == 8
+    assert voc.platform_extension["review_page"] == 2
     assert voc.platform_extension["review_position"] == 3
     assert (
         voc.platform_extension["reviewer_profile_url"]
         == "https://www.amazon.com/gp/profile/amzn1.account.TEST"
     )
+    assert voc.platform_extension["sort_by"] == "recent"
+    assert voc.platform_extension["filter_by_star"] == "critical"
     assert voc.quality_flags == []
 
 
