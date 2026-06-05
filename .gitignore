@@ -1,0 +1,25 @@
+.DS_Store
+
+# Local environments
+.env
+.env.*
+!.env.example
+.venv/
+node_modules/
+
+# Build outputs
+dist/
+build/
+.next/
+.vercel/
+
+# Python caches
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Temporary project outputs
+tmp/
+.superpowers/
+.playwright-mcp/
