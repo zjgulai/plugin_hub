@@ -24,7 +24,21 @@ const UNKNOWN_PAGE: UnknownPage = {
 
 const AMAZON_ASIN_PATTERN = /^[A-Z0-9]{10}$/;
 const REDDIT_THREAD_ID_PATTERN = /^[A-Za-z0-9_]+$/;
-const AMAZON_BASE_HOSTNAME = "amazon.com";
+const AMAZON_ALLOWED_HOSTNAMES = new Set([
+  "amazon.com",
+  "www.amazon.com",
+  "smile.amazon.com",
+  "amazon.co.uk",
+  "www.amazon.co.uk",
+  "amazon.de",
+  "www.amazon.de",
+  "amazon.ca",
+  "www.amazon.ca",
+  "amazon.com.au",
+  "www.amazon.com.au",
+  "amazon.co.jp",
+  "www.amazon.co.jp"
+]);
 
 export function detectPage(url: string): DetectedPage {
   let parsedUrl: URL;
@@ -50,7 +64,7 @@ export function detectPage(url: string): DetectedPage {
 }
 
 function isAmazonHostname(hostname: string): boolean {
-  return hostname === AMAZON_BASE_HOSTNAME || hostname.endsWith(`.${AMAZON_BASE_HOSTNAME}`);
+  return AMAZON_ALLOWED_HOSTNAMES.has(hostname);
 }
 
 function isRedditHostname(hostname: string): boolean {

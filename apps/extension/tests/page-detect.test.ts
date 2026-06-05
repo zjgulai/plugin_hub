@@ -13,6 +13,14 @@ describe("detectPage", () => {
     });
   });
 
+  it("detects Amazon review pages on supported marketplaces", () => {
+    expect(detectPage("https://www.amazon.co.uk/product-reviews/B000000001")).toEqual({
+      platform: "amazon",
+      pageKind: "amazon_reviews",
+      asin: "B000000001"
+    });
+  });
+
   it("detects Reddit thread pages", () => {
     expect(
       detectPage("https://www.reddit.com/r/example/comments/thread123/example_title/")
@@ -50,6 +58,10 @@ describe("detectPage", () => {
 
   it("does not detect spoofed Amazon hostnames", () => {
     expect(detectPage("https://amazon.com.evil.example/product-reviews/B000000001")).toEqual({
+      platform: "unknown",
+      pageKind: "unknown"
+    });
+    expect(detectPage("https://amazon.co.uk.evil.example/product-reviews/B000000001")).toEqual({
       platform: "unknown",
       pageKind: "unknown"
     });

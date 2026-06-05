@@ -8,6 +8,65 @@ export type JsonValue =
 
 export type JsonObject = { [key: string]: JsonValue };
 
+export function assertJsonValue(value: unknown): asserts value is JsonValue {
+  if (value === null) {
+    return;
+  }
+
+  switch (typeof value) {
+    case "string":
+    case "boolean":
+      return;
+    case "number":
+      if (!Number.isFinite(value)) {
+        throw new TypeError("json_number_must_be_finite");
+      }
+      return;
+    case "object":
+      assertJsonContainer(value);
+      return;
+    default:
+      throw new TypeError("value_must_be_json_serializable");
+  }
+}
+
+export function assertJsonObject(value: unknown): asserts value is JsonObject {
+  assertJsonValue(value);
+
+  if (!isPlainObject(value)) {
+    throw new TypeError("json_object_required");
+  }
+}
+
+function assertJsonContainer(value: object): void {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      assertJsonValue(item);
+    }
+    return;
+  }
+
+  if (!isPlainObject(value)) {
+    throw new TypeError("value_must_be_json_serializable");
+  }
+
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== "string") {
+      throw new TypeError("json_object_keys_must_be_strings");
+    }
+    assertJsonValue(value[key]);
+  }
+}
+
+function isPlainObject(value: unknown): value is { [key: string]: unknown } {
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
 export type Platform = "amazon" | "reddit";
 
 export type SourceKind = "amazon_review" | "reddit_thread" | "reddit_comment";

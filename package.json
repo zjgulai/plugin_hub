@@ -8,7 +8,8 @@
     "lint": "pnpm lint:api && pnpm -r lint",
     "lint:api": "uv --directory apps/api run ruff check .",
     "typecheck": "pnpm typecheck:api && pnpm -r typecheck",
-    "typecheck:api": "uv --directory apps/api run mypy"
+    "typecheck:api": "uv --directory apps/api run mypy",
+    "build": "pnpm -r build"
   },
   "devDependencies": {
     "typescript": "^5.8.3"
