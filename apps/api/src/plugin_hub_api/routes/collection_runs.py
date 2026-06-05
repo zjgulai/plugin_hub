@@ -5,7 +5,7 @@ from collections.abc import Generator
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from plugin_hub_api.repositories import SqlAlchemyRepository
@@ -129,11 +129,14 @@ def _map_raw_item(
 
 def _reddit_comment_thread_id(raw_payload: dict[str, JsonValue]) -> str:
     link_id = raw_payload.get("link_id")
-    if isinstance(link_id, str):
+    if isinstance(link_id, str) and link_id != "":
         return link_id
 
     thread_id = raw_payload.get("thread_id")
-    if isinstance(thread_id, str):
+    if isinstance(thread_id, str) and thread_id != "":
         return thread_id
 
-    return ""
+    raise HTTPException(
+        status_code=422,
+        detail="reddit_comment_thread_id_required",
+    )

@@ -1,6 +1,15 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from typing import cast
+from unittest.mock import MagicMock
+
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
+
+from plugin_hub_api.repositories import SqlAlchemyRepository
+from plugin_hub_api.schemas import CanonicalVocUnit, CollectionRun, RawSourceItem
 
 
 def test_post_collection_run_with_amazon_item_returns_counts(client: TestClient) -> None:
@@ -135,6 +144,26 @@ def test_reddit_comment_maps_thread_parent_and_reply_role(client: TestClient) ->
     assert item["reply_role"] == "nested_reply"
 
 
+def test_reddit_comment_without_thread_linkage_returns_422(client: TestClient) -> None:
+    raw_item = _reddit_comment_item()
+    raw_payload = cast(dict[str, object], raw_item["raw_payload"])
+    raw_payload.pop("link_id")
+
+    response = client.post(
+        "/api/collection-runs",
+        json={
+            "run": _collection_run(
+                platform="reddit",
+                source_url="https://www.reddit.com/r/Coffee/comments/thread123/example/comment456/",
+            ),
+            "raw_items": [raw_item],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "reddit_comment_thread_id_required"
+
+
 def test_get_voc_units_serializes_url_and_platform_extension(client: TestClient) -> None:
     response = client.post(
         "/api/collection-runs",
@@ -149,6 +178,25 @@ def test_get_voc_units_serializes_url_and_platform_extension(client: TestClient)
     assert item["source_url"] == "https://www.amazon.com/product-reviews/B000000001"
     assert isinstance(item["platform_extension"], dict)
     assert item["platform_extension"]["rating"] == 2
+
+
+def test_repository_rolls_back_when_commit_fails() -> None:
+    session = MagicMock(spec=Session)
+    session.commit.side_effect = SQLAlchemyError("commit failed")
+    repository = SqlAlchemyRepository(cast(Session, session))
+
+    try:
+        repository.save_collection(
+            run=_collection_run_model(),
+            raw_items=[_raw_item_model()],
+            voc_units=[_voc_unit_model()],
+        )
+    except SQLAlchemyError:
+        pass
+    else:
+        raise AssertionError("Expected SQLAlchemyError")
+
+    session.rollback.assert_called_once_with()
 
 
 def _collection_run(
@@ -203,3 +251,52 @@ def _reddit_thread_item() -> dict[str, object]:
         "raw_payload_hash": "sha256:reddit-thread123",
         "captured_at": "2026-06-05T00:00:00+00:00",
     }
+
+
+def _reddit_comment_item() -> dict[str, object]:
+    return {
+        "platform": "reddit",
+        "source_kind": "reddit_comment",
+        "source_object_id": "t1_comment456",
+        "raw_schema_version": "reddit-comment-v1",
+        "parser_version": "parser-v1",
+        "raw_payload": {
+            "name": "t1_comment456",
+            "body": "The motor noise is the real issue.",
+            "parent_id": "t1_parent999",
+            "link_id": "t3_thread123",
+            "depth": 2,
+            "created_utc": 1780602800.0,
+        },
+        "raw_payload_hash": "sha256:reddit-comment456",
+        "captured_at": "2026-06-05T00:00:00+00:00",
+    }
+
+
+def _collection_run_model() -> CollectionRun:
+    return CollectionRun.model_validate(
+        {
+            **_collection_run(),
+            "collection_run_id": "run_rollback_test",
+            "created_at": datetime(2026, 6, 5, tzinfo=UTC),
+        }
+    )
+
+
+def _raw_item_model() -> RawSourceItem:
+    return RawSourceItem.model_validate(_amazon_review_item())
+
+
+def _voc_unit_model() -> CanonicalVocUnit:
+    return CanonicalVocUnit.model_validate(
+        {
+            "platform": "amazon",
+            "source_kind": "amazon_review",
+            "source_object_id": "R123",
+            "collection_run_id": "run_rollback_test",
+            "source_url": "https://www.amazon.com/product-reviews/B000000001",
+            "captured_at": datetime(2026, 6, 5, tzinfo=UTC),
+            "body": "The product worked for two weeks.",
+            "coverage_confidence": 0.8,
+        }
+    )

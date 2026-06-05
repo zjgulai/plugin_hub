@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from plugin_hub_api.models import CanonicalVocUnitRow, CollectionRunRow, RawSourceItemRow
@@ -18,27 +19,31 @@ class SqlAlchemyRepository:
         raw_items: list[RawSourceItem],
         voc_units: list[CanonicalVocUnit],
     ) -> None:
-        self._session.add(_collection_run_row(run))
+        try:
+            self._session.add(_collection_run_row(run))
 
-        for raw_item in raw_items:
-            self._session.add(
-                RawSourceItemRow(
-                    collection_run_id=run.collection_run_id,
-                    platform=raw_item.platform.value,
-                    source_kind=raw_item.source_kind.value,
-                    source_object_id=raw_item.source_object_id,
-                    raw_schema_version=raw_item.raw_schema_version,
-                    parser_version=raw_item.parser_version,
-                    raw_payload=raw_item.raw_payload,
-                    raw_payload_hash=raw_item.raw_payload_hash,
-                    captured_at=raw_item.captured_at,
+            for raw_item in raw_items:
+                self._session.add(
+                    RawSourceItemRow(
+                        collection_run_id=run.collection_run_id,
+                        platform=raw_item.platform.value,
+                        source_kind=raw_item.source_kind.value,
+                        source_object_id=raw_item.source_object_id,
+                        raw_schema_version=raw_item.raw_schema_version,
+                        parser_version=raw_item.parser_version,
+                        raw_payload=raw_item.raw_payload,
+                        raw_payload_hash=raw_item.raw_payload_hash,
+                        captured_at=raw_item.captured_at,
+                    )
                 )
-            )
 
-        for voc_unit in voc_units:
-            self._session.add(_canonical_voc_unit_row(voc_unit))
+            for voc_unit in voc_units:
+                self._session.add(_canonical_voc_unit_row(voc_unit))
 
-        self._session.commit()
+            self._session.commit()
+        except SQLAlchemyError:
+            self._session.rollback()
+            raise
 
     def list_voc_units(self, *, platform: Platform | None = None) -> list[CanonicalVocUnit]:
         statement = select(CanonicalVocUnitRow).order_by(CanonicalVocUnitRow.id)
