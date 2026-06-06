@@ -6,4 +6,4 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PLUGIN_HUB_")
 
-    database_url: str = "sqlite+pysqlite:///:memory:"
+    database_url: str = "sqlite+pysqlite:///./plugin_hub.db"

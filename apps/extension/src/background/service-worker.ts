@@ -1,13 +1,6 @@
 import { uploadCollectionRun, type CollectionRunUploadResult } from "../lib/upload-client";
 import type { CollectionRunPayload } from "../types/contracts";
-
-const UPLOAD_COLLECTION_MESSAGE_TYPE = "PLUGIN_HUB_UPLOAD_COLLECTION";
-
-interface UploadCollectionMessage {
-  type: typeof UPLOAD_COLLECTION_MESSAGE_TYPE;
-  apiBaseUrl: string;
-  payload: CollectionRunPayload;
-}
+import { UPLOAD_COLLECTION_MESSAGE_TYPE, type UploadCollectionMessage } from "../types/messages";
 
 type UploadCollectionResponse = CollectionRunUploadResult | { error: string };
 

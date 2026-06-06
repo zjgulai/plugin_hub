@@ -1,38 +1,14 @@
-type DetectedPage =
-  | {
-      platform: "amazon";
-      pageKind: "amazon_reviews";
-      asin: string;
-    }
-  | {
-      platform: "reddit";
-      pageKind: "reddit_thread";
-      threadId: string;
-    }
-  | {
-      platform: "unknown";
-      pageKind: "unknown";
-    };
+import { captureCurrentPage } from "../lib/capture";
+import { detectPage } from "../lib/page-detect";
+import type { CaptureCurrentPageResponse } from "../types/messages";
 
-const AMAZON_ASIN_PATTERN = /^[A-Z0-9]{10}$/;
-const REDDIT_THREAD_ID_PATTERN = /^[A-Za-z0-9_]+$/;
-const AMAZON_ALLOWED_HOSTNAMES = new Set([
-  "amazon.com",
-  "www.amazon.com",
-  "smile.amazon.com",
-  "amazon.co.uk",
-  "www.amazon.co.uk",
-  "amazon.de",
-  "www.amazon.de",
-  "amazon.ca",
-  "www.amazon.ca",
-  "amazon.com.au",
-  "www.amazon.com.au",
-  "amazon.co.jp",
-  "www.amazon.co.jp"
-]);
+const CAPTURE_CURRENT_PAGE_MESSAGE_TYPE = "PLUGIN_HUB_CAPTURE_CURRENT_PAGE";
 
-const detectedPage = detectCurrentPage(window.location.href);
+interface CaptureCurrentPageMessage {
+  type: typeof CAPTURE_CURRENT_PAGE_MESSAGE_TYPE;
+}
+
+const detectedPage = detectPage(window.location.href);
 
 window.dispatchEvent(
   new CustomEvent("plugin-hub-page-detected", {
@@ -40,67 +16,31 @@ window.dispatchEvent(
   })
 );
 
-function detectCurrentPage(url: string): DetectedPage {
-  let parsedUrl: URL;
+chrome.runtime.onMessage.addListener(
+  (message: unknown, _sender, sendResponse: (response: CaptureCurrentPageResponse) => void) => {
+    if (!isCaptureCurrentPageMessage(message)) {
+      return false;
+    }
 
-  try {
-    parsedUrl = new URL(url);
-  } catch {
-    return unknownPage();
+    void captureCurrentPage({
+      url: window.location.href,
+      documentRoot: document
+    })
+      .then((result) => sendResponse(result))
+      .catch((error: unknown) =>
+        sendResponse({
+          error: error instanceof Error ? error.message : "capture_current_page_failed:unknown"
+        })
+      );
+
+    return true;
   }
+);
 
-  const hostname = parsedUrl.hostname.toLowerCase();
-  const pathSegments = parsedUrl.pathname.split("/").filter(Boolean);
-
-  if (AMAZON_ALLOWED_HOSTNAMES.has(hostname)) {
-    return detectAmazonReviewsPage(pathSegments);
-  }
-
-  if (hostname === "reddit.com" || hostname === "www.reddit.com" || hostname === "old.reddit.com") {
-    return detectRedditThreadPage(pathSegments);
-  }
-
-  return unknownPage();
+function isCaptureCurrentPageMessage(message: unknown): message is CaptureCurrentPageMessage {
+  return isRecord(message) && message.type === CAPTURE_CURRENT_PAGE_MESSAGE_TYPE;
 }
 
-function detectAmazonReviewsPage(pathSegments: string[]): DetectedPage {
-  const productReviewsIndex = pathSegments.indexOf("product-reviews");
-  const asin = productReviewsIndex === -1 ? null : pathSegments[productReviewsIndex + 1];
-
-  if (!asin || !AMAZON_ASIN_PATTERN.test(asin)) {
-    return unknownPage();
-  }
-
-  return {
-    platform: "amazon",
-    pageKind: "amazon_reviews",
-    asin
-  };
-}
-
-function detectRedditThreadPage(pathSegments: string[]): DetectedPage {
-  const [subredditPrefix, subreddit, commentsPrefix, threadId] = pathSegments;
-
-  if (
-    subredditPrefix !== "r" ||
-    !subreddit ||
-    commentsPrefix !== "comments" ||
-    !threadId ||
-    !REDDIT_THREAD_ID_PATTERN.test(threadId)
-  ) {
-    return unknownPage();
-  }
-
-  return {
-    platform: "reddit",
-    pageKind: "reddit_thread",
-    threadId
-  };
-}
-
-function unknownPage(): DetectedPage {
-  return {
-    platform: "unknown",
-    pageKind: "unknown"
-  };
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

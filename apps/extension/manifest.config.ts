@@ -21,7 +21,8 @@ const manifest = {
     "https://reddit.com/*",
     "https://www.reddit.com/*",
     "https://old.reddit.com/*",
-    "http://localhost:8000/*"
+    "http://localhost/*",
+    "http://127.0.0.1/*"
   ],
   background: {
     service_worker: "background/service-worker.js",

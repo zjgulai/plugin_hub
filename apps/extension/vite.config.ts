@@ -1,10 +1,11 @@
 import react from "@vitejs/plugin-react";
+import { build as buildWithEsbuild } from "esbuild";
 import { defineConfig, type Plugin } from "vite";
 
 import manifest from "./manifest.config";
 
 export default defineConfig({
-  plugins: [react(), chromeExtensionAssets()],
+  plugins: [react(), standaloneContentScript(), chromeExtensionAssets()],
   test: {
     environment: "jsdom",
     globals: true
@@ -14,20 +15,41 @@ export default defineConfig({
     emptyOutDir: true,
     lib: {
       entry: {
-        "amazon-parser": "./src/lib/amazon-parser.ts",
         "background/service-worker": "./src/background/service-worker.ts",
-        contracts: "./src/types/contracts.ts",
-        "content/content-script": "./src/content/content-script.ts",
-        "page-detect": "./src/lib/page-detect.ts",
-        "popup/Popup": "./src/popup/Popup.tsx",
-        "reddit-parser": "./src/lib/reddit-parser.ts",
-        "upload-client": "./src/lib/upload-client.ts"
+        "popup/Popup": "./src/popup/Popup.tsx"
       },
       formats: ["es"],
       fileName: (_format, entryName) => `${entryName}.js`
     }
   }
 });
+
+function standaloneContentScript(): Plugin {
+  return {
+    name: "plugin-hub-standalone-content-script",
+    async generateBundle() {
+      const result = await buildWithEsbuild({
+        entryPoints: [new URL("./src/content/content-script.ts", import.meta.url).pathname],
+        bundle: true,
+        format: "iife",
+        platform: "browser",
+        target: "es2022",
+        write: false
+      });
+      const output = result.outputFiles[0];
+
+      if (!output) {
+        throw new Error("content_script_bundle_required");
+      }
+
+      this.emitFile({
+        type: "asset",
+        fileName: "content/content-script.js",
+        source: output.text
+      });
+    }
+  };
+}
 
 function chromeExtensionAssets(): Plugin {
   return {
