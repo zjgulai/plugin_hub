@@ -9,7 +9,8 @@
     "lint:api": "uv --directory apps/api run ruff check .",
     "typecheck": "pnpm typecheck:api && pnpm -r typecheck",
     "typecheck:api": "uv --directory apps/api run mypy",
-    "build": "pnpm -r build"
+    "build": "pnpm -r build",
+    "package:extension": "pnpm --filter @plugin-hub/extension build && node scripts/package-extension.mjs"
   },
   "devDependencies": {
     "typescript": "^5.8.3"

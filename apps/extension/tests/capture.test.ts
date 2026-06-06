@@ -77,6 +77,39 @@ describe("captureCurrentPage", () => {
     ]);
   });
 
+  it("falls back to current Reddit DOM when the .json entrypoint is blocked", async () => {
+    document.body.innerHTML = oldRedditThreadHtml();
+
+    const result = await captureCurrentPage({
+      url: "https://old.reddit.com/r/Coffee/comments/thread123/best_grinder/",
+      capturedAt: CAPTURED_AT,
+      documentRoot: document,
+      fetchJson: async () => {
+        throw new Error("reddit_json_fetch_failed:403");
+      }
+    });
+
+    expect(result.payload.run.platform).toBe("reddit");
+    expect(result.payload.run.capture_method).toBe("extension_reddit_dom_fallback");
+    expect(result.payload.run.stop_reason).toBe("reddit_json_unavailable_dom_fallback");
+    expect(result.payload.run.coverage_confidence).toBe(0.55);
+    expect(result.payload.run.coverage_scope).toEqual(
+      expect.objectContaining({
+        page_kind: "reddit_thread",
+        thread_id: "thread123",
+        json_url: "https://old.reddit.com/r/Coffee/comments/thread123/best_grinder/.json?raw_json=1",
+        json_error: "reddit_json_fetch_failed:403",
+        fallback_parser: "reddit_dom",
+        comment_node_count: 1,
+        raw_item_count: 2
+      })
+    );
+    expect(result.payload.raw_items.map((item) => item.source_object_id)).toEqual([
+      "t3_thread123",
+      "t1_comment456"
+    ]);
+  });
+
   it("rejects unsupported pages before building upload payloads", async () => {
     await expect(
       captureCurrentPage({
@@ -169,4 +202,20 @@ function redditThreadPayload(): unknown {
       }
     }
   ];
+}
+
+function oldRedditThreadHtml(): string {
+  return `
+    <main>
+      <div class="thing link" data-fullname="t3_thread123">
+        <a class="title">Best grinder?</a>
+        <a class="author">buyer</a>
+        <div class="usertext-body"><div class="md">Looking for a quieter grinder.</div></div>
+      </div>
+      <div class="comment" data-fullname="t1_comment456" data-parent="t3_thread123" data-author="espresso_owner" data-depth="0">
+        <span class="score unvoted">5 points</span>
+        <div class="usertext-body"><div class="md">Motor noise is the real issue.</div></div>
+      </div>
+    </main>
+  `;
 }

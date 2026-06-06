@@ -56,6 +56,15 @@ Build the extension:
 pnpm --filter @plugin-hub/extension build
 ```
 
+Create a Chrome install package:
+
+```bash
+pnpm package:extension
+```
+
+The zip package is written to `tmp/outputs/plugin-hub-extension-<version>.zip`.
+Use `apps/extension/dist` for local unpacked testing and the zip package for Chrome Web Store upload or manual release handoff.
+
 Load `apps/extension/dist` in Chrome:
 
 1. Open `chrome://extensions`.

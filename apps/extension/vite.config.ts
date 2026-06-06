@@ -4,8 +4,11 @@ import { defineConfig, type Plugin } from "vite";
 
 import manifest from "./manifest.config";
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react(), standaloneContentScript(), chromeExtensionAssets()],
+  define: {
+    "process.env.NODE_ENV": JSON.stringify(mode === "production" ? "production" : "development")
+  },
   test: {
     environment: "jsdom",
     globals: true
@@ -22,7 +25,7 @@ export default defineConfig({
       fileName: (_format, entryName) => `${entryName}.js`
     }
   }
-});
+}));
 
 function standaloneContentScript(): Plugin {
   return {

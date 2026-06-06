@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { fetchVocUnits } from "../src/lib/api";
+import { fetchStrategyNotes, fetchVocUnits } from "../src/lib/api";
 
 describe("fetchVocUnits", () => {
   it("fetches VOC units by platform", async () => {
@@ -152,6 +152,91 @@ describe("fetchVocUnits", () => {
 
     await expect(fetchVocUnits("http://localhost:8000", "all", fetcher)).rejects.toThrow(
       "voc_units_invalid_response:json_parse_failed"
+    );
+  });
+});
+
+describe("fetchStrategyNotes", () => {
+  it("fetches strategy notes from the insight endpoint", async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        items: [
+          {
+            strategy_type: "voc_template",
+            topic: "durability",
+            evidence_count: 2,
+            evidence_examples: [
+              {
+                body: "Broke after two weeks.",
+                platform: "amazon"
+              }
+            ],
+            recommendation: "Prioritize durability fixes.",
+            evidence_strength: 0.72,
+            quality_flags: ["low_coverage"]
+          }
+        ]
+      })
+    });
+
+    const result = await fetchStrategyNotes("http://localhost:8000", "all", fetcher);
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8000/api/insights/strategy-notes"
+    );
+    expect(result.items[0]).toEqual({
+      strategy_type: "voc_template",
+      topic: "durability",
+      evidence_count: 2,
+      evidence_examples: [
+        {
+          body: "Broke after two weeks.",
+          platform: "amazon"
+        }
+      ],
+      recommendation: "Prioritize durability fixes.",
+      evidence_strength: 0.72,
+      quality_flags: ["low_coverage"]
+    });
+  });
+
+  it("fetches strategy notes by platform", async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ items: [] })
+    });
+
+    await fetchStrategyNotes("http://localhost:8000///", "reddit", fetcher);
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8000/api/insights/strategy-notes?platform=reddit"
+    );
+  });
+
+  it("rejects invalid strategy note response payloads", async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        items: [
+          {
+            strategy_type: "voc_template",
+            topic: "durability",
+            evidence_count: "2",
+            evidence_examples: [],
+            recommendation: "Prioritize durability fixes.",
+            evidence_strength: 0.72,
+            quality_flags: []
+          }
+        ]
+      })
+    });
+
+    await expect(fetchStrategyNotes("http://localhost:8000", "all", fetcher)).rejects.toThrow(
+      "strategy_notes_invalid_response:evidence_count_required"
     );
   });
 });

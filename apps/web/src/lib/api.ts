@@ -33,6 +33,20 @@ export type VocUnitsResponse = {
   items: VocUnit[];
 };
 
+export type StrategyNote = {
+  strategy_type: string;
+  topic: string;
+  evidence_count: number;
+  evidence_examples: JsonValue[];
+  recommendation: string;
+  evidence_strength: number;
+  quality_flags: string[];
+};
+
+export type StrategyNotesResponse = {
+  items: StrategyNote[];
+};
+
 type FetchResponse = {
   ok: boolean;
   status: number;
@@ -57,9 +71,35 @@ export async function fetchVocUnits(
   };
 }
 
+export async function fetchStrategyNotes(
+  apiBaseUrl: string,
+  platform: VocPlatformFilter,
+  fetcher: VocUnitsFetcher = async (url) => fetch(url)
+): Promise<StrategyNotesResponse> {
+  const response = await fetcher(buildStrategyNotesUrl(apiBaseUrl, platform));
+  if (!response.ok) {
+    throw new Error(`strategy_notes_fetch_failed:${response.status}`);
+  }
+
+  const payload = await parseJson(response);
+  return {
+    items: parseStrategyNotesResponse(payload)
+  };
+}
+
 function buildVocUnitsUrl(apiBaseUrl: string, platform: VocPlatformFilter): string {
   const normalizedBaseUrl = apiBaseUrl.trim().replace(/\/+$/, "");
   const endpoint = `${normalizedBaseUrl}/api/voc-units`;
+  if (platform === "all") {
+    return endpoint;
+  }
+
+  return `${endpoint}?platform=${platform}`;
+}
+
+function buildStrategyNotesUrl(apiBaseUrl: string, platform: VocPlatformFilter): string {
+  const normalizedBaseUrl = apiBaseUrl.trim().replace(/\/+$/, "");
+  const endpoint = `${normalizedBaseUrl}/api/insights/strategy-notes`;
   if (platform === "all") {
     return endpoint;
   }
@@ -83,6 +123,14 @@ function parseVocUnitsResponse(payload: unknown): VocUnit[] {
   }
 
   return payload.items.map(parseVocUnit);
+}
+
+function parseStrategyNotesResponse(payload: unknown): StrategyNote[] {
+  if (!isRecord(payload) || !Array.isArray(payload.items)) {
+    throw new Error("strategy_notes_invalid_response:items_array_required");
+  }
+
+  return payload.items.map(parseStrategyNote);
 }
 
 function parseVocUnit(value: unknown): VocUnit {
@@ -116,6 +164,26 @@ function parseVocUnit(value: unknown): VocUnit {
   };
 }
 
+function parseStrategyNote(value: unknown): StrategyNote {
+  if (!isRecord(value)) {
+    throw new Error("strategy_notes_invalid_response:item_object_required");
+  }
+
+  return {
+    strategy_type: requiredString(value.strategy_type, "strategy_type"),
+    topic: requiredString(value.topic, "topic"),
+    evidence_count: requiredFiniteInteger(value.evidence_count, "evidence_count"),
+    evidence_examples: jsonList(value.evidence_examples),
+    recommendation: requiredString(value.recommendation, "recommendation"),
+    evidence_strength: requiredFiniteNumber(
+      value.evidence_strength,
+      "evidence_strength",
+      "strategy_notes_invalid_response"
+    ),
+    quality_flags: stringList(value.quality_flags)
+  };
+}
+
 function requiredPlatform(value: unknown): VocPlatform {
   if (value === "amazon" || value === "reddit") {
     return value;
@@ -136,12 +204,24 @@ function optionalString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
-function requiredFiniteNumber(value: unknown, field: string): number {
+function requiredFiniteNumber(
+  value: unknown,
+  field: string,
+  errorPrefix = "voc_units_invalid_response"
+): number {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
   }
 
-  throw new Error(`voc_units_invalid_response:${field}_required`);
+  throw new Error(`${errorPrefix}:${field}_required`);
+}
+
+function requiredFiniteInteger(value: unknown, field: string): number {
+  if (typeof value === "number" && Number.isSafeInteger(value)) {
+    return value;
+  }
+
+  throw new Error(`strategy_notes_invalid_response:${field}_required`);
 }
 
 function optionalNumber(value: unknown): number | null {
@@ -168,6 +248,14 @@ function jsonObject(value: unknown): Record<string, JsonValue> {
     }
   }
   return output;
+}
+
+function jsonList(value: unknown): JsonValue[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter(isJsonValue);
 }
 
 function isJsonValue(value: unknown): value is JsonValue {

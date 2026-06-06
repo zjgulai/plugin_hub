@@ -3,7 +3,7 @@ const manifest = {
   name: "Plugin Hub VOC Collector",
   version: "0.1.0",
   description: "Collects supported VOC pages for Plugin Hub.",
-  permissions: ["activeTab", "storage", "scripting"],
+  permissions: ["activeTab", "storage"],
   host_permissions: [
     "https://amazon.com/*",
     "https://www.amazon.com/*",
@@ -27,6 +27,12 @@ const manifest = {
   background: {
     service_worker: "background/service-worker.js",
     type: "module"
+  },
+  icons: {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
   },
   content_scripts: [
     {
@@ -52,6 +58,12 @@ const manifest = {
     }
   ],
   action: {
+    default_icon: {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    },
     default_popup: "popup/index.html",
     default_title: "Plugin Hub VOC Collector"
   }

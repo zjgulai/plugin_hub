@@ -1,6 +1,6 @@
 import { parseAmazonReviews } from "./amazon-parser";
 import { detectPage } from "./page-detect";
-import { parseRedditThreadJson } from "./reddit-parser";
+import { parseRedditThreadDom, parseRedditThreadJson } from "./reddit-parser";
 import type { CollectionRunPayload, JsonObject, RawSourceItem } from "../types/contracts";
 import type { CaptureCurrentPageSuccess } from "../types/messages";
 
@@ -159,8 +159,29 @@ async function captureRedditThread(
 ): Promise<CaptureCurrentPageSuccess> {
   const capturedAt = parseCapturedAt(input.capturedAt);
   const jsonUrl = buildRedditJsonUrl(input.url);
-  const redditPayload = await (input.fetchJson ?? defaultFetchJson)(jsonUrl);
+  let redditPayload: unknown;
+
+  try {
+    redditPayload = await (input.fetchJson ?? defaultFetchJson)(jsonUrl);
+  } catch (error) {
+    return captureRedditThreadDomFallback({
+      ...input,
+      capturedAt,
+      jsonUrl,
+      jsonError: errorMessage(error)
+    });
+  }
+
   const result = parseRedditThreadJson(redditPayload, input.url, { capturedAt });
+  if (result.rawItems.length === 0) {
+    return captureRedditThreadDomFallback({
+      ...input,
+      capturedAt,
+      jsonUrl,
+      jsonError: result.stopReason ?? "reddit_json_empty"
+    });
+  }
+
   const stopReason = result.stopReason ?? (result.moreNodeCount > 0 ? "more_nodes_not_expanded" : null);
   const coverageConfidence = redditCoverageConfidence(result.rawItems.length, result.moreNodeCount, stopReason);
   const coverageScope: JsonObject = {
@@ -175,6 +196,58 @@ async function captureRedditThread(
       platform: "reddit",
       source_url: input.url,
       capture_method: "extension_reddit_json",
+      coverage_scope: coverageScope,
+      stop_reason: stopReason,
+      coverage_confidence: coverageConfidence
+    },
+    raw_items: result.rawItems
+  };
+
+  return {
+    payload,
+    summary: {
+      platform: "reddit",
+      page_kind: "reddit_thread",
+      raw_item_count: result.rawItems.length,
+      stop_reason: stopReason,
+      coverage_confidence: coverageConfidence
+    }
+  };
+}
+
+function captureRedditThreadDomFallback(
+  input: CaptureCurrentPageInput & {
+    threadId: string;
+    capturedAt: string;
+    jsonUrl: string;
+    jsonError: string;
+  }
+): CaptureCurrentPageSuccess {
+  const result = parseRedditThreadDom(
+    input.documentRoot ?? resolveDocumentRoot(),
+    input.url,
+    input.threadId,
+    { capturedAt: input.capturedAt }
+  );
+  const stopReason =
+    result.rawItems.length > 0
+      ? "reddit_json_unavailable_dom_fallback"
+      : result.stopReason ?? "reddit_dom_empty_after_json_failure";
+  const coverageConfidence = redditDomFallbackCoverageConfidence(result.rawItems.length);
+  const coverageScope: JsonObject = {
+    page_kind: "reddit_thread",
+    thread_id: input.threadId,
+    json_url: input.jsonUrl,
+    json_error: input.jsonError,
+    fallback_parser: "reddit_dom",
+    comment_node_count: result.commentNodeCount,
+    raw_item_count: result.rawItems.length
+  };
+  const payload: CollectionRunPayload = {
+    run: {
+      platform: "reddit",
+      source_url: input.url,
+      capture_method: "extension_reddit_dom_fallback",
       coverage_scope: coverageScope,
       stop_reason: stopReason,
       coverage_confidence: coverageConfidence
@@ -290,4 +363,16 @@ function redditCoverageConfidence(
     return 0.78;
   }
   return 0.92;
+}
+
+function redditDomFallbackCoverageConfidence(rawItemCount: number): number {
+  if (rawItemCount === 0) {
+    return 0.2;
+  }
+
+  return rawItemCount > 1 ? 0.55 : 0.35;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "reddit_json_fetch_failed:unknown";
 }

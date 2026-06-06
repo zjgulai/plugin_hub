@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseRedditThreadJson } from "../src/lib/reddit-parser";
+import { parseRedditThreadDom, parseRedditThreadJson } from "../src/lib/reddit-parser";
 import { assertJsonObject } from "../src/types/contracts";
 
 const SOURCE_URL = "https://www.reddit.com/r/Coffee/comments/thread123/example.json";
@@ -325,6 +325,89 @@ describe("parseRedditThreadJson", () => {
   });
 });
 
+describe("parseRedditThreadDom", () => {
+  it("parses an old Reddit DOM thread and loaded comments as schema-compatible raw items", () => {
+    document.body.innerHTML = oldRedditThreadHtml();
+
+    const result = parseRedditThreadDom(
+      document,
+      "https://old.reddit.com/r/Coffee/comments/thread123/best_grinder/",
+      "thread123",
+      { capturedAt: CAPTURED_AT }
+    );
+
+    expect(result.stopReason).toBeNull();
+    expect(result.commentNodeCount).toBe(2);
+    expect(result.rawItems.map((item) => item.source_object_id)).toEqual([
+      "t3_thread123",
+      "t1_comment456",
+      "t1_reply789"
+    ]);
+    expect(result.rawItems.map((item) => item.parser_version)).toEqual([
+      "reddit-dom-parser@0.1.0",
+      "reddit-dom-parser@0.1.0",
+      "reddit-dom-parser@0.1.0"
+    ]);
+
+    const [thread, topLevelComment, nestedReply] = result.rawItems;
+    expect(thread.raw_payload).toEqual(
+      expect.objectContaining({
+        name: "t3_thread123",
+        id: "thread123",
+        title: "Best grinder for espresso?",
+        selftext: "I want a quieter grinder under $300.",
+        author: "buyer_researcher",
+        subreddit: "Coffee",
+        subreddit_name_prefixed: "r/Coffee",
+        num_comments: 2,
+        source_url: "https://old.reddit.com/r/Coffee/comments/thread123/best_grinder/"
+      })
+    );
+    expect(topLevelComment.raw_payload).toEqual(
+      expect.objectContaining({
+        name: "t1_comment456",
+        body: "The motor noise is the real issue.",
+        author: "espresso_owner",
+        parent_id: "t3_thread123",
+        link_id: "t3_thread123",
+        thread_id: "t3_thread123",
+        depth: 0,
+        score: 7,
+        created_utc: 1780646800,
+        subreddit: "Coffee"
+      })
+    );
+    expect(nestedReply.raw_payload).toEqual(
+      expect.objectContaining({
+        name: "t1_reply789",
+        parent_id: "t1_comment456",
+        depth: 1,
+        body: "Nested replies must be traversed."
+      })
+    );
+  });
+
+  it("does not treat Reddit network policy block pages as thread evidence", () => {
+    document.body.innerHTML = `
+      <h1>whoa there, pardner!</h1>
+      <p>Your request has been blocked due to a network policy.</p>
+    `;
+
+    const result = parseRedditThreadDom(
+      document,
+      "https://old.reddit.com/r/Coffee/comments/thread123/best_grinder/",
+      "thread123",
+      { capturedAt: CAPTURED_AT }
+    );
+
+    expect(result).toEqual({
+      rawItems: [],
+      commentNodeCount: 0,
+      stopReason: "missing_thread_dom"
+    });
+  });
+});
+
 function buildThreadWithNestedReplies(): unknown {
   return [
     listing([
@@ -423,6 +506,30 @@ function listing(children: unknown[]): unknown {
       children
     }
   };
+}
+
+function oldRedditThreadHtml(): string {
+  return `
+    <main>
+      <div class="thing link" data-fullname="t3_thread123">
+        <a class="title">Best grinder for espresso?</a>
+        <a class="author">buyer_researcher</a>
+        <div class="usertext-body"><div class="md">I want a quieter grinder under $300.</div></div>
+      </div>
+      <div class="comment" data-fullname="t1_comment456" data-parent="t3_thread123" data-author="espresso_owner" data-depth="0">
+        <a class="author">espresso_owner</a>
+        <span class="score unvoted">7 points</span>
+        <time datetime="2026-06-05T08:06:40.000Z"></time>
+        <a class="bylink" href="/r/Coffee/comments/thread123/best_grinder/comment456/">permalink</a>
+        <div class="usertext-body"><div class="md">The motor noise is the real issue.</div></div>
+        <div class="child">
+          <div class="comment" data-fullname="t1_reply789" data-parent="t1_comment456" data-depth="1">
+            <div class="usertext-body"><div class="md">Nested replies must be traversed.</div></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  `;
 }
 
 function expectJsonSafe(value: unknown): void {
