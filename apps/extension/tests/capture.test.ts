@@ -54,6 +54,38 @@ describe("captureCurrentPage", () => {
     expect(result.payload.raw_items.map((item) => item.source_object_id)).toEqual(["R1", "R2"]);
   });
 
+  it("captures Amazon embedded reviews from product detail pages with conservative coverage metadata", async () => {
+    document.body.innerHTML = amazonProductDetailReviewHtml();
+
+    const result = await captureCurrentPage({
+      url: "https://www.amazon.com/Amazon-vibrant-helpful-routines-Charcoal/dp/B09B8V1LZ3?th=1",
+      capturedAt: CAPTURED_AT,
+      documentRoot: document
+    });
+
+    expect(result.payload.run.platform).toBe("amazon");
+    expect(result.payload.run.capture_method).toBe("extension_dom_embedded_reviews");
+    expect(result.payload.run.stop_reason).toBe("no_next_page");
+    expect(result.payload.run.coverage_confidence).toBe(0.58);
+    expect(result.payload.run.coverage_scope).toEqual(
+      expect.objectContaining({
+        page_kind: "amazon_reviews",
+        entry_page_kind: "amazon_product_detail",
+        asin: "B09B8V1LZ3",
+        marketplace: "amazon.com"
+      })
+    );
+    expect(result.summary.raw_item_count).toBe(1);
+    expect(result.payload.raw_items[0]?.raw_payload).toEqual(
+      expect.objectContaining({
+        review_id: "R3K2DOANUAPY96",
+        title: "Great device for a good price! Definitely does the job!",
+        body: "Setup was fast and the sound is clear.",
+        rating: 5
+      })
+    );
+  });
+
   it("captures Reddit threads through the .json entrypoint", async () => {
     const result = await captureCurrentPage({
       url: "https://www.reddit.com/r/Coffee/comments/thread123/best_grinder/",
@@ -149,6 +181,26 @@ function amazonPageHtml({
         <span data-hook="review-body">${body}</span>
       </div>
       ${nextHref ? `<ul><li class="a-last"><a href="${nextHref}">Next</a></li></ul>` : ""}
+    </main>
+  `;
+}
+
+function amazonProductDetailReviewHtml(): string {
+  return `
+    <main>
+      <section id="cm-cr-dp-review-list">
+        <div data-hook="review" id="R3K2DOANUAPY96">
+          <i data-hook="review-star-rating"><span>5 out of 5 stars</span></i>
+          <a href="/review/R3K2DOANUAPY96/ref=cm_cr_dp_d_rvw_ttl?ie=UTF8">
+            Great device for a good price! Definitely does the job!
+          </a>
+          <div data-hook="reviewText">
+            <div data-hook="reviewRichContentContainer">
+              <span>Setup was fast and the sound is clear.</span>
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
   `;
 }

@@ -1,6 +1,7 @@
 export type AmazonReviewsPage = {
   platform: "amazon";
   pageKind: "amazon_reviews";
+  entryPageKind: "amazon_reviews" | "amazon_product_detail";
   asin: string;
 };
 
@@ -53,7 +54,7 @@ export function detectPage(url: string): DetectedPage {
   const pathSegments = parsedUrl.pathname.split("/").filter(Boolean);
 
   if (isAmazonHostname(hostname)) {
-    return detectAmazonReviewsPage(pathSegments);
+    return detectAmazonPage(pathSegments);
   }
 
   if (isRedditHostname(hostname)) {
@@ -71,15 +72,29 @@ function isRedditHostname(hostname: string): boolean {
   return hostname === "reddit.com" || hostname === "www.reddit.com" || hostname === "old.reddit.com";
 }
 
-function detectAmazonReviewsPage(pathSegments: string[]): DetectedPage {
+function detectAmazonPage(pathSegments: string[]): DetectedPage {
   const productReviewsIndex = pathSegments.indexOf("product-reviews");
 
-  if (productReviewsIndex === -1) {
-    return UNKNOWN_PAGE;
+  if (productReviewsIndex !== -1) {
+    return buildAmazonReviewsPage(pathSegments[productReviewsIndex + 1], "amazon_reviews");
   }
 
-  const asin = pathSegments[productReviewsIndex + 1];
+  const dpIndex = pathSegments.indexOf("dp");
+  if (dpIndex !== -1) {
+    return buildAmazonReviewsPage(pathSegments[dpIndex + 1], "amazon_product_detail");
+  }
 
+  if (pathSegments[0] === "gp" && pathSegments[1] === "product") {
+    return buildAmazonReviewsPage(pathSegments[2], "amazon_product_detail");
+  }
+
+  return UNKNOWN_PAGE;
+}
+
+function buildAmazonReviewsPage(
+  asin: string | undefined,
+  entryPageKind: AmazonReviewsPage["entryPageKind"]
+): DetectedPage {
   if (!asin || !AMAZON_ASIN_PATTERN.test(asin)) {
     return UNKNOWN_PAGE;
   }
@@ -87,6 +102,7 @@ function detectAmazonReviewsPage(pathSegments: string[]): DetectedPage {
   return {
     platform: "amazon",
     pageKind: "amazon_reviews",
+    entryPageKind,
     asin
   };
 }

@@ -5,6 +5,7 @@ import type { CollectionRunPayload, JsonObject, RawSourceItem } from "../types/c
 import type { CaptureCurrentPageSuccess } from "../types/messages";
 
 const AMAZON_PAGE_LIMIT = 3;
+type AmazonEntryPageKind = "amazon_reviews" | "amazon_product_detail";
 
 export interface CaptureCurrentPageInput {
   url: string;
@@ -30,6 +31,7 @@ export async function captureCurrentPage(
   if (detectedPage.platform === "amazon") {
     return captureAmazonReviews({
       ...input,
+      entryPageKind: detectedPage.entryPageKind,
       asin: detectedPage.asin
     });
   }
@@ -45,7 +47,7 @@ export async function captureCurrentPage(
 }
 
 async function captureAmazonReviews(
-  input: CaptureCurrentPageInput & { asin: string }
+  input: CaptureCurrentPageInput & { asin: string; entryPageKind: AmazonEntryPageKind }
 ): Promise<CaptureCurrentPageSuccess> {
   const capturedAt = parseCapturedAt(input.capturedAt);
   const initialUrl = input.url;
@@ -118,14 +120,22 @@ async function captureAmazonReviews(
     }
   }
 
-  const coverageConfidence = amazonCoverageConfidence(rawItems.length, stopReason);
+  const coverageConfidence = amazonCoverageConfidence(
+    rawItems.length,
+    stopReason,
+    input.entryPageKind
+  );
   const payload: CollectionRunPayload = {
     run: {
       platform: "amazon",
       source_url: initialUrl,
-      capture_method: "extension_dom_next_link_walk",
+      capture_method:
+        input.entryPageKind === "amazon_product_detail"
+          ? "extension_dom_embedded_reviews"
+          : "extension_dom_next_link_walk",
       coverage_scope: {
         page_kind: "amazon_reviews",
+        entry_page_kind: input.entryPageKind,
         asin: input.asin,
         marketplace,
         page_limit: AMAZON_PAGE_LIMIT,
@@ -338,9 +348,16 @@ function observedAmazonPage(rawItems: RawSourceItem[]): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function amazonCoverageConfidence(rawItemCount: number, stopReason: string | null): number {
+function amazonCoverageConfidence(
+  rawItemCount: number,
+  stopReason: string | null,
+  entryPageKind: AmazonEntryPageKind
+): number {
   if (rawItemCount === 0) {
     return 0.2;
+  }
+  if (entryPageKind === "amazon_product_detail") {
+    return stopReason === "page_budget_reached" ? 0.62 : 0.58;
   }
   if (stopReason === "no_next_page") {
     return 0.9;

@@ -9,6 +9,7 @@ describe("detectPage", () => {
     ).toEqual({
       platform: "amazon",
       pageKind: "amazon_reviews",
+      entryPageKind: "amazon_reviews",
       asin: "B000000001"
     });
   });
@@ -17,6 +18,25 @@ describe("detectPage", () => {
     expect(detectPage("https://www.amazon.co.uk/product-reviews/B000000001")).toEqual({
       platform: "amazon",
       pageKind: "amazon_reviews",
+      entryPageKind: "amazon_reviews",
+      asin: "B000000001"
+    });
+  });
+
+  it("detects Amazon product detail pages with embedded review sections", () => {
+    expect(
+      detectPage("https://www.amazon.com/Amazon-vibrant-helpful-routines-Charcoal/dp/B09B8V1LZ3?th=1")
+    ).toEqual({
+      platform: "amazon",
+      pageKind: "amazon_reviews",
+      entryPageKind: "amazon_product_detail",
+      asin: "B09B8V1LZ3"
+    });
+
+    expect(detectPage("https://www.amazon.com/gp/product/B000000001")).toEqual({
+      platform: "amazon",
+      pageKind: "amazon_reviews",
+      entryPageKind: "amazon_product_detail",
       asin: "B000000001"
     });
   });

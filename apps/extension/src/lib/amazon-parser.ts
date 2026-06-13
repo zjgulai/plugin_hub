@@ -32,7 +32,7 @@ export function parseAmazonReviews(input: ParseAmazonReviewsInput): ParseAmazonR
   const capturedAt = parseCapturedAt(input.capturedAt);
   const nextPageUrl = parseNextPageUrl(root, input.sourceUrl);
   const reviewPage = parseReviewPage(root, input.sourceUrl);
-  const reviews = Array.from(root.querySelectorAll<HTMLElement>('[data-hook="review"]'));
+  const reviews = collectReviewContainers(root);
 
   if (reviews.length === 0) {
     return {
@@ -132,6 +132,12 @@ function parseReviewId(review: HTMLElement, reviewPage: number | null, reviewPos
     return explicitId;
   }
 
+  const reviewLinkId = parseReviewIdFromLink(review);
+
+  if (reviewLinkId) {
+    return reviewLinkId;
+  }
+
   return `missing_review_${reviewPage ?? "unknown"}_${reviewPosition}`;
 }
 
@@ -156,7 +162,9 @@ function parseRating(review: HTMLElement): number | null {
 }
 
 function parseReviewTitle(review: HTMLElement): string | null {
-  const titleElement = review.querySelector('[data-hook="review-title"]');
+  const titleElement = review.querySelector(
+    '[data-hook="review-title"], a[href*="/review/"], a[href*="/gp/customer-reviews/"]'
+  );
 
   if (!titleElement) {
     return null;
@@ -177,7 +185,17 @@ function parseReviewTitle(review: HTMLElement): string | null {
 }
 
 function parseReviewBody(review: HTMLElement): string | null {
-  return normalizeNullable(review.querySelector('[data-hook="review-body"]')?.textContent ?? null);
+  const bodyElement = review.querySelector(
+    [
+      '[data-hook="review-body"]',
+      '[data-hook="reviewRichContentContainer"]',
+      '[data-hook="reviewTextContainer"] [data-hook="reviewText"]',
+      '[data-hook="reviewText"]'
+    ].join(", ")
+  );
+  const bodyText = normalizeNullable(bodyElement?.textContent ?? null);
+
+  return bodyText ? cleanAmazonReviewBodyText(bodyText) : null;
 }
 
 function parseVerifiedPurchase(review: HTMLElement): boolean {
@@ -239,6 +257,37 @@ function parseMediaRefs(review: HTMLElement, sourceUrl: string): string[] {
   return Array.from(mediaRefs);
 }
 
+function collectReviewContainers(root: ParentNode): HTMLElement[] {
+  const reviewElements = Array.from(
+    root.querySelectorAll<HTMLElement>('[data-hook="review"], [id^="customer_review-"], [id^="customer_review_"]')
+  );
+  const seen = new Set<HTMLElement>();
+  const uniqueReviewElements: HTMLElement[] = [];
+
+  for (const reviewElement of reviewElements) {
+    if (!seen.has(reviewElement)) {
+      seen.add(reviewElement);
+      uniqueReviewElements.push(reviewElement);
+    }
+  }
+
+  return uniqueReviewElements;
+}
+
+function parseReviewIdFromLink(review: HTMLElement): string | null {
+  const reviewLink = review.querySelector<HTMLAnchorElement>(
+    'a[href*="/review/"], a[href*="/gp/customer-reviews/"]'
+  );
+  const href = normalizeNullable(reviewLink?.getAttribute("href") ?? null);
+
+  if (!href) {
+    return null;
+  }
+
+  const match = href.match(/\/(?:review|gp\/customer-reviews)\/(R[A-Z0-9]+)/i);
+  return match?.[1] ?? null;
+}
+
 function parseNextPageUrl(root: ParentNode, sourceUrl: string): string | null {
   const nextLink = root.querySelector<HTMLAnchorElement>("li.a-last a[href]");
   return toAbsoluteUrl(nextLink?.getAttribute("href") ?? null, sourceUrl);
@@ -297,6 +346,19 @@ function normalizeNullable(value: string | null | undefined): string | null {
 function stripRatingPrefix(value: string): string | null {
   const stripped = value.replace(/^\d+(?:\.\d+)?\s*out\s*of\s*5\s*stars\s*/i, "").trim();
   return stripped.length > 0 ? stripped : null;
+}
+
+function cleanAmazonReviewBodyText(value: string): string | null {
+  const cleaned = value
+    .replace(/Brief content visible,\s*double tap to read full content\./gi, " ")
+    .replace(/Full content visible,\s*double tap to read brief content\./gi, " ")
+    .replace(/Read moreRead less/gi, " ")
+    .replace(/\bRead more\b/gi, " ")
+    .replace(/\bRead less\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return cleaned.length > 0 ? cleaned : null;
 }
 
 function isRatingText(value: string): boolean {

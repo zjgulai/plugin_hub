@@ -118,6 +118,57 @@ describe("parseAmazonReviews", () => {
     expect(parseAmazonReviews(BASE_INPUT).nextPageUrl).toBeNull();
   });
 
+  it("parses embedded product-detail review cards that omit review-title and review-body hooks", () => {
+    document.body.innerHTML = `
+      <section id="cm-cr-dp-review-list">
+        <div data-hook="review" id="R3K2DOANUAPY96">
+          <div data-hook="genome-widget">
+            <a class="a-profile" href="/gp/profile/amzn1.account.TESTER">
+              <span class="a-profile-name">Jenn Campbell</span>
+            </a>
+          </div>
+          <i data-hook="review-star-rating"><span class="a-icon-alt">5 out of 5 stars</span></i>
+          <a class="a-size-base a-color-base a-link-normal a-text-bold" href="/review/R3K2DOANUAPY96/ref=cm_cr_dp_d_rvw_ttl?ie=UTF8">
+            Great device for a good price! Definitely does the job!
+          </a>
+          <span data-hook="review-date">Reviewed in the United States on May 12, 2026</span>
+          <span data-hook="avp-badge">Verified Purchase</span>
+          <div data-hook="reviewText">
+            <div>Brief content visible, double tap to read full content.</div>
+            <div>Full content visible, double tap to read brief content.</div>
+            <div data-hook="reviewRichContentContainer">
+              <span>I am so very impressed with Alexa Plus. Setup was fast and the sound is clear.</span>
+            </div>
+            <span>Read more</span><span>Read less</span>
+          </div>
+          <span data-hook="helpful-vote-statement">16 people found this helpful</span>
+        </div>
+      </section>
+    `;
+
+    const [item] = parseAmazonReviews({
+      ...BASE_INPUT,
+      sourceUrl: "https://www.amazon.com/Amazon-vibrant-helpful-routines-Charcoal/dp/B09B8V1LZ3?th=1"
+    }).rawItems;
+
+    expect(item).toEqual(
+      expect.objectContaining({
+        source_object_id: "R3K2DOANUAPY96"
+      })
+    );
+    expect(item.raw_payload).toEqual(
+      expect.objectContaining({
+        review_id: "R3K2DOANUAPY96",
+        rating: 5,
+        title: "Great device for a good price! Definitely does the job!",
+        body: "I am so very impressed with Alexa Plus. Setup was fast and the sound is clear.",
+        verified_purchase: true,
+        helpful_vote: 16,
+        reviewer_profile_url: "https://www.amazon.com/gp/profile/amzn1.account.TESTER"
+      })
+    );
+  });
+
   it("parses singular helpful vote text", () => {
     document.body.innerHTML = `
       <div data-hook="review" id="RONEHELPFUL">
