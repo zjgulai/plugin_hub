@@ -242,7 +242,7 @@ function captureRedditThreadDomFallback(
   const stopReason =
     result.rawItems.length > 0
       ? "reddit_json_unavailable_dom_fallback"
-      : result.stopReason ?? "reddit_dom_empty_after_json_failure";
+      : "reddit_json_unavailable_dom_empty";
   const coverageConfidence = redditDomFallbackCoverageConfidence(result.rawItems.length);
   const coverageScope: JsonObject = {
     page_kind: "reddit_thread",
@@ -250,6 +250,7 @@ function captureRedditThreadDomFallback(
     json_url: input.jsonUrl,
     json_error: input.jsonError,
     fallback_parser: "reddit_dom",
+    dom_stop_reason: result.stopReason,
     comment_node_count: result.commentNodeCount,
     raw_item_count: result.rawItems.length
   };

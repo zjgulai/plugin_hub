@@ -104,6 +104,15 @@ def test_unsupported_source_kind_is_rejected_by_schema(client: TestClient) -> No
     assert response.status_code == 422
 
 
+def test_empty_raw_items_are_rejected_by_schema(client: TestClient) -> None:
+    response = client.post(
+        "/api/collection-runs",
+        json={"run": _collection_run(), "raw_items": []},
+    )
+
+    assert response.status_code == 422
+
+
 def test_reddit_comment_maps_thread_parent_and_reply_role(client: TestClient) -> None:
     response = client.post(
         "/api/collection-runs",

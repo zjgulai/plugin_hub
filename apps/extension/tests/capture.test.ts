@@ -142,6 +142,37 @@ describe("captureCurrentPage", () => {
     ]);
   });
 
+  it("reports Reddit JSON unavailability when both .json and DOM capture are blocked", async () => {
+    document.body.innerHTML = `
+      <main>
+        <h1>You've been blocked by network security.</h1>
+        <p>To continue, log in to your Reddit account or use your developer token</p>
+      </main>
+    `;
+
+    const result = await captureCurrentPage({
+      url: "https://www.reddit.com/r/Coffee/comments/thread123/best_grinder/",
+      capturedAt: CAPTURED_AT,
+      documentRoot: document,
+      fetchJson: async () => {
+        throw new Error("reddit_json_fetch_failed:network");
+      }
+    });
+
+    expect(result.payload.run.capture_method).toBe("extension_reddit_dom_fallback");
+    expect(result.payload.run.stop_reason).toBe("reddit_json_unavailable_dom_empty");
+    expect(result.payload.run.coverage_confidence).toBe(0.2);
+    expect(result.payload.run.coverage_scope).toEqual(
+      expect.objectContaining({
+        json_error: "reddit_json_fetch_failed:network",
+        dom_stop_reason: "missing_thread_dom",
+        raw_item_count: 0
+      })
+    );
+    expect(result.summary.raw_item_count).toBe(0);
+    expect(result.summary.stop_reason).toBe("reddit_json_unavailable_dom_empty");
+  });
+
   it("rejects unsupported pages before building upload payloads", async () => {
     await expect(
       captureCurrentPage({

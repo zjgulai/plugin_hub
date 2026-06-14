@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 
+import { loadApiBaseUrl, normalizeApiBaseUrl, saveApiBaseUrl } from "../lib/settings";
 import {
   CAPTURE_CURRENT_PAGE_MESSAGE_TYPE,
   UPLOAD_COLLECTION_MESSAGE_TYPE,
@@ -8,9 +9,6 @@ import {
   type CaptureSummary,
   type UploadCollectionMessage
 } from "../types/messages";
-
-const API_BASE_URL_STORAGE_KEY = "pluginHubApiBaseUrl";
-const DEFAULT_API_BASE_URL = "http://localhost:8000";
 
 type PopupStatus = "idle" | "capturing" | "uploading" | "done" | "error";
 
@@ -30,13 +28,13 @@ type UploadResult = {
 };
 
 export function Popup() {
-  const [apiBaseUrl, setApiBaseUrl] = useState(DEFAULT_API_BASE_URL);
+  const [apiBaseUrl, setApiBaseUrl] = useState("http://localhost:8000");
   const [status, setStatus] = useState<PopupStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<UploadResult | null>(null);
 
   useEffect(() => {
-    void loadApiBaseUrl().then(setApiBaseUrl).catch(() => setApiBaseUrl(DEFAULT_API_BASE_URL));
+    void loadApiBaseUrl().then(setApiBaseUrl).catch(() => setApiBaseUrl("http://localhost:8000"));
   }, []);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -47,7 +45,7 @@ export function Popup() {
     try {
       const normalizedApiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
       setApiBaseUrl(normalizedApiBaseUrl);
-      await chrome.storage.local.set({ [API_BASE_URL_STORAGE_KEY]: normalizedApiBaseUrl });
+      await saveApiBaseUrl(normalizedApiBaseUrl);
 
       setStatus("capturing");
       const tabId = await getActiveTabId();
@@ -173,12 +171,6 @@ function buttonLabel(status: PopupStatus): string {
   return "采集并回传";
 }
 
-async function loadApiBaseUrl(): Promise<string> {
-  const result = await chrome.storage.local.get(API_BASE_URL_STORAGE_KEY);
-  const value = result[API_BASE_URL_STORAGE_KEY];
-  return typeof value === "string" && value.trim() ? value : DEFAULT_API_BASE_URL;
-}
-
 async function getActiveTabId(): Promise<number> {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   const tabId = tabs[0]?.id;
@@ -201,15 +193,6 @@ async function sendRuntimeMessage<TResponse>(
   message: UploadCollectionMessage
 ): Promise<TResponse> {
   return chrome.runtime.sendMessage(message) as Promise<TResponse>;
-}
-
-function normalizeApiBaseUrl(value: string): string {
-  const normalized = value.trim().replace(/\/+$/, "");
-  if (!normalized) {
-    return DEFAULT_API_BASE_URL;
-  }
-
-  return normalized;
 }
 
 const rootElement = document.getElementById("root");

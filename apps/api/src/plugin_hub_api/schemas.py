@@ -54,6 +54,14 @@ class SourceKind(StrEnum):
     REDDIT_COMMENT = "reddit_comment"
 
 
+class CollectionTaskStatus(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    RETRY_SCHEDULED = "retry_scheduled"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class CollectionRunCreate(StrictBaseModel):
     platform: Platform
     source_url: AnyHttpUrl
@@ -71,6 +79,26 @@ class CollectionRunCreate(StrictBaseModel):
 class CollectionRun(CollectionRunCreate):
     collection_run_id: str
     created_at: datetime
+
+
+class CollectionTaskCreate(StrictBaseModel):
+    platform: Platform
+    source_url: AnyHttpUrl
+    requested_capture_method: str = Field(min_length=1, max_length=128)
+    trigger_reason: str = Field(min_length=1, max_length=128)
+    context: dict[str, JsonValue] = Field(default_factory=dict)
+
+    @field_validator("context", mode="before")
+    @classmethod
+    def validate_context(cls, value: object) -> dict[str, JsonValue]:
+        return ensure_json_object(value)
+
+
+class CollectionTask(CollectionTaskCreate):
+    collection_task_id: str
+    status: CollectionTaskStatus
+    created_at: datetime
+    updated_at: datetime
 
 
 class RawSourceItem(StrictBaseModel):

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { fetchStrategyNotes, fetchVocUnits } from "../src/lib/api";
+import { fetchCollectionTasks, fetchStrategyNotes, fetchVocUnits } from "../src/lib/api";
 
 describe("fetchVocUnits", () => {
   it("fetches VOC units by platform", async () => {
@@ -237,6 +237,67 @@ describe("fetchStrategyNotes", () => {
 
     await expect(fetchStrategyNotes("http://localhost:8000", "all", fetcher)).rejects.toThrow(
       "strategy_notes_invalid_response:evidence_count_required"
+    );
+  });
+});
+
+describe("fetchCollectionTasks", () => {
+  it("fetches server-side collection tasks by platform", async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        items: [
+          {
+            collection_task_id: "task_123",
+            platform: "reddit",
+            source_url: "https://www.reddit.com/r/Coffee/comments/thread123/example/",
+            requested_capture_method: "server_reddit_json_proxy",
+            trigger_reason: "reddit_json_unavailable_dom_empty",
+            status: "retry_scheduled",
+            context: {
+              thread_id: "thread123"
+            },
+            created_at: "2026-06-14T00:00:00.000Z",
+            updated_at: "2026-06-14T00:00:00.000Z"
+          }
+        ]
+      })
+    });
+
+    const result = await fetchCollectionTasks("http://localhost:8000///", "reddit", fetcher);
+
+    expect(fetcher).toHaveBeenCalledWith("http://localhost:8000/api/collection-tasks?platform=reddit");
+    expect(result.items[0]).toMatchObject({
+      collection_task_id: "task_123",
+      platform: "reddit",
+      status: "retry_scheduled"
+    });
+  });
+
+  it("rejects invalid task status values", async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        items: [
+          {
+            collection_task_id: "task_123",
+            platform: "reddit",
+            source_url: "https://www.reddit.com/r/Coffee/comments/thread123/example/",
+            requested_capture_method: "server_reddit_json_proxy",
+            trigger_reason: "reddit_json_unavailable_dom_empty",
+            status: "unknown",
+            context: {},
+            created_at: "2026-06-14T00:00:00.000Z",
+            updated_at: "2026-06-14T00:00:00.000Z"
+          }
+        ]
+      })
+    });
+
+    await expect(fetchCollectionTasks("http://localhost:8000", "all", fetcher)).rejects.toThrow(
+      "collection_tasks_invalid_response:status_required"
     );
   });
 });

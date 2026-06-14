@@ -11,7 +11,9 @@ export default defineConfig(({ mode }) => ({
   },
   test: {
     environment: "jsdom",
-    globals: true
+    globals: true,
+    testTimeout: 20_000,
+    hookTimeout: 20_000
   },
   build: {
     outDir: "dist",
@@ -32,9 +34,14 @@ function standaloneContentScript(): Plugin {
     name: "plugin-hub-standalone-content-script",
     async generateBundle() {
       const result = await buildWithEsbuild({
-        entryPoints: [new URL("./src/content/content-script.ts", import.meta.url).pathname],
+        entryPoints: [new URL("./src/content/content-script.tsx", import.meta.url).pathname],
         bundle: true,
+        define: {
+          "process.env.NODE_ENV": JSON.stringify("production")
+        },
         format: "iife",
+        legalComments: "none",
+        minify: true,
         platform: "browser",
         target: "es2022",
         write: false

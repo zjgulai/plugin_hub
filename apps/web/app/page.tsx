@@ -1,8 +1,11 @@
 import { DashboardAutoRefresh } from "../src/components/DashboardAutoRefresh";
 import { VocEvidenceTable } from "../src/components/VocEvidenceTable";
 import {
+  fetchCollectionTasks,
   fetchStrategyNotes,
   fetchVocUnits,
+  type CollectionTask,
+  type JsonValue,
   type StrategyNote,
   type VocPlatform,
   type VocUnit
@@ -13,8 +16,10 @@ export const dynamic = "force-dynamic";
 
 type DashboardData = {
   units: VocUnit[];
+  tasks: CollectionTask[];
   strategyNotes: StrategyNote[];
   vocError: string | null;
+  taskError: string | null;
   strategyError: string | null;
   loadedAt: string;
 };
@@ -27,13 +32,14 @@ type DashboardMetrics = {
   lowConfidence: number;
   averageConfidence: number;
   runCount: number;
+  pendingTasks: number;
   latestCapturedAt: string | null;
 };
 
 export default async function Page() {
   const config = loadDashboardConfig();
   const data = await loadDashboardData(config.apiBaseUrl);
-  const metrics = getMetrics(data.units, config.lowConfidenceThreshold);
+  const metrics = getMetrics(data.units, data.tasks, config.lowConfidenceThreshold);
   const apiState = getApiState(data);
 
   return (
@@ -69,11 +75,18 @@ export default async function Page() {
           tone={metrics.lowConfidence > 0 ? "risk" : "clear"}
         />
         <MetricTile label="质量 Flags" value={metrics.flagged} detail="需复核证据" tone="warning" />
+        <MetricTile
+          label="待补采任务"
+          value={metrics.pendingTasks}
+          detail="server capture queue"
+          tone={metrics.pendingTasks > 0 ? "warning" : "clear"}
+        />
         <MetricTile label="平均覆盖" value={`${metrics.averageConfidence}%`} detail="coverage confidence" tone="clear" />
       </section>
 
       <section className="opsGrid" aria-label="运行监控">
         <MonitorPanel data={data} metrics={metrics} config={config} />
+        <CollectionTaskPanel tasks={data.tasks} error={data.taskError} />
         <PlatformPanel units={data.units} />
         <StrategyPanel notes={data.strategyNotes} error={data.strategyError} />
       </section>
@@ -98,15 +111,18 @@ export default async function Page() {
 }
 
 async function loadDashboardData(apiBaseUrl: string): Promise<DashboardData> {
-  const [vocResult, strategyResult] = await Promise.allSettled([
+  const [vocResult, taskResult, strategyResult] = await Promise.allSettled([
     fetchVocUnits(apiBaseUrl, "all"),
+    fetchCollectionTasks(apiBaseUrl, "all"),
     fetchStrategyNotes(apiBaseUrl, "all")
   ]);
 
   return {
     units: vocResult.status === "fulfilled" ? vocResult.value.items : [],
+    tasks: taskResult.status === "fulfilled" ? taskResult.value.items : [],
     strategyNotes: strategyResult.status === "fulfilled" ? strategyResult.value.items : [],
     vocError: vocResult.status === "rejected" ? stableError(vocResult.reason) : null,
+    taskError: taskResult.status === "rejected" ? stableError(taskResult.reason) : null,
     strategyError: strategyResult.status === "rejected" ? stableError(strategyResult.reason) : null,
     loadedAt: new Date().toISOString()
   };
@@ -255,6 +271,11 @@ function MonitorPanel({
       tone: data.strategyError ? "warning" : "clear"
     },
     {
+      label: "Task API",
+      value: data.taskError ? data.taskError : `${metrics.pendingTasks} pending`,
+      tone: data.taskError ? "warning" : metrics.pendingTasks > 0 ? "warning" : "clear"
+    },
+    {
       label: "Freshness",
       value: freshnessLabel(metrics.latestCapturedAt),
       tone: metrics.latestCapturedAt ? "clear" : "warning"
@@ -280,6 +301,57 @@ function MonitorPanel({
           <li key={check.label} className={`checkItem checkItem--${check.tone}`}>
             <span>{check.label}</span>
             <strong>{check.value}</strong>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function CollectionTaskPanel({
+  tasks,
+  error
+}: {
+  tasks: CollectionTask[];
+  error: string | null;
+}) {
+  const visibleTasks = tasks.slice(0, 4);
+
+  return (
+    <section className="opsPanel taskPanel" aria-label="服务端补采队列">
+      <div className="sectionMiniHeading">
+        <p className="panelKicker">Server Capture</p>
+        <h2>补采队列</h2>
+      </div>
+      {error ? <p className="mutedText">{error}</p> : null}
+      {visibleTasks.length === 0 && !error ? <p className="mutedText">暂无服务端补采任务。</p> : null}
+      <ul className="taskList">
+        {visibleTasks.map((task) => (
+          <li key={task.collection_task_id}>
+            <div className="taskList__header">
+              <span className={`taskStatus taskStatus--${task.status}`}>{task.status}</span>
+              <strong>{task.collection_task_id}</strong>
+            </div>
+            <p>{task.trigger_reason}</p>
+            <dl>
+              <div>
+                <dt>source</dt>
+                <dd>{taskObjectLabel(task)}</dd>
+              </div>
+              <div>
+                <dt>method</dt>
+                <dd>{task.requested_capture_method}</dd>
+              </div>
+              <div>
+                <dt>attempts</dt>
+                <dd>{taskAttemptLabel(task)}</dd>
+              </div>
+              <div>
+                <dt>next</dt>
+                <dd>{taskNextRunLabel(task)}</dd>
+              </div>
+            </dl>
+            {taskErrorLabel(task) ? <p className="taskList__error">{taskErrorLabel(task)}</p> : null}
           </li>
         ))}
       </ul>
@@ -399,7 +471,11 @@ function ErrorNotice({ title, error }: { title: string; error: string }) {
   );
 }
 
-function getMetrics(units: VocUnit[], lowConfidenceThreshold: number): DashboardMetrics {
+function getMetrics(
+  units: VocUnit[],
+  tasks: CollectionTask[],
+  lowConfidenceThreshold: number
+): DashboardMetrics {
   const total = units.length;
   const amazon = units.filter((unit) => unit.platform === "amazon").length;
   const reddit = units.filter((unit) => unit.platform === "reddit").length;
@@ -416,6 +492,12 @@ function getMetrics(units: VocUnit[], lowConfidenceThreshold: number): Dashboard
   const runCount = new Set(
     units.map((unit) => unit.collection_run_id).filter((value): value is string => value !== null)
   ).size;
+  const pendingTasks = tasks.filter(
+    (task) =>
+      task.status === "pending" ||
+      task.status === "running" ||
+      task.status === "retry_scheduled"
+  ).length;
   const latestCapturedAt = latestDate(units.map((unit) => unit.captured_at));
 
   return {
@@ -426,6 +508,7 @@ function getMetrics(units: VocUnit[], lowConfidenceThreshold: number): Dashboard
     lowConfidence,
     averageConfidence,
     runCount,
+    pendingTasks,
     latestCapturedAt
   };
 }
@@ -438,7 +521,7 @@ function getApiState(data: DashboardData) {
       value: "down"
     };
   }
-  if (data.strategyError) {
+  if (data.strategyError || data.taskError) {
     return {
       tone: "partial",
       label: "API",
@@ -450,6 +533,52 @@ function getApiState(data: DashboardData) {
     label: "API",
     value: "online"
   };
+}
+
+function taskObjectLabel(task: CollectionTask): string {
+  const threadId = task.context.thread_id;
+  if (task.platform === "reddit" && typeof threadId === "string") {
+    return `reddit:${threadId}`;
+  }
+
+  return task.platform;
+}
+
+function taskAttemptLabel(task: CollectionTask): string {
+  const attemptCount = contextNumber(task.context.attempt_count);
+  const maxAttempts = contextNumber(task.context.max_attempts);
+  if (attemptCount === null && maxAttempts === null) {
+    return "-";
+  }
+  if (attemptCount !== null && maxAttempts !== null) {
+    return `${attemptCount}/${maxAttempts}`;
+  }
+  return `${attemptCount ?? maxAttempts}`;
+}
+
+function taskNextRunLabel(task: CollectionTask): string {
+  if (task.status !== "retry_scheduled") {
+    return "-";
+  }
+  const nextRunAt = contextString(task.context.next_run_at);
+  return nextRunAt ? formatDate(nextRunAt) : "待调度";
+}
+
+function taskErrorLabel(task: CollectionTask): string | null {
+  const errorCode = contextString(task.context.last_error_code) ?? contextString(task.context.error);
+  const message = contextString(task.context.last_error_message);
+  if (!errorCode && !message) {
+    return null;
+  }
+  return [errorCode, message].filter(Boolean).join(" · ");
+}
+
+function contextNumber(value: JsonValue | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function contextString(value: JsonValue | undefined): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 function latestDate(values: string[]): string | null {

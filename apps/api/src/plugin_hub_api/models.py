@@ -22,6 +22,20 @@ class CollectionRunRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class CollectionTaskRow(Base):
+    __tablename__ = "collection_tasks"
+
+    collection_task_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    platform: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    source_url: Mapped[str] = mapped_column(Text, nullable=False)
+    requested_capture_method: Mapped[str] = mapped_column(String(128), nullable=False)
+    trigger_reason: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    context: Mapped[dict[str, JsonValue]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class RawSourceItemRow(Base):
     __tablename__ = "raw_source_items"
 

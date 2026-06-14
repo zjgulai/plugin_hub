@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import type { CollectionRunPayload } from "../src/types/contracts";
+import type { CollectionRunPayload, CollectionTaskPayload } from "../src/types/contracts";
 import {
+  createCollectionTask,
   type UploadFetcher,
   uploadCollectionRun
 } from "../src/lib/upload-client";
@@ -38,6 +39,19 @@ const payload = {
     }
   ]
 } satisfies CollectionRunPayload;
+
+const taskPayload = {
+  task: {
+    platform: "reddit",
+    source_url: "https://www.reddit.com/r/Coffee/comments/thread123/example/",
+    requested_capture_method: "server_reddit_json_proxy",
+    trigger_reason: "reddit_json_unavailable_dom_empty",
+    context: {
+      thread_id: "thread123",
+      client_raw_item_count: 0
+    }
+  }
+} satisfies CollectionTaskPayload;
 
 describe("uploadCollectionRun", () => {
   it("posts the collection run payload and returns the created counters", async () => {
@@ -211,5 +225,103 @@ describe("uploadCollectionRun", () => {
       uploadCollectionRun("https://api.example.com", invalidPayload, fetcher)
     ).rejects.toThrow("json_number_must_be_finite");
     expect(called).toBe(false);
+  });
+});
+
+describe("createCollectionTask", () => {
+  it("posts a server-side collection task and returns the task status", async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const fetcher: UploadFetcher = async (url, init) => {
+      calls.push({ url, init });
+
+      return {
+        ok: true,
+        status: 202,
+        json: async () => ({
+          collection_task_id: "task-1",
+          platform: "reddit",
+          source_url: taskPayload.task.source_url,
+          requested_capture_method: "server_reddit_json_proxy",
+          trigger_reason: "reddit_json_unavailable_dom_empty",
+          status: "retry_scheduled",
+          context: taskPayload.task.context,
+          created_at: "2026-06-14T00:00:00.000Z",
+          updated_at: "2026-06-14T00:00:00.000Z"
+        })
+      };
+    };
+
+    await expect(createCollectionTask("https://api.example.com", taskPayload, fetcher)).resolves.toEqual({
+      collection_task_id: "task-1",
+      ...taskPayload.task,
+      status: "retry_scheduled",
+      created_at: "2026-06-14T00:00:00.000Z",
+      updated_at: "2026-06-14T00:00:00.000Z"
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual({
+      url: "https://api.example.com/api/collection-tasks",
+      init: {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(taskPayload)
+      }
+    });
+  });
+
+  it("throws a status-keyed error when task creation fails", async () => {
+    const fetcher: UploadFetcher = async () => ({
+      ok: false,
+      status: 503,
+      json: async () => ({ detail: "backend unavailable" })
+    });
+
+    await expect(createCollectionTask("https://api.example.com", taskPayload, fetcher)).rejects.toThrow(
+      "collection_task_create_failed:503"
+    );
+  });
+
+  it("rejects non-object task context before sending the request", async () => {
+    let called = false;
+    const fetcher: UploadFetcher = async () => {
+      called = true;
+      throw new Error("fetcher_should_not_be_called");
+    };
+    const invalidPayload = {
+      task: {
+        ...taskPayload.task,
+        context: ["invalid"]
+      }
+    } as unknown as CollectionTaskPayload;
+
+    await expect(createCollectionTask("https://api.example.com", invalidPayload, fetcher)).rejects.toThrow(
+      "json_object_required"
+    );
+    expect(called).toBe(false);
+  });
+
+  it("rejects invalid task response objects", async () => {
+    const fetcher: UploadFetcher = async () => ({
+      ok: true,
+      status: 202,
+      json: async () => ({
+        collection_task_id: "task-1",
+        platform: "reddit",
+        source_url: taskPayload.task.source_url,
+        requested_capture_method: "server_reddit_json_proxy",
+        trigger_reason: "reddit_json_unavailable_dom_empty",
+        status: "unknown",
+        context: taskPayload.task.context,
+        created_at: "2026-06-14T00:00:00.000Z",
+        updated_at: "2026-06-14T00:00:00.000Z"
+      })
+    });
+
+    await expect(createCollectionTask("https://api.example.com", taskPayload, fetcher)).rejects.toThrow(
+      "collection_task_response_invalid"
+    );
   });
 });

@@ -10,7 +10,11 @@
     "typecheck": "pnpm typecheck:api && pnpm -r typecheck",
     "typecheck:api": "uv --directory apps/api run mypy",
     "build": "pnpm -r build",
-    "package:extension": "pnpm --filter @plugin-hub/extension build && node scripts/package-extension.mjs"
+    "collection:worker": "uv --directory apps/api run python -m plugin_hub_api.worker_cli",
+    "collection:worker:once": "pnpm collection:worker --once",
+    "collection:worker:daemon": "pnpm collection:worker --poll-interval-seconds 3",
+    "package:extension": "pnpm --filter @plugin-hub/extension build && node scripts/package-extension.mjs",
+    "verify:extension": "node scripts/verify-extension-package.mjs"
   },
   "devDependencies": {
     "typescript": "^5.8.3"

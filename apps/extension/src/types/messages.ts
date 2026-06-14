@@ -1,7 +1,8 @@
-import type { CollectionRunPayload } from "./contracts";
+import type { CollectionRunPayload, CollectionTaskPayload } from "./contracts";
 
 export const CAPTURE_CURRENT_PAGE_MESSAGE_TYPE = "PLUGIN_HUB_CAPTURE_CURRENT_PAGE";
 export const UPLOAD_COLLECTION_MESSAGE_TYPE = "PLUGIN_HUB_UPLOAD_COLLECTION";
+export const CREATE_COLLECTION_TASK_MESSAGE_TYPE = "PLUGIN_HUB_CREATE_COLLECTION_TASK";
 
 export interface CaptureCurrentPageMessage {
   type: typeof CAPTURE_CURRENT_PAGE_MESSAGE_TYPE;
@@ -26,4 +27,10 @@ export interface UploadCollectionMessage {
   type: typeof UPLOAD_COLLECTION_MESSAGE_TYPE;
   apiBaseUrl: string;
   payload: CollectionRunPayload;
+}
+
+export interface CreateCollectionTaskMessage {
+  type: typeof CREATE_COLLECTION_TASK_MESSAGE_TYPE;
+  apiBaseUrl: string;
+  payload: CollectionTaskPayload;
 }

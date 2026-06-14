@@ -3,34 +3,29 @@ from __future__ import annotations
 import secrets
 from collections.abc import Generator
 from datetime import UTC, datetime
-from typing import Annotated, NoReturn
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Request, status
+from pydantic import Field
 from sqlalchemy.orm import Session
 
 from plugin_hub_api.repositories import SqlAlchemyRepository
 from plugin_hub_api.schemas import (
-    CanonicalVocUnit,
     CollectionRun,
     CollectionRunCreate,
     JsonValue,
     Platform,
     RawSourceItem,
-    SourceKind,
     StrictBaseModel,
 )
-from plugin_hub_api.services.etl import (
-    map_amazon_review_to_voc,
-    map_reddit_comment_to_voc,
-    map_reddit_thread_to_voc,
-)
+from plugin_hub_api.services.collection_runs import map_raw_item_to_voc
 
 router = APIRouter()
 
 
 class CollectionRunRequest(StrictBaseModel):
     run: CollectionRunCreate
-    raw_items: list[RawSourceItem]
+    raw_items: list[RawSourceItem] = Field(min_length=1)
 
 
 class CollectionRunResponse(StrictBaseModel):
@@ -72,7 +67,7 @@ def create_collection_run(
         }
     )
     voc_units = [
-        _map_raw_item(
+        map_raw_item_to_voc(
             run=run,
             raw_item=raw_item,
         )
@@ -95,61 +90,3 @@ def list_voc_units(
 ) -> VocUnitsResponse:
     items = [unit.model_dump(mode="json") for unit in repository.list_voc_units(platform=platform)]
     return VocUnitsResponse(items=items)
-
-
-def _map_raw_item(
-    *,
-    run: CollectionRun,
-    raw_item: RawSourceItem,
-) -> CanonicalVocUnit:
-    source_url = str(run.model_dump(mode="json")["source_url"])
-
-    if raw_item.source_kind == SourceKind.AMAZON_REVIEW:
-        return map_amazon_review_to_voc(
-            collection_run_id=run.collection_run_id,
-            source_url=source_url,
-            raw_review=raw_item.raw_payload,
-            coverage_confidence=run.coverage_confidence,
-        )
-    if raw_item.source_kind == SourceKind.REDDIT_THREAD:
-        return map_reddit_thread_to_voc(
-            collection_run_id=run.collection_run_id,
-            source_url=source_url,
-            raw_thread=raw_item.raw_payload,
-            coverage_confidence=run.coverage_confidence,
-        )
-    return map_reddit_comment_to_voc(
-        collection_run_id=run.collection_run_id,
-        source_url=source_url,
-        thread_id=_reddit_comment_thread_id(raw_item.raw_payload),
-        raw_comment=raw_item.raw_payload,
-        coverage_confidence=run.coverage_confidence,
-    )
-
-
-def _reddit_comment_thread_id(raw_payload: dict[str, JsonValue]) -> str:
-    link_id = _optional_reddit_thread_fullname(raw_payload.get("link_id"))
-    thread_id = _optional_reddit_thread_fullname(raw_payload.get("thread_id"))
-    candidates = [value for value in (link_id, thread_id) if value is not None]
-    if not candidates:
-        _raise_reddit_comment_thread_id_required()
-
-    if len(candidates) == 2 and candidates[0] != candidates[1]:
-        _raise_reddit_comment_thread_id_required()
-
-    return candidates[0]
-
-
-def _optional_reddit_thread_fullname(value: JsonValue | None) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, str) and value.startswith("t3_") and len(value) > len("t3_"):
-        return value
-    _raise_reddit_comment_thread_id_required()
-
-
-def _raise_reddit_comment_thread_id_required() -> NoReturn:
-    raise HTTPException(
-        status_code=422,
-        detail="reddit_comment_thread_id_required",
-    )

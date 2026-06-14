@@ -33,6 +33,29 @@ export type VocUnitsResponse = {
   items: VocUnit[];
 };
 
+export type CollectionTaskStatus =
+  | "pending"
+  | "running"
+  | "retry_scheduled"
+  | "completed"
+  | "failed";
+
+export type CollectionTask = {
+  collection_task_id: string;
+  platform: VocPlatform;
+  source_url: string;
+  requested_capture_method: string;
+  trigger_reason: string;
+  status: CollectionTaskStatus;
+  context: Record<string, JsonValue>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CollectionTasksResponse = {
+  items: CollectionTask[];
+};
+
 export type StrategyNote = {
   strategy_type: string;
   topic: string;
@@ -87,9 +110,35 @@ export async function fetchStrategyNotes(
   };
 }
 
+export async function fetchCollectionTasks(
+  apiBaseUrl: string,
+  platform: VocPlatformFilter,
+  fetcher: VocUnitsFetcher = async (url) => fetch(url)
+): Promise<CollectionTasksResponse> {
+  const response = await fetcher(buildCollectionTasksUrl(apiBaseUrl, platform));
+  if (!response.ok) {
+    throw new Error(`collection_tasks_fetch_failed:${response.status}`);
+  }
+
+  const payload = await parseJson(response, "collection_tasks_invalid_response");
+  return {
+    items: parseCollectionTasksResponse(payload)
+  };
+}
+
 function buildVocUnitsUrl(apiBaseUrl: string, platform: VocPlatformFilter): string {
   const normalizedBaseUrl = apiBaseUrl.trim().replace(/\/+$/, "");
   const endpoint = `${normalizedBaseUrl}/api/voc-units`;
+  if (platform === "all") {
+    return endpoint;
+  }
+
+  return `${endpoint}?platform=${platform}`;
+}
+
+function buildCollectionTasksUrl(apiBaseUrl: string, platform: VocPlatformFilter): string {
+  const normalizedBaseUrl = apiBaseUrl.trim().replace(/\/+$/, "");
+  const endpoint = `${normalizedBaseUrl}/api/collection-tasks`;
   if (platform === "all") {
     return endpoint;
   }
@@ -107,11 +156,14 @@ function buildStrategyNotesUrl(apiBaseUrl: string, platform: VocPlatformFilter):
   return `${endpoint}?platform=${platform}`;
 }
 
-async function parseJson(response: FetchResponse): Promise<unknown> {
+async function parseJson(
+  response: FetchResponse,
+  errorPrefix = "voc_units_invalid_response"
+): Promise<unknown> {
   try {
     return await response.json();
   } catch (error) {
-    throw new Error("voc_units_invalid_response:json_parse_failed", {
+    throw new Error(`${errorPrefix}:json_parse_failed`, {
       cause: error
     });
   }
@@ -125,12 +177,50 @@ function parseVocUnitsResponse(payload: unknown): VocUnit[] {
   return payload.items.map(parseVocUnit);
 }
 
+function parseCollectionTasksResponse(payload: unknown): CollectionTask[] {
+  if (!isRecord(payload) || !Array.isArray(payload.items)) {
+    throw new Error("collection_tasks_invalid_response:items_array_required");
+  }
+
+  return payload.items.map(parseCollectionTask);
+}
+
 function parseStrategyNotesResponse(payload: unknown): StrategyNote[] {
   if (!isRecord(payload) || !Array.isArray(payload.items)) {
     throw new Error("strategy_notes_invalid_response:items_array_required");
   }
 
   return payload.items.map(parseStrategyNote);
+}
+
+function parseCollectionTask(value: unknown): CollectionTask {
+  if (!isRecord(value)) {
+    throw new Error("collection_tasks_invalid_response:item_object_required");
+  }
+
+  return {
+    collection_task_id: requiredStringFor(
+      value.collection_task_id,
+      "collection_task_id",
+      "collection_tasks_invalid_response"
+    ),
+    platform: requiredPlatform(value.platform, "collection_tasks_invalid_response"),
+    source_url: requiredStringFor(value.source_url, "source_url", "collection_tasks_invalid_response"),
+    requested_capture_method: requiredStringFor(
+      value.requested_capture_method,
+      "requested_capture_method",
+      "collection_tasks_invalid_response"
+    ),
+    trigger_reason: requiredStringFor(
+      value.trigger_reason,
+      "trigger_reason",
+      "collection_tasks_invalid_response"
+    ),
+    status: requiredCollectionTaskStatus(value.status),
+    context: jsonObject(value.context),
+    created_at: requiredStringFor(value.created_at, "created_at", "collection_tasks_invalid_response"),
+    updated_at: requiredStringFor(value.updated_at, "updated_at", "collection_tasks_invalid_response")
+  };
 }
 
 function parseVocUnit(value: unknown): VocUnit {
@@ -184,20 +274,38 @@ function parseStrategyNote(value: unknown): StrategyNote {
   };
 }
 
-function requiredPlatform(value: unknown): VocPlatform {
+function requiredPlatform(value: unknown, errorPrefix = "voc_units_invalid_response"): VocPlatform {
   if (value === "amazon" || value === "reddit") {
     return value;
   }
 
-  throw new Error("voc_units_invalid_response:item_platform_required");
+  throw new Error(`${errorPrefix}:item_platform_required`);
 }
 
 function requiredString(value: unknown, field: string): string {
+  return requiredStringFor(value, field, "voc_units_invalid_response");
+}
+
+function requiredStringFor(value: unknown, field: string, errorPrefix: string): string {
   if (typeof value === "string") {
     return value;
   }
 
-  throw new Error(`voc_units_invalid_response:${field}_required`);
+  throw new Error(`${errorPrefix}:${field}_required`);
+}
+
+function requiredCollectionTaskStatus(value: unknown): CollectionTaskStatus {
+  if (
+    value === "pending" ||
+    value === "running" ||
+    value === "retry_scheduled" ||
+    value === "completed" ||
+    value === "failed"
+  ) {
+    return value;
+  }
+
+  throw new Error("collection_tasks_invalid_response:status_required");
 }
 
 function optionalString(value: unknown): string | null {

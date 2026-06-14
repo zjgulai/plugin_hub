@@ -90,6 +90,32 @@ export interface CollectionRunPayload {
   raw_items: RawSourceItem[];
 }
 
+export type CollectionTaskStatus =
+  | "pending"
+  | "running"
+  | "retry_scheduled"
+  | "completed"
+  | "failed";
+
+export interface CollectionTaskCreate {
+  platform: Platform;
+  source_url: string;
+  requested_capture_method: string;
+  trigger_reason: string;
+  context: JsonObject;
+}
+
+export interface CollectionTaskPayload {
+  task: CollectionTaskCreate;
+}
+
+export interface CollectionTaskResult extends CollectionTaskCreate {
+  collection_task_id: string;
+  status: CollectionTaskStatus;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface RawSourceItem {
   platform: Platform;
   source_kind: SourceKind;
