@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { detectPage } from "../src/lib/page-detect";
+import {
+  detectAmazonPageUrl,
+  detectPage,
+  detectPageForTarget,
+  detectRedditThreadPageUrl
+} from "../src/lib/page-detect";
 
 describe("detectPage", () => {
   it("detects Amazon review pages", () => {
@@ -48,6 +53,39 @@ describe("detectPage", () => {
       platform: "reddit",
       pageKind: "reddit_thread",
       threadId: "thread123"
+    });
+  });
+
+  it("detects platform-specific URLs for split extension targets", () => {
+    expect(
+      detectAmazonPageUrl("https://www.amazon.com/product-reviews/B000000001")
+    ).toEqual({
+      platform: "amazon",
+      pageKind: "amazon_reviews",
+      entryPageKind: "amazon_reviews",
+      asin: "B000000001"
+    });
+    expect(
+      detectRedditThreadPageUrl("https://www.reddit.com/r/example/comments/thread123/example_title/")
+    ).toEqual({
+      platform: "reddit",
+      pageKind: "reddit_thread",
+      threadId: "thread123"
+    });
+  });
+
+  it("filters detected pages by extension target", () => {
+    expect(
+      detectPageForTarget("https://www.reddit.com/r/example/comments/thread123/example_title/", "amazon")
+    ).toEqual({
+      platform: "unknown",
+      pageKind: "unknown"
+    });
+    expect(
+      detectPageForTarget("https://www.amazon.com/product-reviews/B000000001", "reddit")
+    ).toEqual({
+      platform: "unknown",
+      pageKind: "unknown"
     });
   });
 

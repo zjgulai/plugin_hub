@@ -1,43 +1,64 @@
 import react from "@vitejs/plugin-react";
 import { build as buildWithEsbuild } from "esbuild";
+import process from "node:process";
 import { defineConfig, type Plugin } from "vite";
 
-import manifest from "./manifest.config";
+import { buildManifest } from "./manifest.config";
+import {
+  extensionTargetConfig,
+  normalizeExtensionTarget,
+  type ExtensionTarget
+} from "./src/lib/extension-target";
 
-export default defineConfig(({ mode }) => ({
-  plugins: [react(), standaloneContentScript(), chromeExtensionAssets()],
-  define: {
-    "process.env.NODE_ENV": JSON.stringify(mode === "production" ? "production" : "development")
-  },
-  test: {
-    environment: "jsdom",
-    globals: true,
-    testTimeout: 20_000,
-    hookTimeout: 20_000
-  },
-  build: {
-    outDir: "dist",
-    emptyOutDir: true,
-    lib: {
-      entry: {
-        "background/service-worker": "./src/background/service-worker.ts",
-        "popup/Popup": "./src/popup/Popup.tsx"
+const extensionTarget = normalizeExtensionTarget(process.env.PLUGIN_HUB_EXTENSION_TARGET);
+
+export default defineConfig(({ mode }) => {
+  return {
+    plugins: [
+      react(),
+      standaloneContentScript(extensionTarget),
+      chromeExtensionAssets(extensionTarget)
+    ],
+    define: {
+      "process.env.NODE_ENV": JSON.stringify(mode === "production" ? "production" : "development"),
+      __PLUGIN_HUB_EXTENSION_TARGET__: JSON.stringify(extensionTarget)
+    },
+    test: {
+      environment: "jsdom",
+      globals: true,
+      testTimeout: 20_000,
+      hookTimeout: 20_000
+    },
+    build: {
+      outDir: `dist/${extensionTarget}`,
+      emptyOutDir: true,
+      lib: {
+        entry: {
+          "background/service-worker": "./src/background/service-worker.ts",
+          "popup/Popup": "./src/popup/Popup.tsx"
+        },
+        formats: ["es"],
+        fileName: (_format, entryName) => `${entryName}.js`
       },
-      formats: ["es"],
-      fileName: (_format, entryName) => `${entryName}.js`
+      rollupOptions: {
+        output: {
+          assetFileNames: "[name][extname]"
+        }
+      }
     }
-  }
-}));
+  };
+});
 
-function standaloneContentScript(): Plugin {
+function standaloneContentScript(target: ExtensionTarget): Plugin {
   return {
     name: "plugin-hub-standalone-content-script",
     async generateBundle() {
       const result = await buildWithEsbuild({
-        entryPoints: [new URL("./src/content/content-script.tsx", import.meta.url).pathname],
+        entryPoints: [new URL(`./src/content/content-script.${target}.tsx`, import.meta.url).pathname],
         bundle: true,
         define: {
-          "process.env.NODE_ENV": JSON.stringify("production")
+          "process.env.NODE_ENV": JSON.stringify("production"),
+          __PLUGIN_HUB_EXTENSION_TARGET__: JSON.stringify(target)
         },
         format: "iife",
         legalComments: "none",
@@ -61,14 +82,15 @@ function standaloneContentScript(): Plugin {
   };
 }
 
-function chromeExtensionAssets(): Plugin {
+function chromeExtensionAssets(target: ExtensionTarget): Plugin {
   return {
     name: "plugin-hub-chrome-extension-assets",
     generateBundle() {
+      const targetConfig = extensionTargetConfig(target);
       this.emitFile({
         type: "asset",
         fileName: "manifest.json",
-        source: JSON.stringify(manifest, null, 2)
+        source: JSON.stringify(buildManifest(target), null, 2)
       });
       this.emitFile({
         type: "asset",
@@ -79,7 +101,7 @@ function chromeExtensionAssets(): Plugin {
           "  <head>",
           '    <meta charset="UTF-8" />',
           '    <meta name="viewport" content="width=device-width, initial-scale=1.0" />',
-          "    <title>Plugin Hub VOC Collector</title>",
+          `    <title>${targetConfig.popupTitle}</title>`,
           "  </head>",
           "  <body>",
           '    <div id="root"></div>',

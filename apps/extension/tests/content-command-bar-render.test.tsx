@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ContentCommandBar } from "../src/content/ui/ContentCommandBar";
+import { captureCurrentPage } from "../src/lib/capture";
 import { CREATE_COLLECTION_TASK_MESSAGE_TYPE } from "../src/types/messages";
 
 declare global {
@@ -75,6 +76,7 @@ describe("ContentCommandBar", () => {
           sourceUrl="https://www.amazon.com/Aromasong-Vanilla-Coconut-Sugar-Scrub/dp/B08MHGST8X"
           documentRoot={document}
           onDismiss={vi.fn()}
+          captureCurrentPage={captureCurrentPage}
         />
       );
     });
@@ -112,6 +114,7 @@ describe("ContentCommandBar", () => {
           sourceUrl="https://www.amazon.com/Aromasong-Vanilla-Coconut-Sugar-Scrub/dp/B08MHGST8X"
           documentRoot={document}
           onDismiss={vi.fn()}
+          captureCurrentPage={captureCurrentPage}
         />
       );
     });
@@ -136,6 +139,7 @@ describe("ContentCommandBar", () => {
           sourceUrl="https://www.amazon.com/Another-Product/dp/B000000001"
           documentRoot={document}
           onDismiss={vi.fn()}
+          captureCurrentPage={captureCurrentPage}
         />
       );
     });
@@ -185,6 +189,7 @@ describe("ContentCommandBar", () => {
           sourceUrl="https://www.reddit.com/r/Coffee/comments/thread123/best_grinder/"
           documentRoot={document}
           onDismiss={vi.fn()}
+          captureCurrentPage={captureCurrentPage}
         />
       );
     });

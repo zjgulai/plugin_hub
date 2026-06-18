@@ -180,6 +180,21 @@ describe("captureCurrentPage", () => {
       })
     ).rejects.toThrow("unsupported_page");
   });
+
+  it("rejects pages outside the requested split extension target", async () => {
+    await expect(
+      captureCurrentPage({
+        url: "https://www.reddit.com/r/Coffee/comments/thread123/best_grinder/",
+        target: "amazon"
+      })
+    ).rejects.toThrow("unsupported_page");
+    await expect(
+      captureCurrentPage({
+        url: "https://www.amazon.com/product-reviews/B000000001",
+        target: "reddit"
+      })
+    ).rejects.toThrow("unsupported_page");
+  });
 });
 
 describe("capture helpers", () => {

@@ -14,7 +14,11 @@
     "collection:worker:once": "pnpm collection:worker --once",
     "collection:worker:daemon": "pnpm collection:worker --poll-interval-seconds 3",
     "package:extension": "pnpm --filter @plugin-hub/extension build && node scripts/package-extension.mjs",
-    "verify:extension": "node scripts/verify-extension-package.mjs"
+    "package:extension:amazon": "pnpm --filter @plugin-hub/extension build:amazon && node scripts/package-extension.mjs amazon",
+    "package:extension:reddit": "pnpm --filter @plugin-hub/extension build:reddit && node scripts/package-extension.mjs reddit",
+    "verify:extension": "node scripts/verify-extension-package.mjs",
+    "verify:extension:amazon": "node scripts/verify-extension-package.mjs amazon",
+    "verify:extension:reddit": "node scripts/verify-extension-package.mjs reddit"
   },
   "devDependencies": {
     "typescript": "^5.8.3"

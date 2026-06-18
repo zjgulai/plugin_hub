@@ -1,3 +1,8 @@
+import {
+  type RuntimeExtensionTarget,
+  targetSupportsPlatform
+} from "./extension-target";
+
 export type AmazonReviewsPage = {
   platform: "amazon";
   pageKind: "amazon_reviews";
@@ -62,6 +67,50 @@ export function detectPage(url: string): DetectedPage {
   }
 
   return UNKNOWN_PAGE;
+}
+
+export function detectPageForTarget(url: string, target: RuntimeExtensionTarget): DetectedPage {
+  const detectedPage = detectPage(url);
+
+  if (detectedPage.platform === "unknown") {
+    return detectedPage;
+  }
+
+  return targetSupportsPlatform(target, detectedPage.platform) ? detectedPage : UNKNOWN_PAGE;
+}
+
+export function detectAmazonPageUrl(url: string): DetectedPage {
+  let parsedUrl: URL;
+
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    return UNKNOWN_PAGE;
+  }
+
+  const hostname = parsedUrl.hostname.toLowerCase();
+  if (!isAmazonHostname(hostname)) {
+    return UNKNOWN_PAGE;
+  }
+
+  return detectAmazonPage(parsedUrl.pathname.split("/").filter(Boolean));
+}
+
+export function detectRedditThreadPageUrl(url: string): DetectedPage {
+  let parsedUrl: URL;
+
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    return UNKNOWN_PAGE;
+  }
+
+  const hostname = parsedUrl.hostname.toLowerCase();
+  if (!isRedditHostname(hostname)) {
+    return UNKNOWN_PAGE;
+  }
+
+  return detectRedditThreadPage(parsedUrl.pathname.split("/").filter(Boolean));
 }
 
 function isAmazonHostname(hostname: string): boolean {

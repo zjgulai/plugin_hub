@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 
+import {
+  CURRENT_EXTENSION_TARGET,
+  extensionTargetConfig
+} from "../lib/extension-target";
 import { loadApiBaseUrl, normalizeApiBaseUrl, saveApiBaseUrl } from "../lib/settings";
 import {
   CAPTURE_CURRENT_PAGE_MESSAGE_TYPE,
@@ -26,6 +30,8 @@ type UploadResult = {
   vocUnitCount: number;
   captureSummary: CaptureSummary;
 };
+
+const TARGET_CONFIG = extensionTargetConfig(CURRENT_EXTENSION_TARGET);
 
 export function Popup() {
   const [apiBaseUrl, setApiBaseUrl] = useState("http://localhost:8000");
@@ -85,7 +91,7 @@ export function Popup() {
     <main aria-label="Plugin Hub VOC Collector">
       <header>
         <p>Plugin Hub</p>
-        <h1>VOC 采集</h1>
+        <h1>{TARGET_CONFIG.shortName} 采集</h1>
       </header>
 
       <form onSubmit={handleSubmit}>
@@ -118,7 +124,7 @@ function StatusPanel({
   result: UploadResult | null;
 }) {
   if (status === "idle") {
-    return <p role="status">打开 Amazon 评论页或 Reddit thread 后开始采集。</p>;
+    return <p role="status">{TARGET_CONFIG.idleStatusText}</p>;
   }
 
   if (status === "capturing") {

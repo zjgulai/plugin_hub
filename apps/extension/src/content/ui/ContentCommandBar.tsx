@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { captureCurrentPage } from "../../lib/capture";
+import type { CaptureCurrentPageInput } from "../../lib/capture-types";
 import type { DetectedPage } from "../../lib/page-detect";
 import { loadApiBaseUrl, saveApiBaseUrl } from "../../lib/settings";
 import type { CollectionRunPayload, CollectionTaskPayload, CollectionTaskResult, JsonObject } from "../../types/contracts";
@@ -42,12 +42,17 @@ export function ContentCommandBar({
   detectedPage,
   sourceUrl,
   documentRoot,
-  onDismiss
+  onDismiss,
+  captureCurrentPage
 }: {
   detectedPage: DetectedPage;
   sourceUrl: string;
   documentRoot: Document;
   onDismiss: () => void;
+  captureCurrentPage: (input: CaptureCurrentPageInput) => Promise<{
+    payload: CollectionRunPayload;
+    summary: CaptureSummary;
+  }>;
 }) {
   const [apiBaseUrl, setApiBaseUrl] = useState("http://localhost:8000");
   const [expanded, setExpanded] = useState(true);
@@ -299,7 +304,7 @@ export function ContentCommandBar({
           <div className="ph-pipeline" aria-label="VOC Pipeline">
             <div className="ph-pipeline-title">
               <strong>VOC Pipeline</strong>
-              <span>Amazon 与 Reddit 进入同一 Canonical VOC 模型</span>
+              <span>{platformName(detectedPage)} 进入同一 Canonical VOC 模型</span>
             </div>
             <ol>
               {pipelineSteps.map((step, index) => (
@@ -320,8 +325,8 @@ export function ContentCommandBar({
 
           <div className="ph-footer">
             <p>
-              免登录可预览 schema；登录仅用于云端历史与团队协作。支持来源：
-              <strong> Amazon</strong> / <strong>Reddit</strong>
+              免登录可预览 schema；登录仅用于云端历史与团队协作。当前插件支持：
+              <strong> {platformName(detectedPage)}</strong>
             </p>
             <label>
               <span>API</span>
