@@ -57,14 +57,7 @@ export default async function Page() {
         </div>
       </header>
 
-      <section className="commandGrid" aria-label="运行总览">
-        <HeroPanel metrics={metrics} config={config} loadedAt={data.loadedAt} />
-        <ConfigPanel config={config} />
-      </section>
-
-      <CaptureTemplatePanel config={config} />
-
-      <section className="metricGrid" aria-label="监控指标">
+      <section className="metricGrid healthStrip" aria-label="运行健康状态">
         <MetricTile label="证据总量" value={metrics.total} detail={`${metrics.runCount} 个 run`} tone="ink" />
         <MetricTile label="Amazon" value={metrics.amazon} detail="评论证据" tone="amazon" />
         <MetricTile label="Reddit" value={metrics.reddit} detail="Thread / comment" tone="reddit" />
@@ -84,7 +77,7 @@ export default async function Page() {
         <MetricTile label="平均覆盖" value={`${metrics.averageConfidence}%`} detail="coverage confidence" tone="clear" />
       </section>
 
-      <section className="opsGrid" aria-label="运行监控">
+      <section className="opsGrid opsGrid--priority" aria-label="运行监控">
         <MonitorPanel data={data} metrics={metrics} config={config} />
         <CollectionTaskPanel tasks={data.tasks} error={data.taskError} />
         <PlatformPanel units={data.units} />
@@ -106,6 +99,13 @@ export default async function Page() {
         </div>
         <VocEvidenceTable units={data.units} />
       </section>
+
+      <section className="commandGrid" aria-label="运行总览">
+        <HeroPanel metrics={metrics} config={config} loadedAt={data.loadedAt} />
+        <ConfigPanel config={config} />
+      </section>
+
+      <CaptureTemplatePanel config={config} />
     </main>
   );
 }
