@@ -9,7 +9,7 @@ describe("loadDashboardConfig", () => {
         PLUGIN_HUB_API_URL: "http://127.0.0.1:8010",
         PLUGIN_HUB_SITE_ENV: "staging",
         PLUGIN_HUB_REFRESH_SECONDS: "15",
-        PLUGIN_HUB_ENABLED_PLATFORMS: "amazon,reddit,amazon",
+        PLUGIN_HUB_ENABLED_PLATFORMS: "amazon,reddit,instagram,amazon",
         PLUGIN_HUB_AMAZON_PAGE_LIMIT: "5",
         PLUGIN_HUB_LOW_CONFIDENCE_THRESHOLD: "0.65"
       })
@@ -17,7 +17,7 @@ describe("loadDashboardConfig", () => {
       apiBaseUrl: "http://127.0.0.1:8010",
       siteEnv: "staging",
       refreshSeconds: 15,
-      enabledPlatforms: ["amazon", "reddit"],
+      enabledPlatforms: ["amazon", "reddit", "instagram"],
       amazonPageLimit: 5,
       lowConfidenceThreshold: 0.65
     });

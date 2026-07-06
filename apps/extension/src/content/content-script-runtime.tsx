@@ -4,6 +4,7 @@ import type { CaptureCurrentPageInput } from "../lib/capture-types";
 import type { DetectedPage } from "../lib/page-detect";
 import {
   CAPTURE_CURRENT_PAGE_MESSAGE_TYPE,
+  type CaptureCurrentPageMessage,
   type CaptureCurrentPageResponse,
   type CaptureCurrentPageSuccess
 } from "../types/messages";
@@ -12,10 +13,6 @@ import { CONTENT_COMMAND_BAR_CSS } from "./ui/content-command-bar.css";
 
 const COMMAND_BAR_HOST_ID = "plugin-hub-voc-command-bar";
 const URL_POLL_INTERVAL_MS = 750;
-
-interface CaptureCurrentPageMessage {
-  type: typeof CAPTURE_CURRENT_PAGE_MESSAGE_TYPE;
-}
 
 type MountedCommandBar = {
   host: HTMLDivElement;
@@ -46,7 +43,8 @@ export function mountContentScript(options: ContentScriptOptions): void {
       void options
         .captureCurrentPage({
           url: window.location.href,
-          documentRoot: document
+          documentRoot: document,
+          runtimeSettings: message.runtimeSettings
         })
         .then((result) => sendResponse(result))
         .catch((error: unknown) =>
@@ -83,7 +81,9 @@ export function mountContentScript(options: ContentScriptOptions): void {
 
   function mountCommandBar(detectedPage: DetectedPage, url: string): void {
     const mounted = ensureCommandBarMounted();
-    moveHostToBestPosition(mounted.host, detectedPage);
+    if (!mounted.host.isConnected) {
+      document.body.append(mounted.host);
+    }
     mounted.root.render(
       <ContentCommandBar
         detectedPage={detectedPage}
@@ -105,9 +105,10 @@ export function mountContentScript(options: ContentScriptOptions): void {
 
     const host = document.createElement("div");
     host.id = COMMAND_BAR_HOST_ID;
-    host.style.position = "relative";
+    host.style.position = "fixed";
+    host.style.inset = "0";
     host.style.zIndex = "2147483640";
-    host.style.clear = "both";
+    host.style.pointerEvents = "none";
 
     const shadowRoot = host.attachShadow({ mode: "open" });
     const style = document.createElement("style");
@@ -149,60 +150,4 @@ function dispatchDetectedPage(detectedPage: DetectedPage): void {
       detail: detectedPage
     })
   );
-}
-
-function moveHostToBestPosition(host: HTMLDivElement, detectedPage: DetectedPage): void {
-  if (detectedPage.platform === "amazon") {
-    const anchor =
-      queryHTMLElement("#dp-container") ??
-      queryHTMLElement("#ppd") ??
-      queryHTMLElement("#dp") ??
-      queryHTMLElement("main") ??
-      queryHTMLElement("#a-page");
-    insertBeforeAnchor(host, anchor);
-    return;
-  }
-
-  if (detectedPage.platform === "reddit") {
-    const anchor =
-      queryHTMLElement("shreddit-post") ??
-      queryHTMLElement("[data-testid='post-container']") ??
-      queryHTMLElement(".thing.link") ??
-      queryHTMLElement("main");
-    insertAfterAnchor(host, anchor);
-    return;
-  }
-
-  document.body.prepend(host);
-}
-
-function insertBeforeAnchor(host: HTMLDivElement, anchor: HTMLElement | null): void {
-  if (!anchor || !anchor.parentElement) {
-    document.body.prepend(host);
-    return;
-  }
-
-  if (host.nextElementSibling === anchor) {
-    return;
-  }
-
-  anchor.insertAdjacentElement("beforebegin", host);
-}
-
-function insertAfterAnchor(host: HTMLDivElement, anchor: HTMLElement | null): void {
-  if (!anchor || !anchor.parentElement) {
-    document.body.prepend(host);
-    return;
-  }
-
-  if (host.previousElementSibling === anchor) {
-    return;
-  }
-
-  anchor.insertAdjacentElement("afterend", host);
-}
-
-function queryHTMLElement(selector: string): HTMLElement | null {
-  const element = document.querySelector(selector);
-  return element instanceof HTMLElement ? element : null;
 }

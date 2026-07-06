@@ -16,12 +16,19 @@ export type RedditThreadPage = {
   threadId: string;
 };
 
+export type InstagramMediaPage = {
+  platform: "instagram";
+  pageKind: "instagram_media";
+  mediaKind: "post" | "reel" | "tv";
+  shortcode: string;
+};
+
 export type UnknownPage = {
   platform: "unknown";
   pageKind: "unknown";
 };
 
-export type DetectedPage = AmazonReviewsPage | RedditThreadPage | UnknownPage;
+export type DetectedPage = AmazonReviewsPage | RedditThreadPage | InstagramMediaPage | UnknownPage;
 
 const UNKNOWN_PAGE: UnknownPage = {
   platform: "unknown",
@@ -30,6 +37,7 @@ const UNKNOWN_PAGE: UnknownPage = {
 
 const AMAZON_ASIN_PATTERN = /^[A-Z0-9]{10}$/;
 const REDDIT_THREAD_ID_PATTERN = /^[A-Za-z0-9_]+$/;
+const INSTAGRAM_SHORTCODE_PATTERN = /^[A-Za-z0-9_-]+$/;
 const AMAZON_ALLOWED_HOSTNAMES = new Set([
   "amazon.com",
   "www.amazon.com",
@@ -64,6 +72,10 @@ export function detectPage(url: string): DetectedPage {
 
   if (isRedditHostname(hostname)) {
     return detectRedditThreadPage(pathSegments);
+  }
+
+  if (isInstagramHostname(hostname)) {
+    return detectInstagramMediaPage(pathSegments);
   }
 
   return UNKNOWN_PAGE;
@@ -113,12 +125,33 @@ export function detectRedditThreadPageUrl(url: string): DetectedPage {
   return detectRedditThreadPage(parsedUrl.pathname.split("/").filter(Boolean));
 }
 
+export function detectInstagramMediaPageUrl(url: string): DetectedPage {
+  let parsedUrl: URL;
+
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    return UNKNOWN_PAGE;
+  }
+
+  const hostname = parsedUrl.hostname.toLowerCase();
+  if (!isInstagramHostname(hostname)) {
+    return UNKNOWN_PAGE;
+  }
+
+  return detectInstagramMediaPage(parsedUrl.pathname.split("/").filter(Boolean));
+}
+
 function isAmazonHostname(hostname: string): boolean {
   return AMAZON_ALLOWED_HOSTNAMES.has(hostname);
 }
 
 function isRedditHostname(hostname: string): boolean {
   return hostname === "reddit.com" || hostname === "www.reddit.com" || hostname === "old.reddit.com";
+}
+
+function isInstagramHostname(hostname: string): boolean {
+  return hostname === "instagram.com" || hostname === "www.instagram.com";
 }
 
 function detectAmazonPage(pathSegments: string[]): DetectedPage {
@@ -174,4 +207,33 @@ function detectRedditThreadPage(pathSegments: string[]): DetectedPage {
     pageKind: "reddit_thread",
     threadId
   };
+}
+
+function detectInstagramMediaPage(pathSegments: string[]): DetectedPage {
+  const [mediaPrefix, shortcode] = pathSegments;
+  const mediaKind = instagramMediaKind(mediaPrefix);
+
+  if (!mediaKind || !shortcode || !INSTAGRAM_SHORTCODE_PATTERN.test(shortcode)) {
+    return UNKNOWN_PAGE;
+  }
+
+  return {
+    platform: "instagram",
+    pageKind: "instagram_media",
+    mediaKind,
+    shortcode
+  };
+}
+
+function instagramMediaKind(value: string | undefined): InstagramMediaPage["mediaKind"] | null {
+  if (value === "p") {
+    return "post";
+  }
+  if (value === "reel") {
+    return "reel";
+  }
+  if (value === "tv") {
+    return "tv";
+  }
+  return null;
 }

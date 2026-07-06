@@ -22,6 +22,17 @@ describe("content command bar model", () => {
     expect(platformName(amazonPage)).toBe("Amazon");
     expect(detectedObjectTitle(amazonPage)).toBe("B08MHGST8X");
     expect(detectedObjectSubtitle(amazonPage)).toBe("Product Detail");
+
+    const instagramPage = {
+      platform: "instagram",
+      pageKind: "instagram_media",
+      mediaKind: "reel",
+      shortcode: "ABC123_def-"
+    } as const;
+
+    expect(platformName(instagramPage)).toBe("Instagram");
+    expect(detectedObjectTitle(instagramPage)).toBe("ABC123_def-");
+    expect(detectedObjectSubtitle(instagramPage)).toBe("Reel");
   });
 
   it("builds previewed pipeline state from capture summary", () => {
@@ -95,5 +106,25 @@ describe("content command bar page snapshot", () => {
 
     expect(snapshot.title).toBe("Best grinder?");
     expect(snapshot.subreddit).toBe("r/Coffee");
+  });
+
+  it("extracts Instagram media context without parsing comments", () => {
+    document.head.innerHTML = '<meta property="og:title" content="Instagram reel by tester" />';
+    document.body.innerHTML = "<main></main>";
+
+    const snapshot = getPageSnapshot(
+      {
+        platform: "instagram",
+        pageKind: "instagram_media",
+        mediaKind: "reel",
+        shortcode: "ABC123_def-"
+      },
+      document,
+      "https://www.instagram.com/reel/ABC123_def-/"
+    );
+
+    expect(snapshot.title).toBe("Instagram reel by tester");
+    expect(snapshot.instagramMediaKind).toBe("reel");
+    expect(snapshot.subreddit).toBeNull();
   });
 });

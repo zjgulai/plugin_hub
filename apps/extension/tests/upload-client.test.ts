@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { CollectionRunPayload, CollectionTaskPayload } from "../src/types/contracts";
 import {
   createCollectionTask,
+  getStrategyNotes,
+  getPlatformSetting,
   type UploadFetcher,
   uploadCollectionRun
 } from "../src/lib/upload-client";
@@ -322,6 +324,139 @@ describe("createCollectionTask", () => {
 
     await expect(createCollectionTask("https://api.example.com", taskPayload, fetcher)).rejects.toThrow(
       "collection_task_response_invalid"
+    );
+  });
+});
+
+describe("getPlatformSetting", () => {
+  it("fetches and parses a backend platform setting", async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const fetcher: UploadFetcher = async (url, init) => {
+      calls.push({ url, init });
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          platform: "amazon",
+          enabled: true,
+          config: {
+            page_limit: 2,
+            marketplaces: ["US"],
+            notes: ""
+          },
+          updated_at: "2026-06-22T00:00:00.000Z",
+          updated_by: "operator",
+          source: "stored"
+        })
+      };
+    };
+
+    await expect(getPlatformSetting("https://api.example.com", "amazon", fetcher)).resolves.toEqual({
+      platform: "amazon",
+      enabled: true,
+      config: {
+        page_limit: 2,
+        marketplaces: ["US"],
+        notes: ""
+      },
+      updated_at: "2026-06-22T00:00:00.000Z",
+      updated_by: "operator",
+      source: "stored"
+    });
+    expect(calls).toEqual([
+      {
+        url: "https://api.example.com/api/platform-settings/amazon",
+        init: {
+          method: "GET",
+          headers: {
+            Accept: "application/json"
+          }
+        }
+      }
+    ]);
+  });
+
+  it("rejects platform-setting responses for another platform", async () => {
+    const fetcher: UploadFetcher = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        platform: "reddit",
+        enabled: true,
+        config: {},
+        updated_at: "2026-06-22T00:00:00.000Z",
+        updated_by: "operator",
+        source: "stored"
+      })
+    });
+
+    await expect(getPlatformSetting("https://api.example.com", "amazon", fetcher)).rejects.toThrow(
+      "platform_setting_response_invalid"
+    );
+  });
+});
+
+describe("getStrategyNotes", () => {
+  it("fetches platform-filtered strategy notes from the backend", async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const fetcher: UploadFetcher = async (url, init) => {
+      calls.push({ url, init });
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          items: [
+            {
+              strategy_type: "voc_template",
+              topic: "noise",
+              evidence_count: 1,
+              evidence_examples: [],
+              recommendation: "Prioritize reducing noise complaints.",
+              evidence_strength: 0.82,
+              quality_flags: []
+            }
+          ]
+        })
+      };
+    };
+
+    await expect(getStrategyNotes("https://api.example.com///", "amazon", fetcher)).resolves.toEqual({
+      items: [
+        {
+          strategy_type: "voc_template",
+          topic: "noise",
+          evidence_count: 1,
+          evidence_examples: [],
+          recommendation: "Prioritize reducing noise complaints.",
+          evidence_strength: 0.82,
+          quality_flags: []
+        }
+      ]
+    });
+    expect(calls).toEqual([
+      {
+        url: "https://api.example.com/api/insights/strategy-notes?platform=amazon",
+        init: {
+          method: "GET",
+          headers: {
+            Accept: "application/json"
+          }
+        }
+      }
+    ]);
+  });
+
+  it("throws a status-keyed error when strategy notes cannot be read", async () => {
+    const fetcher: UploadFetcher = async () => ({
+      ok: false,
+      status: 404,
+      json: async () => ({ detail: "route missing" })
+    });
+
+    await expect(getStrategyNotes("https://api.example.com", "amazon", fetcher)).rejects.toThrow(
+      "strategy_notes_fetch_failed:404"
     );
   });
 });

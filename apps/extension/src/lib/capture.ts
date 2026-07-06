@@ -30,5 +30,9 @@ export async function captureCurrentPage(
     return captureAmazonCurrentPage(input);
   }
 
-  return captureRedditCurrentPage(input);
+  if (detectedPage.platform === "reddit") {
+    return captureRedditCurrentPage(input);
+  }
+
+  throw new Error("instagram_capture_requires_authorized_backend");
 }

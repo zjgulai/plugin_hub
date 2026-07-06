@@ -54,7 +54,10 @@ function platformList(value: string | undefined): VocPlatform[] {
   const parsed = (value ?? "")
     .split(",")
     .map((item) => item.trim().toLowerCase())
-    .filter((item): item is VocPlatform => item === "amazon" || item === "reddit");
+    .filter(
+      (item): item is VocPlatform =>
+        item === "amazon" || item === "reddit" || item === "instagram"
+    );
 
   if (parsed.length === 0) {
     return DEFAULT_ENABLED_PLATFORMS;

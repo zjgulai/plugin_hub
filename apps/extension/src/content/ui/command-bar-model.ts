@@ -24,6 +24,9 @@ export function platformName(detectedPage: DetectedPage): string {
   if (detectedPage.platform === "reddit") {
     return "Reddit";
   }
+  if (detectedPage.platform === "instagram") {
+    return "Instagram";
+  }
   return "Unsupported";
 }
 
@@ -34,6 +37,9 @@ export function detectedObjectTitle(detectedPage: DetectedPage): string {
   if (detectedPage.platform === "reddit") {
     return detectedPage.threadId;
   }
+  if (detectedPage.platform === "instagram") {
+    return detectedPage.shortcode;
+  }
   return "Unknown";
 }
 
@@ -43,6 +49,9 @@ export function detectedObjectSubtitle(detectedPage: DetectedPage): string {
   }
   if (detectedPage.platform === "reddit") {
     return "Thread";
+  }
+  if (detectedPage.platform === "instagram") {
+    return detectedPage.mediaKind === "reel" ? "Reel" : "Media";
   }
   return "Unsupported";
 }

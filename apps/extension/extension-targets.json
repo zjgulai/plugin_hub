@@ -1,0 +1,128 @@
+{
+  "targets": ["amazon", "reddit", "instagram"],
+  "targetConfigs": {
+    "amazon": {
+      "target": "amazon",
+      "platform": "amazon",
+      "name": "Plugin Hub Amazon VOC Collector",
+      "shortName": "Amazon VOC",
+      "description": "Collects Amazon review VOC evidence for Plugin Hub.",
+      "defaultTitle": "Plugin Hub Amazon VOC Collector",
+      "popupTitle": "Plugin Hub Amazon VOC Collector",
+      "commandBarSubtitle": "Amazon review evidence collector",
+      "supportedSourceText": "Amazon",
+      "idleStatusText": "打开 Amazon 商品页或评论页后开始采集。",
+      "packageSlug": "plugin-hub-amazon-voc",
+      "defaultApiBaseUrl": "https://plugin.lute-tlz-dddd.top",
+      "hostPermissions": [
+        "https://amazon.com/*",
+        "https://www.amazon.com/*",
+        "https://smile.amazon.com/*",
+        "https://amazon.co.uk/*",
+        "https://www.amazon.co.uk/*",
+        "https://amazon.de/*",
+        "https://www.amazon.de/*",
+        "https://amazon.ca/*",
+        "https://www.amazon.ca/*",
+        "https://amazon.com.au/*",
+        "https://www.amazon.com.au/*",
+        "https://amazon.co.jp/*",
+        "https://www.amazon.co.jp/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "https://plugin.lute-tlz-dddd.top/*"
+      ],
+      "contentMatches": [
+        "https://amazon.com/*",
+        "https://www.amazon.com/*",
+        "https://smile.amazon.com/*",
+        "https://amazon.co.uk/*",
+        "https://www.amazon.co.uk/*",
+        "https://amazon.de/*",
+        "https://www.amazon.de/*",
+        "https://amazon.ca/*",
+        "https://www.amazon.ca/*",
+        "https://amazon.com.au/*",
+        "https://www.amazon.com.au/*",
+        "https://amazon.co.jp/*",
+        "https://www.amazon.co.jp/*"
+      ],
+      "verify": {
+        "requiredHost": "https://www.amazon.com/*",
+        "forbiddenHosts": ["https://www.reddit.com/*", "https://www.instagram.com/*"],
+        "requiredApiHostPermissions": [
+          "http://localhost/*",
+          "https://plugin.lute-tlz-dddd.top/*"
+        ]
+      }
+    },
+    "reddit": {
+      "target": "reddit",
+      "platform": "reddit",
+      "name": "Plugin Hub Reddit VOC Collector",
+      "shortName": "Reddit VOC",
+      "description": "Collects Reddit thread VOC evidence for Plugin Hub.",
+      "defaultTitle": "Plugin Hub Reddit VOC Collector",
+      "popupTitle": "Plugin Hub Reddit VOC Collector",
+      "commandBarSubtitle": "Reddit thread evidence collector",
+      "supportedSourceText": "Reddit",
+      "idleStatusText": "打开 Reddit thread 后开始采集。",
+      "packageSlug": "plugin-hub-reddit-voc",
+      "defaultApiBaseUrl": "https://plugin.lute-tlz-dddd.top",
+      "hostPermissions": [
+        "https://reddit.com/*",
+        "https://www.reddit.com/*",
+        "https://old.reddit.com/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "https://plugin.lute-tlz-dddd.top/*"
+      ],
+      "contentMatches": [
+        "https://reddit.com/*",
+        "https://www.reddit.com/*",
+        "https://old.reddit.com/*"
+      ],
+      "verify": {
+        "requiredHost": "https://www.reddit.com/*",
+        "forbiddenHosts": ["https://www.amazon.com/*", "https://www.instagram.com/*"],
+        "requiredApiHostPermissions": [
+          "http://localhost/*",
+          "https://plugin.lute-tlz-dddd.top/*"
+        ]
+      }
+    },
+    "instagram": {
+      "target": "instagram",
+      "platform": "instagram",
+      "name": "Plugin Hub Instagram VOC Collector",
+      "shortName": "Instagram VOC",
+      "description": "Prepares authorized Instagram media comment VOC evidence for Plugin Hub.",
+      "defaultTitle": "Plugin Hub Instagram VOC Collector",
+      "popupTitle": "Plugin Hub Instagram VOC Collector",
+      "commandBarSubtitle": "Instagram authorized evidence collector",
+      "supportedSourceText": "Instagram",
+      "idleStatusText": "打开 Instagram 帖子页后查看授权采集状态。",
+      "packageSlug": "plugin-hub-instagram-voc",
+      "defaultApiBaseUrl": "https://plugin.lute-tlz-dddd.top",
+      "hostPermissions": [
+        "https://instagram.com/*",
+        "https://www.instagram.com/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "https://plugin.lute-tlz-dddd.top/*"
+      ],
+      "contentMatches": [
+        "https://instagram.com/*",
+        "https://www.instagram.com/*"
+      ],
+      "verify": {
+        "requiredHost": "https://www.instagram.com/*",
+        "forbiddenHosts": ["https://www.amazon.com/*", "https://www.reddit.com/*"],
+        "requiredApiHostPermissions": [
+          "http://localhost/*",
+          "https://plugin.lute-tlz-dddd.top/*"
+        ]
+      }
+    }
+  }
+}

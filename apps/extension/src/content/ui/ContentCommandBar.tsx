@@ -1,14 +1,32 @@
 import { useEffect, useMemo, useState } from "react";
 
-import type { CaptureCurrentPageInput } from "../../lib/capture-types";
+import type { CaptureCurrentPageInput, CaptureRuntimeSettings } from "../../lib/capture-types";
+import { amazonRuntimeSettingsFromPlatformSetting } from "../../lib/platform-runtime-settings";
 import type { DetectedPage } from "../../lib/page-detect";
-import { loadApiBaseUrl, saveApiBaseUrl } from "../../lib/settings";
-import type { CollectionRunPayload, CollectionTaskPayload, CollectionTaskResult, JsonObject } from "../../types/contracts";
+import {
+  DEFAULT_API_BASE_URL,
+  loadApiBaseUrl,
+  saveApiBaseUrl
+} from "../../lib/settings";
+import type {
+  CollectionRunPayload,
+  CollectionTaskPayload,
+  CollectionTaskResult,
+  JsonObject,
+  Platform,
+  StrategyNotesResponse
+} from "../../types/contracts";
 import {
   CREATE_COLLECTION_TASK_MESSAGE_TYPE,
+  GET_PLATFORM_SETTING_MESSAGE_TYPE,
+  GET_STRATEGY_NOTES_MESSAGE_TYPE,
   UPLOAD_COLLECTION_MESSAGE_TYPE,
   type CaptureSummary,
   type CreateCollectionTaskMessage,
+  type GetPlatformSettingMessage,
+  type GetPlatformSettingResponse,
+  type GetStrategyNotesMessage,
+  type GetStrategyNotesResponse,
   type UploadCollectionMessage
 } from "../../types/messages";
 import {
@@ -37,6 +55,30 @@ type UploadCollectionResponse =
   | { error: string };
 
 type CreateCollectionTaskResponse = CollectionTaskResult | { error: string };
+type DrawerTabKey = "plan" | "raw" | "schema" | "insight" | "handoff";
+type NextActionKind = "preview" | "upload" | "server_task" | "insight" | "busy" | "blocked";
+
+type NextActionState = {
+  kind: NextActionKind;
+  label: string;
+  title: string;
+  detail: string;
+  disabled: boolean;
+};
+
+type DrawerTabState = {
+  key: DrawerTabKey;
+  label: string;
+  title: string;
+  detail: string;
+  state: "waiting" | "active" | "done" | "error";
+};
+
+type RecoverySuggestion = {
+  tone: "info" | "warning" | "error";
+  title: string;
+  detail: string;
+};
 
 export function ContentCommandBar({
   detectedPage,
@@ -54,16 +96,19 @@ export function ContentCommandBar({
     summary: CaptureSummary;
   }>;
 }) {
-  const [apiBaseUrl, setApiBaseUrl] = useState("http://localhost:8000");
+  const [apiBaseUrl, setApiBaseUrl] = useState(DEFAULT_API_BASE_URL);
   const [expanded, setExpanded] = useState(true);
   const [status, setStatus] = useState<CommandBarStatus>("ready");
   const [captureSummary, setCaptureSummary] = useState<CaptureSummary | null>(null);
   const [payload, setPayload] = useState<CollectionRunPayload | null>(null);
   const [uploadResult, setUploadResult] = useState<UploadCollectionResponse | null>(null);
+  const [strategyNotes, setStrategyNotes] = useState<StrategyNotesResponse | null>(null);
   const [collectionTaskResult, setCollectionTaskResult] = useState<CreateCollectionTaskResponse | null>(null);
   const [taskBusy, setTaskBusy] = useState(false);
+  const [insightBusy, setInsightBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [activeDrawerTab, setActiveDrawerTab] = useState<DrawerTabKey>("plan");
 
   useEffect(() => {
     let cancelled = false;
@@ -75,7 +120,7 @@ export function ContentCommandBar({
       })
       .catch(() => {
         if (!cancelled) {
-          setApiBaseUrl("http://localhost:8000");
+          setApiBaseUrl(DEFAULT_API_BASE_URL);
         }
       });
 
@@ -90,10 +135,13 @@ export function ContentCommandBar({
     setCaptureSummary(null);
     setPayload(null);
     setUploadResult(null);
+    setStrategyNotes(null);
     setCollectionTaskResult(null);
     setTaskBusy(false);
+    setInsightBusy(false);
     setError(null);
     setNotice(null);
+    setActiveDrawerTab("plan");
   }, [sourceUrl]);
 
   const snapshot = useMemo(
@@ -103,18 +151,46 @@ export function ContentCommandBar({
   const pipelineSteps = buildPipelineSteps(status, captureSummary);
   const confidence = captureSummary ? formatConfidencePercent(captureSummary.coverage_confidence) : "-";
   const canCreateServerTask = shouldOfferServerTask(detectedPage, captureSummary);
-  const isBusy = status === "capturing" || status === "uploading" || taskBusy;
+  const isInstagramAuthorizationGated = detectedPage.platform === "instagram";
+  const isBusy = status === "capturing" || status === "uploading" || taskBusy || insightBusy;
+  const nextAction = nextActionForState(
+    status,
+    captureSummary,
+    canCreateServerTask,
+    taskBusy,
+    isInstagramAuthorizationGated
+  );
+  const drawerTabs = buildDrawerTabs({
+    status,
+    captureSummary,
+    uploadResult,
+    strategyNotes,
+    collectionTaskResult,
+    canCreateServerTask,
+    authorizationGated: isInstagramAuthorizationGated
+  });
+  const activeDrawerTabState = drawerTabs.find((tab) => tab.key === activeDrawerTab) ?? drawerTabs[0];
+  const recoverySuggestion = recoverySuggestionForState({
+    detectedPage,
+    captureSummary,
+    collectionTaskResult,
+    canCreateServerTask,
+    authorizationGated: isInstagramAuthorizationGated,
+    error
+  });
 
   async function handlePreview() {
     setStatus("capturing");
     setError(null);
     setNotice(null);
     setUploadResult(null);
+    setStrategyNotes(null);
 
     try {
       const result = await captureCurrentPage({
         url: sourceUrl,
-        documentRoot
+        documentRoot,
+        runtimeSettings: await loadCaptureRuntimeSettings()
       });
       setPayload(result.payload);
       setCaptureSummary(result.summary);
@@ -130,6 +206,7 @@ export function ContentCommandBar({
   async function handleUpload() {
     setError(null);
     setNotice(null);
+    setStrategyNotes(null);
     setStatus(payload ? "uploading" : "capturing");
 
     try {
@@ -200,20 +277,100 @@ export function ContentCommandBar({
   async function captureForUpload() {
     const result = await captureCurrentPage({
       url: sourceUrl,
-      documentRoot
+      documentRoot,
+      runtimeSettings: await loadCaptureRuntimeSettings()
     });
     setPayload(result.payload);
     setCaptureSummary(result.summary);
     return result;
   }
 
-  function handleAiInsight() {
-    setNotice(
-      captureSummary
-        ? "AI 洞察入口已就绪：当前 MVP 会先回传 Canonical VOC，再由后台生成策略 notes。"
-        : "先采集预览，确认 Raw VOC 与 schema 覆盖后再进入 AI 洞察。"
-    );
-    setExpanded(true);
+  async function loadCaptureRuntimeSettings(): Promise<CaptureRuntimeSettings | undefined> {
+    if (detectedPage.platform !== "amazon") {
+      return undefined;
+    }
+
+    try {
+      const normalizedApiBaseUrl = await saveApiBaseUrl(apiBaseUrl);
+      setApiBaseUrl(normalizedApiBaseUrl);
+      const response = await sendRuntimeMessage<GetPlatformSettingResponse>({
+        type: GET_PLATFORM_SETTING_MESSAGE_TYPE,
+        apiBaseUrl: normalizedApiBaseUrl,
+        platform: "amazon"
+      });
+
+      if ("error" in response) {
+        setNotice("未读取到后台 Amazon 配置，使用默认页预算。");
+        return undefined;
+      }
+
+      const runtimeSettings = amazonRuntimeSettingsFromPlatformSetting(response);
+      if (!runtimeSettings?.amazonPageLimit) {
+        setNotice("后台 Amazon 页预算为空，使用默认页预算。");
+      }
+      return runtimeSettings;
+    } catch (error) {
+      if (error instanceof Error && error.message === "platform_disabled_by_settings") {
+        throw error;
+      }
+      setNotice("未读取到后台 Amazon 配置，使用默认页预算。");
+      return undefined;
+    }
+  }
+
+  async function handleAiInsight() {
+    if (!captureSummary) {
+      setNotice("先采集预览，确认 Raw VOC 与 schema 覆盖后再进入 AI 洞察。");
+      setExpanded(true);
+      return;
+    }
+
+    setInsightBusy(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      if (!isInsightPlatform(detectedPage.platform)) {
+        throw new Error("strategy_notes_platform_required");
+      }
+      const normalizedApiBaseUrl = await saveApiBaseUrl(apiBaseUrl);
+      setApiBaseUrl(normalizedApiBaseUrl);
+      const response = await sendRuntimeMessage<GetStrategyNotesResponse>({
+        type: GET_STRATEGY_NOTES_MESSAGE_TYPE,
+        apiBaseUrl: normalizedApiBaseUrl,
+        platform: detectedPage.platform
+      });
+
+      if ("error" in response) {
+        throw new Error(response.error);
+      }
+
+      setStrategyNotes(response);
+      setNotice(response.items.length > 0 ? "已读取后台 AI 洞察。" : "后台暂无该平台 strategy notes。");
+      setExpanded(true);
+    } catch (nextError) {
+      setError(stableError(nextError));
+    } finally {
+      setInsightBusy(false);
+    }
+  }
+
+  function handlePrimaryAction() {
+    if (nextAction.kind === "preview") {
+      void handlePreview();
+      return;
+    }
+    if (nextAction.kind === "upload") {
+      void handleUpload();
+      return;
+    }
+    if (nextAction.kind === "server_task") {
+      void handleCreateServerTask();
+      return;
+    }
+    if (nextAction.kind === "insight") {
+      void handleAiInsight();
+    }
   }
 
   function handleExportJson() {
@@ -234,79 +391,157 @@ export function ContentCommandBar({
     setNotice("已导出当前 Raw VOC CSV 摘要。");
   }
 
+  const objectTitle = detectedObjectTitle(detectedPage);
+  const sourceTitle = snapshot.title ?? objectTitle;
+  const sourceLocation = snapshot.marketplace ?? snapshot.subreddit ?? snapshot.instagramMediaKind ?? "-";
+
   return (
-    <section className="ph-shell" aria-label="Plugin Hub VOC Command Bar">
-      <div className="ph-command">
-        <div className="ph-brand">
-          <div className="ph-brand-mark" aria-hidden="true">
-            PH
-          </div>
-          <div>
-            <strong>Plugin Hub</strong>
-            <span>VOC Collector</span>
-          </div>
-        </div>
-
-        <div className="ph-badges" aria-label="平台与登录状态">
-          <span className={`ph-badge ph-badge--${detectedPage.platform}`}>{platformName(detectedPage)}</span>
-          <span className="ph-badge">Guest mode</span>
-        </div>
-
-        <dl className="ph-object" aria-label="检测对象">
-          <div>
-            <dt>检测对象</dt>
-            <dd>{detectedObjectTitle(detectedPage)}</dd>
-          </div>
-          <div>
-            <dt>Marketplace</dt>
-            <dd>{snapshot.marketplace ?? snapshot.subreddit ?? "-"}</dd>
-          </div>
-          <div>
-            <dt>类型</dt>
-            <dd>{detectedObjectSubtitle(detectedPage)}</dd>
-          </div>
-          <div>
-            <dt>{detectedPage.platform === "amazon" ? "评分" : "来源"}</dt>
-            <dd>{detectedPage.platform === "amazon" ? snapshot.rating ?? "-" : ".json + DOM fallback"}</dd>
-          </div>
-          <div>
-            <dt>{detectedPage.platform === "amazon" ? "全球评分" : "Thread"}</dt>
-            <dd>{detectedPage.platform === "amazon" ? snapshot.reviewCount ?? "-" : detectedObjectTitle(detectedPage)}</dd>
-          </div>
-        </dl>
-
-        <div className="ph-actions">
-          <button type="button" className="ph-button ph-button--secondary" onClick={handlePreview} disabled={isBusy}>
-            {status === "capturing" ? "采集中" : "采集预览"}
-          </button>
-          <button type="button" className="ph-button ph-button--primary" onClick={handleUpload} disabled={isBusy}>
-            {status === "uploading" ? "回传中" : "采集并回传"}
-          </button>
-          <button type="button" className="ph-button ph-button--secondary" onClick={handleAiInsight}>
-            AI 洞察
-          </button>
-          <button
-            type="button"
-            className="ph-icon-button"
-            aria-label={expanded ? "折叠 Plugin Hub 操作台" : "展开 Plugin Hub 操作台"}
-            onClick={() => setExpanded((value) => !value)}
-          >
-            {expanded ? "收起" : "展开"}
-          </button>
-          <button type="button" className="ph-icon-button" aria-label="关闭 Plugin Hub 操作台" onClick={onDismiss}>
-            关闭
-          </button>
-        </div>
-      </div>
-
+    <aside
+      className={`ph-shell ph-shell--${detectedPage.platform} ${
+        expanded ? "ph-shell--open" : "ph-shell--collapsed"
+      }`}
+      aria-label="Plugin Hub VOC Drawer"
+    >
       {expanded ? (
-        <>
-          <div className="ph-pipeline" aria-label="VOC Pipeline">
-            <div className="ph-pipeline-title">
-              <strong>VOC Pipeline</strong>
-              <span>{platformName(detectedPage)} 进入同一 Canonical VOC 模型</span>
+        <div className="ph-drawer">
+          <header className="ph-drawer-header">
+            <div className="ph-brand">
+              <div className="ph-brand-mark" aria-hidden="true">
+                PH
+              </div>
+              <div>
+                <strong>Plugin Hub</strong>
+                <span>{platformName(detectedPage)} VOC</span>
+              </div>
             </div>
-            <ol>
+            <div className="ph-header-actions">
+              <button
+                type="button"
+                className="ph-ghost-button"
+                aria-label="折叠 Plugin Hub 抽屉"
+                onClick={() => setExpanded(false)}
+              >
+                收起
+              </button>
+              <button type="button" className="ph-ghost-button" aria-label="关闭 Plugin Hub 抽屉" onClick={onDismiss}>
+                关闭
+              </button>
+            </div>
+          </header>
+
+          <nav className="ph-loop-tabs" aria-label="Loop 工程阶段" role="tablist">
+            {drawerTabs.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                role="tab"
+                aria-selected={activeDrawerTab === tab.key}
+                className={`ph-loop-tab ph-loop-tab--${tab.state}`}
+                onClick={() => setActiveDrawerTab(tab.key)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+
+          <section
+            className={`ph-section ph-stage-panel ph-stage-panel--${activeDrawerTabState.state}`}
+            aria-label="当前 Loop 阶段"
+            role="tabpanel"
+          >
+            <span>{activeDrawerTabState.label}</span>
+            <strong>{activeDrawerTabState.title}</strong>
+            <p>{activeDrawerTabState.detail}</p>
+          </section>
+
+          <section className="ph-section ph-source" aria-label="检测对象">
+            <div className="ph-section-kicker">
+              <span className={`ph-badge ph-badge--${detectedPage.platform}`}>{platformName(detectedPage)}</span>
+              <span className="ph-badge">{detectedPage.platform === "instagram" ? "Auth gated" : "Guest mode"}</span>
+            </div>
+            <h2>{sourceTitle}</h2>
+            <dl className="ph-meta-grid">
+              <div>
+                <dt>{primaryObjectLabel(detectedPage)}</dt>
+                <dd>{objectTitle}</dd>
+              </div>
+              <div>
+                <dt>{sourceContextLabel(detectedPage)}</dt>
+                <dd>{sourceLocation}</dd>
+              </div>
+              <div>
+                <dt>类型</dt>
+                <dd>{detectedObjectSubtitle(detectedPage)}</dd>
+              </div>
+              <div>
+                <dt>{evidenceMethodLabel(detectedPage)}</dt>
+                <dd>{evidenceMethodValue(detectedPage, snapshot)}</dd>
+              </div>
+              <div>
+                <dt>{strategyLabel(detectedPage)}</dt>
+                <dd>{strategyValue(detectedPage, snapshot)}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section className="ph-section ph-action-panel" aria-label="采集操作">
+            <div className="ph-next-action">
+              <span>Next Step</span>
+              <strong>{nextAction.title}</strong>
+              <p>{nextAction.detail}</p>
+            </div>
+            <button
+              type="button"
+              className="ph-button ph-button--primary"
+              onClick={handlePrimaryAction}
+              disabled={isBusy || nextAction.disabled}
+            >
+              {nextAction.label}
+            </button>
+            {payload ? (
+              <div className="ph-secondary-actions">
+                <button type="button" className="ph-mini-button" onClick={handlePreview} disabled={isBusy}>
+                  重新预览
+                </button>
+                <button type="button" className="ph-mini-button" onClick={() => void handleAiInsight()} disabled={isBusy}>
+                  {insightBusy ? "读取中" : "AI 洞察"}
+                </button>
+              </div>
+            ) : null}
+          </section>
+
+          {recoverySuggestion ? (
+            <section
+              className={`ph-section ph-recovery ph-recovery--${recoverySuggestion.tone}`}
+              aria-label="恢复建议"
+              role={recoverySuggestion.tone === "error" ? "alert" : "status"}
+            >
+              <strong>{recoverySuggestion.title}</strong>
+              <p>{recoverySuggestion.detail}</p>
+            </section>
+          ) : null}
+
+          <section className="ph-section ph-metrics" aria-label="采集概览">
+            <div>
+              <span>Raw</span>
+              <strong>{captureSummary?.raw_item_count ?? "-"}</strong>
+            </div>
+            <div>
+              <span>VOC</span>
+              <strong>{uploadResult && !("error" in uploadResult) ? uploadResult.voc_unit_count : "-"}</strong>
+            </div>
+            <div>
+              <span>Coverage</span>
+              <strong>{confidence}</strong>
+            </div>
+          </section>
+
+          <section className="ph-section ph-pipeline" aria-label="VOC Pipeline">
+            <div className="ph-section-heading">
+              <strong>VOC Pipeline</strong>
+              <span>{platformName(detectedPage)} capture path</span>
+            </div>
+            <ol className="ph-pipeline-list">
               {pipelineSteps.map((step, index) => (
                 <li key={step.label} className={`ph-step ph-step--${step.state}`}>
                   <span className="ph-step-index">{index + 1}</span>
@@ -317,63 +552,368 @@ export function ContentCommandBar({
                 </li>
               ))}
             </ol>
-            <div className="ph-confidence">
-              <span>覆盖率 / Confidence</span>
-              <strong>{confidence}</strong>
-            </div>
-          </div>
+          </section>
 
-          <div className="ph-footer">
-            <p>
-              免登录可预览 schema；登录仅用于云端历史与团队协作。当前插件支持：
-              <strong> {platformName(detectedPage)}</strong>
-            </p>
+          <section className="ph-section ph-evidence" aria-label="采集证据">
+            <div className="ph-section-heading">
+              <strong>Evidence</strong>
+              <span>{captureSummary ? captureSummaryStatusText(captureSummary) : "等待采集"}</span>
+            </div>
+            <div className="ph-button-row">
+              {payload ? (
+                <>
+                  <button type="button" className="ph-mini-button" onClick={handleExportJson}>
+                    导出 JSON
+                  </button>
+                  <button type="button" className="ph-mini-button" onClick={handleExportCsv}>
+                    导出 CSV
+                  </button>
+                </>
+              ) : null}
+              {canCreateServerTask ? (
+                <button type="button" className="ph-mini-button" onClick={handleCreateServerTask} disabled={isBusy}>
+                  {taskBusy ? "提交中" : "服务端补采"}
+                </button>
+              ) : null}
+            </div>
+            <div className="ph-status-stack" aria-live="polite">
+              {captureSummary ? (
+                <span className="ph-run-state">
+                  Raw {captureSummary.raw_item_count} · {captureSummaryStatusText(captureSummary)}
+                </span>
+              ) : null}
+              {uploadResult && !("error" in uploadResult) ? (
+                <span className="ph-run-state">
+                  Run {uploadResult.collection_run_id} · VOC {uploadResult.voc_unit_count}
+                </span>
+              ) : null}
+              {collectionTaskResult && !("error" in collectionTaskResult) ? (
+                <span className="ph-run-state">
+                  Task {collectionTaskResult.collection_task_id} · {collectionTaskResult.status}
+                </span>
+              ) : null}
+              {notice ? <span className="ph-notice">{notice}</span> : null}
+              {error ? (
+                <span className="ph-error" role="alert">
+                  错误：{error}
+                </span>
+              ) : null}
+            </div>
+          </section>
+
+          {strategyNotes ? (
+            <section className="ph-section ph-insights" aria-label="AI 洞察">
+              <div className="ph-section-heading">
+                <strong>AI Insights</strong>
+                <span>{strategyNotes.items.length} strategy notes</span>
+              </div>
+              {strategyNotes.items.length > 0 ? (
+                <ol className="ph-pipeline-list">
+                  {strategyNotes.items.slice(0, 3).map((note) => (
+                    <li key={`${note.topic}:${note.evidence_count}`} className="ph-step ph-step--active">
+                      <span className="ph-step-index">{note.evidence_count}</span>
+                      <div>
+                        <strong>{note.topic}</strong>
+                        <span>{note.recommendation}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <span className="ph-run-state">暂无后台 strategy notes</span>
+              )}
+            </section>
+          ) : null}
+
+          <details className="ph-section ph-settings">
+            <summary>回传设置</summary>
             <label>
-              <span>API</span>
+              <span>API 地址</span>
               <input
                 type="url"
+                name="plugin-hub-api-base-url"
+                inputMode="url"
+                autoComplete="off"
+                spellCheck={false}
                 value={apiBaseUrl}
                 aria-label="私有服务器 API 地址"
                 onChange={(event) => setApiBaseUrl(event.currentTarget.value)}
               />
             </label>
-            {payload ? (
-              <div className="ph-export-actions" aria-label="本地导出">
-                <button type="button" className="ph-mini-button" onClick={handleExportJson}>
-                  导出 JSON
-                </button>
-                <button type="button" className="ph-mini-button" onClick={handleExportCsv}>
-                  导出 CSV
-                </button>
-              </div>
-            ) : null}
-            {canCreateServerTask ? (
-              <button type="button" className="ph-mini-button" onClick={handleCreateServerTask} disabled={isBusy}>
-                {taskBusy ? "提交中" : "服务端补采"}
-              </button>
-            ) : null}
-            {captureSummary ? (
-              <span className="ph-run-state">
-                Raw {captureSummary.raw_item_count} · {captureSummaryStatusText(captureSummary)}
-              </span>
-            ) : null}
-            {uploadResult && !("error" in uploadResult) ? (
-              <span className="ph-run-state">
-                Run {uploadResult.collection_run_id} · VOC {uploadResult.voc_unit_count}
-              </span>
-            ) : null}
-            {collectionTaskResult && !("error" in collectionTaskResult) ? (
-              <span className="ph-run-state">
-                Task {collectionTaskResult.collection_task_id} · {collectionTaskResult.status}
-              </span>
-            ) : null}
-            {notice ? <span className="ph-notice">{notice}</span> : null}
-            {error ? <span className="ph-error">失败：{error}</span> : null}
-          </div>
-        </>
-      ) : null}
-    </section>
+          </details>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="ph-rail"
+          aria-label="展开 Plugin Hub 抽屉"
+          onClick={() => setExpanded(true)}
+        >
+          <span className="ph-rail-mark" aria-hidden="true">
+            PH
+          </span>
+          <span className="ph-rail-copy">
+            <strong>{platformName(detectedPage)}</strong>
+            <span>{objectTitle}</span>
+          </span>
+          <span className="ph-rail-state">{railStatusText(status, captureSummary, uploadResult)}</span>
+        </button>
+      )}
+    </aside>
   );
+}
+
+function buildDrawerTabs({
+  status,
+  captureSummary,
+  uploadResult,
+  strategyNotes,
+  collectionTaskResult,
+  canCreateServerTask,
+  authorizationGated
+}: {
+  status: CommandBarStatus;
+  captureSummary: CaptureSummary | null;
+  uploadResult: UploadCollectionResponse | null;
+  strategyNotes: StrategyNotesResponse | null;
+  collectionTaskResult: CreateCollectionTaskResponse | null;
+  canCreateServerTask: boolean;
+  authorizationGated: boolean;
+}): DrawerTabState[] {
+  const hasRawItems = Boolean(captureSummary && captureSummary.raw_item_count > 0);
+  const hasUpload = Boolean(uploadResult && !("error" in uploadResult));
+  const hasTask = Boolean(collectionTaskResult && !("error" in collectionTaskResult));
+  const emptyRaw = Boolean(captureSummary && captureSummary.raw_item_count === 0);
+  const failed = status === "error";
+
+  return [
+    {
+      key: "plan",
+      label: "计划",
+      title: authorizationGated ? "授权门禁优先" : "确认采集计划",
+      detail: authorizationGated
+        ? "当前平台需要后端授权后才能进入 live read，插件侧只展示对象与门禁状态。"
+        : "先确认页面对象、采集方法和下一步动作，再进入 Raw 预览。",
+      state: status === "ready" || status === "capturing" || authorizationGated ? "active" : "done"
+    },
+    {
+      key: "raw",
+      label: "Raw",
+      title: captureSummary ? `Raw ${captureSummary.raw_item_count}` : "等待 Raw 采集",
+      detail: captureSummary
+        ? captureSummaryStatusText(captureSummary)
+        : "尚未读取页面 Raw VOC，先执行采集预览。",
+      state: failed || emptyRaw ? "error" : hasRawItems ? "done" : status === "capturing" ? "active" : "waiting"
+    },
+    {
+      key: "schema",
+      label: "Schema",
+      title: hasRawItems ? "Schema Mapping 就绪" : "等待有效 Raw",
+      detail: hasRawItems
+        ? "Raw item 已保留 schema、payload hash 与 coverage scope，可回传生成 Canonical VOC。"
+        : emptyRaw
+          ? "当前页面没有有效 raw，需走补采或授权路径。"
+          : "Schema 映射依赖 Raw 预览结果。",
+      state: failed || emptyRaw ? "error" : hasRawItems || hasUpload ? "done" : "waiting"
+    },
+    {
+      key: "insight",
+      label: "洞察",
+      title: strategyNotes ? `${strategyNotes.items.length} 条策略 notes` : "等待后台洞察",
+      detail: strategyNotes
+        ? "已读取后台 strategy notes，可继续判断选品、Listing 或广告动作。"
+        : hasUpload
+          ? "Canonical VOC 已写入后台，可以读取 AI 洞察。"
+          : "洞察需要先完成回传或后台已有策略 notes。",
+      state: strategyNotes ? "done" : hasUpload ? "active" : "waiting"
+    },
+    {
+      key: "handoff",
+      label: "回传",
+      title: hasTask ? "补采任务已提交" : hasUpload ? "后台已写入" : canCreateServerTask ? "待提交补采" : "等待回传",
+      detail: hasTask
+        ? "服务端补采任务已进入后台队列，请在 VOC Hub 继续复核状态。"
+        : hasUpload
+          ? "Canonical VOC 已进入后台，可在 VOC Hub 复核证据。"
+          : canCreateServerTask
+            ? "Reddit browser capture 返回 Raw 0，建议提交 server capture queue。"
+            : "预览确认后再写入后台，避免把低证据内容直接升级。",
+      state: hasTask || hasUpload ? "done" : canCreateServerTask || status === "previewed" ? "active" : "waiting"
+    }
+  ];
+}
+
+function recoverySuggestionForState({
+  detectedPage,
+  captureSummary,
+  collectionTaskResult,
+  canCreateServerTask,
+  authorizationGated,
+  error
+}: {
+  detectedPage: DetectedPage;
+  captureSummary: CaptureSummary | null;
+  collectionTaskResult: CreateCollectionTaskResponse | null;
+  canCreateServerTask: boolean;
+  authorizationGated: boolean;
+  error: string | null;
+}): RecoverySuggestion | null {
+  if (error) {
+    return {
+      tone: "error",
+      title: "恢复建议",
+      detail: recoveryDetailForError(error)
+    };
+  }
+
+  if (collectionTaskResult && !("error" in collectionTaskResult)) {
+    return {
+      tone: "info",
+      title: "补采已进入队列",
+      detail: `任务 ${collectionTaskResult.collection_task_id} 当前为 ${collectionTaskResult.status}，请在 VOC Hub 的任务状态继续复核。`
+    };
+  }
+
+  if (authorizationGated) {
+    return {
+      tone: "warning",
+      title: "授权门禁",
+      detail: "当前 Instagram 页面只展示目标对象和 Meta API 路径；需要后端授权、credential 与任务审批后才能进入 live read。"
+    };
+  }
+
+  if (canCreateServerTask) {
+    return {
+      tone: "warning",
+      title: "恢复建议：服务端补采",
+      detail: "Reddit JSON 与 DOM 都没有有效 raw，请提交 server capture queue，并在 VOC Hub 复核 pending、retry 或 failed 状态。"
+    };
+  }
+
+  if (detectedPage.platform === "reddit" && captureSummary?.stop_reason === "reddit_json_unavailable_dom_fallback") {
+    return {
+      tone: "info",
+      title: "降级采集提示",
+      detail: "Reddit JSON 不可达，当前结果来自 DOM fallback；回传后需关注 coverage confidence 和 quality flags。"
+    };
+  }
+
+  return null;
+}
+
+function recoveryDetailForError(error: string): string {
+  if (error === "collection_run_requires_raw_items_submit_server_task") {
+    return "当前预览没有有效 Raw VOC，先提交服务端补采任务或切换到可访问的页面后再回传。";
+  }
+  if (error === "platform_disabled_by_settings") {
+    return "后台平台配置已关闭，先在 VOC Hub 启用该平台或切换到已启用平台。";
+  }
+  if (error.includes("fetch") || error.includes("network")) {
+    return "网络或 API 不可达，检查 API 地址后重试；不要把本次结果记为平台采集成功。";
+  }
+  return `保留当前状态并复核错误码：${error}`;
+}
+
+function nextActionForState(
+  status: CommandBarStatus,
+  captureSummary: CaptureSummary | null,
+  canCreateServerTask: boolean,
+  taskBusy: boolean,
+  authorizationGated: boolean
+): NextActionState {
+  if (status === "capturing") {
+    return {
+      kind: "busy",
+      label: "采集中…",
+      title: "读取当前页面",
+      detail: "正在提取页面上下文和 Raw VOC。",
+      disabled: true
+    };
+  }
+  if (status === "uploading") {
+    return {
+      kind: "busy",
+      label: "回传中…",
+      title: "写入后台",
+      detail: "正在把采集结果写入私有 API。",
+      disabled: true
+    };
+  }
+  if (taskBusy) {
+    return {
+      kind: "busy",
+      label: "提交中…",
+      title: "创建补采任务",
+      detail: "正在向后台队列提交服务端补采请求。",
+      disabled: true
+    };
+  }
+  if (authorizationGated) {
+    return {
+      kind: "blocked",
+      label: "等待授权",
+      title: "需要后端授权采集",
+      detail: "Instagram 插件已隔离打包；采集需 Meta API 授权或 fixture 后端入口。",
+      disabled: true
+    };
+  }
+  if (status === "uploaded") {
+    return {
+      kind: "insight",
+      label: "查看 AI 洞察",
+      title: "进入策略分析",
+      detail: "Canonical VOC 已写入后台，可以继续查看策略 notes。",
+      disabled: false
+    };
+  }
+  if (canCreateServerTask) {
+    return {
+      kind: "server_task",
+      label: "服务端补采",
+      title: "需要服务端补采",
+      detail: "Reddit JSON 与 DOM 都没有有效 raw，建议提交后台补采任务。",
+      disabled: false
+    };
+  }
+  if (captureSummary) {
+    return {
+      kind: "upload",
+      label: "回传到后台",
+      title: "确认并写入",
+      detail: "预览已经生成，下一步把 Canonical VOC 输入写入后台。",
+      disabled: false
+    };
+  }
+  return {
+    kind: "preview",
+    label: "采集预览",
+    title: "先预览证据",
+    detail: "读取当前页面，确认 Raw VOC 与覆盖范围后再回传。",
+    disabled: false
+  };
+}
+
+function railStatusText(
+  status: CommandBarStatus,
+  captureSummary: CaptureSummary | null,
+  uploadResult: UploadCollectionResponse | null
+): string {
+  if (status === "uploaded" && uploadResult && !("error" in uploadResult)) {
+    return `VOC ${uploadResult.voc_unit_count}`;
+  }
+  if (status === "capturing") {
+    return "采集中";
+  }
+  if (status === "uploading") {
+    return "回传中";
+  }
+  if (status === "error") {
+    return "需处理";
+  }
+  if (captureSummary) {
+    return `Raw ${captureSummary.raw_item_count}`;
+  }
+  return "Ready";
 }
 
 function shouldOfferServerTask(detectedPage: DetectedPage, summary: CaptureSummary | null): boolean {
@@ -382,6 +922,76 @@ function shouldOfferServerTask(detectedPage: DetectedPage, summary: CaptureSumma
     summary?.raw_item_count === 0 &&
     summary.stop_reason === "reddit_json_unavailable_dom_empty"
   );
+}
+
+function isInsightPlatform(platform: DetectedPage["platform"]): platform is Platform {
+  return platform === "amazon" || platform === "reddit" || platform === "instagram";
+}
+
+function primaryObjectLabel(detectedPage: DetectedPage): string {
+  if (detectedPage.platform === "amazon") {
+    return "ASIN";
+  }
+  if (detectedPage.platform === "reddit") {
+    return "Thread";
+  }
+  if (detectedPage.platform === "instagram") {
+    return "Shortcode";
+  }
+  return "Object";
+}
+
+function sourceContextLabel(detectedPage: DetectedPage): string {
+  if (detectedPage.platform === "amazon") {
+    return "Marketplace";
+  }
+  if (detectedPage.platform === "reddit") {
+    return "Subreddit";
+  }
+  if (detectedPage.platform === "instagram") {
+    return "Media";
+  }
+  return "Source";
+}
+
+function evidenceMethodLabel(detectedPage: DetectedPage): string {
+  if (detectedPage.platform === "amazon") {
+    return "评分";
+  }
+  if (detectedPage.platform === "instagram") {
+    return "入口";
+  }
+  return "来源";
+}
+
+function evidenceMethodValue(detectedPage: DetectedPage, snapshot: ReturnType<typeof getPageSnapshot>): string {
+  if (detectedPage.platform === "amazon") {
+    return snapshot.rating ?? "-";
+  }
+  if (detectedPage.platform === "instagram") {
+    return "Meta API";
+  }
+  return ".json + DOM";
+}
+
+function strategyLabel(detectedPage: DetectedPage): string {
+  if (detectedPage.platform === "amazon") {
+    return "评论数";
+  }
+  if (detectedPage.platform === "instagram") {
+    return "状态";
+  }
+  return "补充策略";
+}
+
+function strategyValue(detectedPage: DetectedPage, snapshot: ReturnType<typeof getPageSnapshot>): string {
+  if (detectedPage.platform === "amazon") {
+    return snapshot.reviewCount ?? "-";
+  }
+  if (detectedPage.platform === "instagram") {
+    return "授权待接入";
+  }
+  return "DOM fallback";
 }
 
 function buildServerCollectionTaskPayload({
@@ -429,7 +1039,11 @@ function copyCoverageScopeScalar(context: JsonObject, coverageScope: JsonObject 
 }
 
 async function sendRuntimeMessage<TResponse>(
-  message: UploadCollectionMessage | CreateCollectionTaskMessage
+  message:
+    | UploadCollectionMessage
+    | CreateCollectionTaskMessage
+    | GetPlatformSettingMessage
+    | GetStrategyNotesMessage
 ): Promise<TResponse> {
   return chrome.runtime.sendMessage(message) as Promise<TResponse>;
 }

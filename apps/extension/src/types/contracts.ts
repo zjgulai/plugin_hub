@@ -67,9 +67,13 @@ function isPlainObject(value: unknown): value is { [key: string]: unknown } {
   return prototype === Object.prototype || prototype === null;
 }
 
-export type Platform = "amazon" | "reddit";
+export type Platform = "amazon" | "reddit" | "instagram";
 
-export type SourceKind = "amazon_review" | "reddit_thread" | "reddit_comment";
+export type SourceKind =
+  | "amazon_review"
+  | "reddit_thread"
+  | "reddit_comment"
+  | "instagram_comment";
 
 export interface CollectionRunCreate {
   platform: Platform;
@@ -114,6 +118,29 @@ export interface CollectionTaskResult extends CollectionTaskCreate {
   status: CollectionTaskStatus;
   created_at: string;
   updated_at: string;
+}
+
+export interface PlatformSettingResult {
+  platform: Platform;
+  enabled: boolean;
+  config: JsonObject;
+  updated_at: string;
+  updated_by: string;
+  source: string;
+}
+
+export interface StrategyNote {
+  strategy_type: string;
+  topic: string;
+  evidence_count: number;
+  evidence_examples: JsonValue[];
+  recommendation: string;
+  evidence_strength: number;
+  quality_flags: string[];
+}
+
+export interface StrategyNotesResponse {
+  items: StrategyNote[];
 }
 
 export interface RawSourceItem {

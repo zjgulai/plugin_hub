@@ -5,6 +5,9 @@ import {
   type CollectionTaskPayload,
   type CollectionTaskResult,
   type CollectionTaskStatus,
+  type PlatformSettingResult,
+  type StrategyNote,
+  type StrategyNotesResponse,
   type Platform
 } from "../types/contracts";
 
@@ -64,6 +67,47 @@ export async function createCollectionTask(
   }
 
   return parseCollectionTaskResult(await response.json());
+}
+
+export async function getPlatformSetting(
+  apiBaseUrl: string,
+  platform: Platform,
+  fetcher: UploadFetcher = fetch
+): Promise<PlatformSettingResult> {
+  const response = await fetcher(`${trimBaseUrl(apiBaseUrl)}/api/platform-settings/${platform}`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json"
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`platform_setting_fetch_failed:${response.status}`);
+  }
+
+  return parsePlatformSettingResult(await response.json(), platform);
+}
+
+export async function getStrategyNotes(
+  apiBaseUrl: string,
+  platform: Platform,
+  fetcher: UploadFetcher = fetch
+): Promise<StrategyNotesResponse> {
+  const response = await fetcher(
+    `${trimBaseUrl(apiBaseUrl)}/api/insights/strategy-notes?platform=${encodeURIComponent(platform)}`,
+    {
+      method: "GET",
+      headers: {
+        Accept: "application/json"
+      }
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`strategy_notes_fetch_failed:${response.status}`);
+  }
+
+  return parseStrategyNotesResponse(await response.json());
 }
 
 function trimBaseUrl(apiBaseUrl: string): string {
@@ -151,8 +195,97 @@ function parseCollectionTaskResult(value: unknown): CollectionTaskResult {
   };
 }
 
+function parsePlatformSettingResult(
+  value: unknown,
+  expectedPlatform: Platform
+): PlatformSettingResult {
+  if (!isRecord(value)) {
+    throw new TypeError("platform_setting_response_object_required");
+  }
+
+  const platform = value.platform;
+  const enabled = value.enabled;
+  const config = value.config;
+  const updatedAt = value.updated_at;
+  const updatedBy = value.updated_by;
+  const source = value.source;
+
+  if (
+    !isPlatform(platform) ||
+    platform !== expectedPlatform ||
+    typeof enabled !== "boolean" ||
+    typeof updatedAt !== "string" ||
+    typeof updatedBy !== "string" ||
+    typeof source !== "string"
+  ) {
+    throw new TypeError("platform_setting_response_invalid");
+  }
+
+  assertJsonObject(config);
+
+  return {
+    platform,
+    enabled,
+    config,
+    updated_at: updatedAt,
+    updated_by: updatedBy,
+    source
+  };
+}
+
+function parseStrategyNotesResponse(value: unknown): StrategyNotesResponse {
+  if (!isRecord(value) || !Array.isArray(value.items)) {
+    throw new TypeError("strategy_notes_response_invalid");
+  }
+
+  return {
+    items: value.items.map(parseStrategyNote)
+  };
+}
+
+function parseStrategyNote(value: unknown): StrategyNote {
+  if (!isRecord(value)) {
+    throw new TypeError("strategy_note_response_invalid");
+  }
+
+  const strategyType = value.strategy_type;
+  const topic = value.topic;
+  const evidenceCount = value.evidence_count;
+  const evidenceExamples = value.evidence_examples;
+  const recommendation = value.recommendation;
+  const evidenceStrength = value.evidence_strength;
+  const qualityFlags = value.quality_flags;
+
+  if (
+    typeof strategyType !== "string" ||
+    typeof topic !== "string" ||
+    typeof evidenceCount !== "number" ||
+    !Array.isArray(evidenceExamples) ||
+    typeof recommendation !== "string" ||
+    typeof evidenceStrength !== "number" ||
+    !Array.isArray(qualityFlags) ||
+    !qualityFlags.every((flag) => typeof flag === "string")
+  ) {
+    throw new TypeError("strategy_note_response_invalid");
+  }
+
+  for (const example of evidenceExamples) {
+    assertJsonValue(example);
+  }
+
+  return {
+    strategy_type: strategyType,
+    topic,
+    evidence_count: evidenceCount,
+    evidence_examples: evidenceExamples,
+    recommendation,
+    evidence_strength: evidenceStrength,
+    quality_flags: qualityFlags
+  };
+}
+
 function isPlatform(value: unknown): value is Platform {
-  return value === "amazon" || value === "reddit";
+  return value === "amazon" || value === "reddit" || value === "instagram";
 }
 
 function isCollectionTaskStatus(value: unknown): value is CollectionTaskStatus {

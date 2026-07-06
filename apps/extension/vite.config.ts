@@ -1,5 +1,6 @@
 import react from "@vitejs/plugin-react";
 import { build as buildWithEsbuild } from "esbuild";
+import { readFileSync } from "node:fs";
 import process from "node:process";
 import { defineConfig, type Plugin } from "vite";
 
@@ -14,6 +15,7 @@ const extensionTarget = normalizeExtensionTarget(process.env.PLUGIN_HUB_EXTENSIO
 
 export default defineConfig(({ mode }) => {
   return {
+    publicDir: false,
     plugins: [
       react(),
       standaloneContentScript(extensionTarget),
@@ -83,10 +85,21 @@ function standaloneContentScript(target: ExtensionTarget): Plugin {
 }
 
 function chromeExtensionAssets(target: ExtensionTarget): Plugin {
+  const iconSizes = [16, 32, 48, 128] as const;
+
   return {
     name: "plugin-hub-chrome-extension-assets",
     generateBundle() {
       const targetConfig = extensionTargetConfig(target);
+      for (const size of iconSizes) {
+        this.emitFile({
+          type: "asset",
+          fileName: `icons/${target}/icon-${size}.png`,
+          source: readFileSync(
+            new URL(`./public/icons/${target}/icon-${size}.png`, import.meta.url)
+          )
+        });
+      }
       this.emitFile({
         type: "asset",
         fileName: "manifest.json",
@@ -97,7 +110,7 @@ function chromeExtensionAssets(target: ExtensionTarget): Plugin {
         fileName: "popup/index.html",
         source: [
           "<!doctype html>",
-          '<html lang="en">',
+          '<html lang="zh-CN">',
           "  <head>",
           '    <meta charset="UTF-8" />',
           '    <meta name="viewport" content="width=device-width, initial-scale=1.0" />',

@@ -3,6 +3,10 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_API_BASE_URL, normalizeApiBaseUrl } from "../src/lib/settings";
 
 describe("extension settings", () => {
+  it("defaults packaged collectors to the production Plugin Hub API", () => {
+    expect(DEFAULT_API_BASE_URL).toBe("https://plugin.lute-tlz-dddd.top");
+  });
+
   it("normalizes API base URLs", () => {
     expect(normalizeApiBaseUrl(" http://localhost:8000/// ")).toBe("http://localhost:8000");
     expect(normalizeApiBaseUrl("")).toBe(DEFAULT_API_BASE_URL);

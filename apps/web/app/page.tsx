@@ -1,11 +1,24 @@
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+
 import { DashboardAutoRefresh } from "../src/components/DashboardAutoRefresh";
+import { PlatformWorkspace } from "../src/components/operations/PlatformWorkspace";
+import { RedditCaptureSubmitButton } from "../src/components/RedditCaptureSubmitButton";
 import { VocEvidenceTable } from "../src/components/VocEvidenceTable";
 import {
+  captureRedditThreadByUrl,
+  fetchCaptureCapabilities,
   fetchCollectionTasks,
+  fetchPlatformSettingAuditEvents,
+  fetchPlatformSettings,
   fetchStrategyNotes,
   fetchVocUnits,
+  updatePlatformSetting,
+  type CaptureCapability,
   type CollectionTask,
   type JsonValue,
+  type PlatformSettingAuditEvent,
+  type PlatformSetting,
   type StrategyNote,
   type VocPlatform,
   type VocUnit
@@ -14,12 +27,22 @@ import { loadDashboardConfig, type DashboardConfig } from "../src/lib/config";
 
 export const dynamic = "force-dynamic";
 
+type PageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
 type DashboardData = {
   units: VocUnit[];
   tasks: CollectionTask[];
+  captureCapabilities: CaptureCapability[];
+  platformSettings: PlatformSetting[];
+  platformSettingAuditEvents: PlatformSettingAuditEvent[];
   strategyNotes: StrategyNote[];
   vocError: string | null;
   taskError: string | null;
+  capabilityError: string | null;
+  platformSettingsError: string | null;
+  platformSettingAuditError: string | null;
   strategyError: string | null;
   loadedAt: string;
 };
@@ -28,6 +51,7 @@ type DashboardMetrics = {
   total: number;
   amazon: number;
   reddit: number;
+  instagram: number;
   flagged: number;
   lowConfidence: number;
   averageConfidence: number;
@@ -36,14 +60,31 @@ type DashboardMetrics = {
   latestCapturedAt: string | null;
 };
 
-export default async function Page() {
+type RedditCaptureStatus = {
+  tone: "success" | "error";
+  title: string;
+  detail: string;
+  jsonUrl: string | null;
+};
+
+type PlatformSettingsStatus = {
+  tone: "success" | "error";
+  title: string;
+  detail: string;
+  platform: VocPlatform | null;
+};
+
+export default async function Page({ searchParams }: PageProps) {
   const config = loadDashboardConfig();
   const data = await loadDashboardData(config.apiBaseUrl);
   const metrics = getMetrics(data.units, data.tasks, config.lowConfidenceThreshold);
   const apiState = getApiState(data);
+  const resolvedSearchParams = await resolveSearchParams(searchParams);
+  const redditCaptureStatus = getRedditCaptureStatus(resolvedSearchParams);
+  const platformSettingsStatus = getPlatformSettingsStatus(resolvedSearchParams);
 
   return (
-    <main className="dashboardShell">
+    <main id="main-content" className="dashboardShell">
       <DashboardAutoRefresh intervalSeconds={config.refreshSeconds} />
 
       <header className="topBar">
@@ -61,6 +102,7 @@ export default async function Page() {
         <MetricTile label="证据总量" value={metrics.total} detail={`${metrics.runCount} 个 run`} tone="ink" />
         <MetricTile label="Amazon" value={metrics.amazon} detail="评论证据" tone="amazon" />
         <MetricTile label="Reddit" value={metrics.reddit} detail="Thread / comment" tone="reddit" />
+        <MetricTile label="Instagram" value={metrics.instagram} detail="media comments" tone="instagram" />
         <MetricTile
           label="低置信度"
           value={metrics.lowConfidence}
@@ -77,10 +119,28 @@ export default async function Page() {
         <MetricTile label="平均覆盖" value={`${metrics.averageConfidence}%`} detail="coverage confidence" tone="clear" />
       </section>
 
+      <PlatformWorkspace
+        units={data.units}
+        tasks={data.tasks}
+        capabilities={data.captureCapabilities}
+        platformSettings={data.platformSettings}
+        platformSettingAuditEvents={data.platformSettingAuditEvents}
+        platformSettingsError={data.platformSettingsError}
+        platformSettingAuditError={data.platformSettingAuditError}
+        platformSettingsStatus={platformSettingsStatus}
+        config={config}
+        updatePlatformSettingAction={updatePlatformSettingAction}
+      />
+
+      <RedditUrlCapturePanel status={redditCaptureStatus} />
+
       <section className="opsGrid opsGrid--priority" aria-label="运行监控">
         <MonitorPanel data={data} metrics={metrics} config={config} />
         <CollectionTaskPanel tasks={data.tasks} error={data.taskError} />
-        <PlatformPanel units={data.units} />
+        <AuthorizationPanel
+          capabilities={data.captureCapabilities}
+          error={data.capabilityError}
+        />
         <StrategyPanel notes={data.strategyNotes} error={data.strategyError} />
       </section>
 
@@ -97,7 +157,10 @@ export default async function Page() {
             <strong>{metrics.averageConfidence}%</strong>
           </div>
         </div>
-        <VocEvidenceTable units={data.units} />
+        <VocEvidenceTable
+          units={data.units}
+          lowConfidenceThreshold={config.lowConfidenceThreshold}
+        />
       </section>
 
       <section className="commandGrid" aria-label="运行总览">
@@ -110,22 +173,114 @@ export default async function Page() {
   );
 }
 
+async function captureRedditThreadAction(formData: FormData) {
+  "use server";
+
+  const sourceUrl = String(formData.get("redditThreadUrl") ?? "").trim();
+  let destination = "/?reddit_capture=error&message=reddit_thread_url_required";
+
+  if (sourceUrl.length > 0) {
+    try {
+      const config = loadDashboardConfig();
+      const result = await captureRedditThreadByUrl(config.apiBaseUrl, sourceUrl);
+      revalidatePath("/");
+      destination = [
+        "/?reddit_capture=success",
+        `run=${encodeURIComponent(result.collection_run_id)}`,
+        `raw=${result.raw_item_count}`,
+        `voc=${result.voc_unit_count}`,
+        `json=${encodeURIComponent(result.json_url)}`
+      ].join("&");
+    } catch (error) {
+      destination = `/?reddit_capture=error&message=${encodeURIComponent(stableError(error))}`;
+    }
+  }
+
+  redirect(destination);
+}
+
+async function updatePlatformSettingAction(formData: FormData) {
+  "use server";
+
+  const platform = platformFromForm(formData);
+  if (!platform) {
+    redirect("/?settings_update=error&message=platform_required");
+  }
+
+  let destination = `/?settings_update=success&settings_platform=${platform}`;
+  try {
+    const config = loadDashboardConfig();
+    const result = await updatePlatformSetting(config.apiBaseUrl, platform, {
+      enabled: formData.get("enabled") === "on",
+      config: platformConfigFromForm(platform, formData),
+      updated_by: "dashboard-ui"
+    });
+    revalidatePath("/");
+    destination = [
+      "/?settings_update=success",
+      `settings_platform=${platform}`,
+      `settings_source=${encodeURIComponent(result.source)}`,
+      `settings_updated_at=${encodeURIComponent(result.updated_at)}`
+    ].join("&");
+  } catch (error) {
+    destination = `/?settings_update=error&message=${encodeURIComponent(stableError(error))}`;
+  }
+  redirect(destination);
+}
+
 async function loadDashboardData(apiBaseUrl: string): Promise<DashboardData> {
-  const [vocResult, taskResult, strategyResult] = await Promise.allSettled([
+  const [
+    vocResult,
+    taskResult,
+    capabilityResult,
+    platformSettingsResult,
+    platformSettingAuditResult,
+    strategyResult
+  ] = await Promise.allSettled([
     fetchVocUnits(apiBaseUrl, "all"),
     fetchCollectionTasks(apiBaseUrl, "all"),
+    fetchCaptureCapabilities(apiBaseUrl),
+    fetchPlatformSettings(apiBaseUrl),
+    fetchPlatformSettingAuditEventsForActivePlatforms(apiBaseUrl),
     fetchStrategyNotes(apiBaseUrl, "all")
   ]);
 
   return {
     units: vocResult.status === "fulfilled" ? vocResult.value.items : [],
     tasks: taskResult.status === "fulfilled" ? taskResult.value.items : [],
+    captureCapabilities:
+      capabilityResult.status === "fulfilled" ? capabilityResult.value.items : [],
+    platformSettings:
+      platformSettingsResult.status === "fulfilled" ? platformSettingsResult.value.items : [],
+    platformSettingAuditEvents:
+      platformSettingAuditResult.status === "fulfilled" ? platformSettingAuditResult.value : [],
     strategyNotes: strategyResult.status === "fulfilled" ? strategyResult.value.items : [],
     vocError: vocResult.status === "rejected" ? stableError(vocResult.reason) : null,
     taskError: taskResult.status === "rejected" ? stableError(taskResult.reason) : null,
+    capabilityError:
+      capabilityResult.status === "rejected" ? stableError(capabilityResult.reason) : null,
+    platformSettingsError:
+      platformSettingsResult.status === "rejected"
+        ? stableError(platformSettingsResult.reason)
+        : null,
+    platformSettingAuditError:
+      platformSettingAuditResult.status === "rejected"
+        ? stableError(platformSettingAuditResult.reason)
+        : null,
     strategyError: strategyResult.status === "rejected" ? stableError(strategyResult.reason) : null,
     loadedAt: new Date().toISOString()
   };
+}
+
+async function fetchPlatformSettingAuditEventsForActivePlatforms(
+  apiBaseUrl: string
+): Promise<PlatformSettingAuditEvent[]> {
+  const results = await Promise.all([
+    fetchPlatformSettingAuditEvents(apiBaseUrl, "amazon"),
+    fetchPlatformSettingAuditEvents(apiBaseUrl, "reddit"),
+    fetchPlatformSettingAuditEvents(apiBaseUrl, "instagram")
+  ]);
+  return results.flatMap((result) => result.items);
 }
 
 function HeroPanel({
@@ -141,7 +296,7 @@ function HeroPanel({
     <section className="heroPanel" aria-label="监控主视图">
       <div>
         <p className="panelKicker">Evidence Operations</p>
-        <h2>把 Amazon 与 Reddit VOC 采集变成可观测的数据资产。</h2>
+          <h2>把多平台 VOC 插件采集变成可观测的数据资产。</h2>
         <p>
           当前站点连接到 {config.apiBaseUrl}，每 {config.refreshSeconds} 秒刷新一次，用于跟踪证据量、
           覆盖置信度、质量 flags 和策略信号。
@@ -193,11 +348,21 @@ function CaptureTemplatePanel({ config }: { config: DashboardConfig }) {
       enabled: config.enabledPlatforms.includes("amazon")
     },
     {
+      platform: "instagram" as const,
+      title: "Instagram Media Comments",
+      subtitle: "Graph comments + backend token gate",
+      entry: "https://www.instagram.com/p/{shortcode}/",
+      method: "server_instagram_graph_comments",
+      coverage: ["media_id", "comments", "parent_id", "like_count", "sanitized graph_url"],
+      stop: "未授权 / 缺 media_id / Graph 错误 / paging next 未展开",
+      enabled: config.enabledPlatforms.includes("instagram")
+    },
+    {
       platform: "reddit" as const,
       title: "Reddit Thread",
       subtitle: "Thread URL + .json?raw_json=1",
       entry: "https://www.reddit.com/r/{subreddit}/comments/{threadId}/{slug}/",
-      method: "extension_reddit_json",
+      method: "server_reddit_json_proxy",
       coverage: ["thread", "comments", "parent_id", "depth", "more nodes"],
       stop: "JSON 缺失 / more node 未展开 / 访问失败",
       enabled: config.enabledPlatforms.includes("reddit")
@@ -208,7 +373,7 @@ function CaptureTemplatePanel({ config }: { config: DashboardConfig }) {
     <section className="templateSection" aria-label="采集模板">
       <div className="sectionMiniHeading">
         <p className="panelKicker">Capture Templates</p>
-        <h2>双平台采集模板</h2>
+        <h2>三平台采集模板</h2>
       </div>
       <div className="templateGrid">
         {templates.map((template) => (
@@ -246,6 +411,107 @@ function CaptureTemplatePanel({ config }: { config: DashboardConfig }) {
           </article>
         ))}
       </div>
+    </section>
+  );
+}
+
+function AuthorizationPanel({
+  capabilities,
+  error
+}: {
+  capabilities: CaptureCapability[];
+  error: string | null;
+}) {
+  const instagramGraph = capabilities.find(
+    (capability) =>
+      capability.platform === "instagram" &&
+      capability.capture_method === "server_instagram_graph_comments"
+  );
+  const instagramFixture = capabilities.find(
+    (capability) =>
+      capability.platform === "instagram" &&
+      capability.capture_method === "server_instagram_fixture_payload"
+  );
+  const checks = [
+    {
+      label: "Instagram Graph",
+      value: error ? error : capabilityStatusLabel(instagramGraph),
+      tone: error ? "risk" : capabilityTone(instagramGraph)
+    },
+    {
+      label: "Required Context",
+      value: instagramGraph?.required_context_keys.join(", ") || "media_id",
+      tone: instagramGraph ? "clear" : "warning"
+    },
+    {
+      label: "Live Read",
+      value: instagramGraph?.live_read_enabled ? "enabled" : "blocked",
+      tone: instagramGraph?.live_read_enabled ? "clear" : "warning"
+    },
+    {
+      label: "Live Write",
+      value: instagramGraph?.live_write_enabled ? "enabled" : "blocked",
+      tone: instagramGraph?.live_write_enabled ? "risk" : "clear"
+    },
+    {
+      label: "Fixture Path",
+      value: capabilityStatusLabel(instagramFixture),
+      tone: capabilityTone(instagramFixture)
+    }
+  ] as const;
+
+  return (
+    <section className="opsPanel authorizationPanel" aria-label="授权状态">
+      <div className="sectionMiniHeading">
+        <p className="panelKicker">Authorization</p>
+        <h2>授权状态</h2>
+      </div>
+      <ul className="checkList">
+        {checks.map((check) => (
+          <li key={check.label} className={`checkItem checkItem--${check.tone}`}>
+            <span>{check.label}</span>
+            <strong>{check.value}</strong>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function RedditUrlCapturePanel({ status }: { status: RedditCaptureStatus | null }) {
+  return (
+    <section className="redditCapturePanel" aria-label="Reddit URL 解析">
+      <div className="sectionMiniHeading">
+        <p className="panelKicker">Reddit JSON Capture</p>
+        <h2>Reddit 帖子解析</h2>
+      </div>
+      <form action={captureRedditThreadAction} className="redditCaptureForm">
+        <label htmlFor="reddit-thread-url">
+          <span>Thread URL</span>
+          <input
+            id="reddit-thread-url"
+            name="redditThreadUrl"
+            type="url"
+            inputMode="url"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="https://www.reddit.com/r/Coffee/comments/thread123/example/…"
+            required
+          />
+        </label>
+        <RedditCaptureSubmitButton />
+      </form>
+      {status ? (
+        <div
+          className={`redditCaptureResult redditCaptureResult--${status.tone}`}
+          role={status.tone === "error" ? "alert" : "status"}
+          aria-live={status.tone === "error" ? "assertive" : "polite"}
+        >
+          <strong>{status.title}</strong>
+          <span>{status.detail}</span>
+          {status.jsonUrl ? <small>{status.jsonUrl}</small> : null}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -359,47 +625,6 @@ function CollectionTaskPanel({
   );
 }
 
-function PlatformPanel({ units }: { units: VocUnit[] }) {
-  const total = units.length;
-  const platforms: Array<{ platform: VocPlatform; label: string; count: number }> = [
-    {
-      platform: "amazon",
-      label: "Amazon",
-      count: units.filter((unit) => unit.platform === "amazon").length
-    },
-    {
-      platform: "reddit",
-      label: "Reddit",
-      count: units.filter((unit) => unit.platform === "reddit").length
-    }
-  ];
-
-  return (
-    <section className="opsPanel" aria-label="平台覆盖">
-      <div className="sectionMiniHeading">
-        <p className="panelKicker">Coverage</p>
-        <h2>平台覆盖</h2>
-      </div>
-      <div className="platformBars">
-        {platforms.map((item) => (
-          <div key={item.platform} className="platformBar">
-            <div className="platformBar__header">
-              <span>{item.label}</span>
-              <strong>{item.count}</strong>
-            </div>
-            <div className="platformBar__track">
-              <span
-                className={`platformBar__fill platformBar__fill--${item.platform}`}
-                style={{ width: `${total === 0 ? 0 : Math.round((item.count / total) * 100)}%` }}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function StrategyPanel({
   notes,
   error
@@ -439,7 +664,7 @@ function MetricTile({
   label: string;
   value: number | string;
   detail: string;
-  tone: "ink" | "amazon" | "reddit" | "warning" | "risk" | "clear";
+  tone: "ink" | "amazon" | "reddit" | "instagram" | "warning" | "risk" | "clear";
 }) {
   return (
     <div className={`metricTile metricTile--${tone}`}>
@@ -479,6 +704,7 @@ function getMetrics(
   const total = units.length;
   const amazon = units.filter((unit) => unit.platform === "amazon").length;
   const reddit = units.filter((unit) => unit.platform === "reddit").length;
+  const instagram = units.filter((unit) => unit.platform === "instagram").length;
   const flagged = units.filter((unit) => unit.quality_flags.length > 0).length;
   const lowConfidence = units.filter(
     (unit) => unit.coverage_confidence < lowConfidenceThreshold
@@ -504,6 +730,7 @@ function getMetrics(
     total,
     amazon,
     reddit,
+    instagram,
     flagged,
     lowConfidence,
     averageConfidence,
@@ -521,7 +748,13 @@ function getApiState(data: DashboardData) {
       value: "down"
     };
   }
-  if (data.strategyError || data.taskError) {
+  if (
+    data.strategyError ||
+    data.taskError ||
+    data.capabilityError ||
+    data.platformSettingsError ||
+    data.platformSettingAuditError
+  ) {
     return {
       tone: "partial",
       label: "API",
@@ -535,13 +768,193 @@ function getApiState(data: DashboardData) {
   };
 }
 
+async function resolveSearchParams(
+  searchParams: PageProps["searchParams"]
+): Promise<Record<string, string | string[] | undefined>> {
+  return searchParams ? await searchParams : {};
+}
+
+function getRedditCaptureStatus(
+  searchParams: Record<string, string | string[] | undefined>
+): RedditCaptureStatus | null {
+  const state = queryString(searchParams.reddit_capture);
+  if (state === "success") {
+    const run = queryString(searchParams.run) ?? "run_created";
+    const raw = queryString(searchParams.raw) ?? "-";
+    const voc = queryString(searchParams.voc) ?? "-";
+    return {
+      tone: "success",
+      title: run,
+      detail: `${raw} raw / ${voc} VOC`,
+      jsonUrl: queryString(searchParams.json)
+    };
+  }
+  if (state === "error") {
+    return {
+      tone: "error",
+      title: "解析未完成",
+      detail: queryString(searchParams.message) ?? "reddit_thread_capture_failed",
+      jsonUrl: null
+    };
+  }
+  return null;
+}
+
+function getPlatformSettingsStatus(
+  searchParams: Record<string, string | string[] | undefined>
+): PlatformSettingsStatus | null {
+  const state = queryString(searchParams.settings_update);
+  if (state === "success") {
+    const platform = platformFromQuery(searchParams.settings_platform);
+    const platformLabel = platform ?? "platform";
+    const source = queryString(searchParams.settings_source) ?? "stored";
+    const updatedAt = queryString(searchParams.settings_updated_at);
+    return {
+      tone: "success",
+      title: "配置已保存",
+      detail: `${platformLabel} 设置已写入本地后台配置表 · ${source} · ${
+        updatedAt ? formatDate(updatedAt) : "已刷新"
+      }`,
+      platform
+    };
+  }
+  if (state === "error") {
+    return {
+      tone: "error",
+      title: "配置未保存",
+      detail: queryString(searchParams.message) ?? "platform_setting_update_failed",
+      platform: null
+    };
+  }
+  return null;
+}
+
+function platformFromQuery(value: string | string[] | undefined): VocPlatform | null {
+  const platform = queryString(value);
+  if (platform === "amazon" || platform === "reddit" || platform === "instagram") {
+    return platform;
+  }
+  return null;
+}
+
+function platformFromForm(formData: FormData): VocPlatform | null {
+  const platform = String(formData.get("platform") ?? "");
+  if (platform === "amazon" || platform === "reddit" || platform === "instagram") {
+    return platform;
+  }
+  return null;
+}
+
+function platformConfigFromForm(
+  platform: VocPlatform,
+  formData: FormData
+): Record<string, JsonValue> {
+  if (platform === "amazon") {
+    return {
+      page_limit: positiveIntegerFormValue(formData, "page_limit"),
+      marketplaces: commaListFormValue(formData, "marketplaces"),
+      notes: stringFormValue(formData, "notes")
+    };
+  }
+  if (platform === "reddit") {
+    return {
+      json_proxy_enabled: formData.get("json_proxy_enabled") === "on",
+      max_comment_depth: positiveIntegerFormValue(formData, "max_comment_depth", {
+        allowZero: true
+      }),
+      notes: stringFormValue(formData, "notes")
+    };
+  }
+  return {
+    fixture_mode_enabled: formData.get("fixture_mode_enabled") === "on",
+    graph_api_version: stringFormValue(formData, "graph_api_version"),
+    comment_limit: positiveIntegerFormValue(formData, "comment_limit"),
+    notes: stringFormValue(formData, "notes")
+  };
+}
+
+function stringFormValue(formData: FormData, key: string): string {
+  return String(formData.get(key) ?? "").trim();
+}
+
+function commaListFormValue(formData: FormData, key: string): string[] {
+  return stringFormValue(formData, key)
+    .split(",")
+    .map((item) => item.trim().toUpperCase())
+    .filter(Boolean);
+}
+
+function positiveIntegerFormValue(
+  formData: FormData,
+  key: string,
+  options: { allowZero?: boolean } = {}
+): number {
+  const parsed = Number.parseInt(stringFormValue(formData, key), 10);
+  if (!Number.isSafeInteger(parsed)) {
+    return options.allowZero ? 0 : 1;
+  }
+  if (options.allowZero) {
+    return Math.max(0, parsed);
+  }
+  return Math.max(1, parsed);
+}
+
+function queryString(value: string | string[] | undefined): string | null {
+  if (typeof value === "string" && value.length > 0) {
+    return value;
+  }
+  if (Array.isArray(value) && typeof value[0] === "string" && value[0].length > 0) {
+    return value[0];
+  }
+  return null;
+}
+
 function taskObjectLabel(task: CollectionTask): string {
   const threadId = task.context.thread_id;
   if (task.platform === "reddit" && typeof threadId === "string") {
     return `reddit:${threadId}`;
   }
+  const mediaId = task.context.media_id;
+  if (task.platform === "instagram" && typeof mediaId === "string") {
+    return `instagram:${mediaId}`;
+  }
 
   return task.platform;
+}
+
+function capabilityStatusLabel(capability: CaptureCapability | undefined): string {
+  if (!capability) {
+    return "not reported";
+  }
+  if (capability.status === "ready") {
+    return "ready";
+  }
+  if (capability.status === "fixture_only") {
+    return "fixture only";
+  }
+  if (capability.status === "credential_missing") {
+    return "credential missing";
+  }
+  if (capability.status === "live_read_blocked") {
+    return "live read blocked";
+  }
+  if (capability.status === "task_authorization_required") {
+    return "task authorization required";
+  }
+  return "authorization required";
+}
+
+function capabilityTone(capability: CaptureCapability | undefined): "clear" | "warning" | "risk" {
+  if (!capability) {
+    return "warning";
+  }
+  if (capability.status === "ready") {
+    return "clear";
+  }
+  if (capability.status === "fixture_only") {
+    return "warning";
+  }
+  return "warning";
 }
 
 function taskAttemptLabel(task: CollectionTask): string {
@@ -595,22 +1008,23 @@ function latestDate(values: string[]): string | null {
 
 function freshnessLabel(value: string | null): string {
   if (!value) {
-    return "no evidence yet";
+    return "暂无证据";
   }
 
   const elapsedMs = Date.now() - new Date(value).getTime();
   if (!Number.isFinite(elapsedMs) || elapsedMs < 0) {
-    return "captured";
+    return "已采集";
   }
 
+  const formatter = new Intl.RelativeTimeFormat("zh-CN", { numeric: "auto" });
   const elapsedHours = Math.floor(elapsedMs / 1000 / 60 / 60);
   if (elapsedHours < 1) {
-    return "within 1 hour";
+    return "1 小时内";
   }
   if (elapsedHours < 24) {
-    return `${elapsedHours} hours ago`;
+    return formatter.format(-elapsedHours, "hour");
   }
-  return `${Math.floor(elapsedHours / 24)} days ago`;
+  return formatter.format(-Math.floor(elapsedHours / 24), "day");
 }
 
 function percent(value: number): string {

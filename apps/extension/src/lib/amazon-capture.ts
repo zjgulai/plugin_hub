@@ -4,7 +4,9 @@ import { detectAmazonPageUrl, type AmazonReviewsPage } from "./page-detect";
 import type { CollectionRunPayload, RawSourceItem } from "../types/contracts";
 import type { CaptureCurrentPageSuccess } from "../types/messages";
 
-const AMAZON_PAGE_LIMIT = 3;
+const DEFAULT_AMAZON_PAGE_LIMIT = 3;
+const MIN_AMAZON_PAGE_LIMIT = 1;
+const MAX_AMAZON_PAGE_LIMIT = 20;
 
 interface AmazonPageEvidence {
   url: string;
@@ -42,11 +44,16 @@ async function captureAmazonReviews(
   const pages: AmazonPageEvidence[] = [];
   const seenPageUrls = new Set<string>();
   const seenSourceObjectIds = new Set<string>();
+  const pageLimit = normalizeAmazonPageLimit(input.runtimeSettings?.amazonPageLimit);
   let pageUrl = initialUrl;
   let pageRoot = input.documentRoot ?? resolveDocumentRoot();
   let stopReason: string | null = null;
 
-  for (let pageIndex = 1; pageIndex <= AMAZON_PAGE_LIMIT; pageIndex += 1) {
+  if (input.runtimeSettings?.platformSettingEnabled === false) {
+    throw new Error("platform_disabled_by_settings");
+  }
+
+  for (let pageIndex = 1; pageIndex <= pageLimit; pageIndex += 1) {
     if (seenPageUrls.has(pageUrl)) {
       stopReason = "duplicate_next_page_url";
       break;
@@ -89,7 +96,7 @@ async function captureAmazonReviews(
       break;
     }
 
-    if (pageIndex === AMAZON_PAGE_LIMIT) {
+    if (pageIndex === pageLimit) {
       stopReason = "page_budget_reached";
       break;
     }
@@ -125,7 +132,9 @@ async function captureAmazonReviews(
         entry_page_kind: input.entryPageKind,
         asin: input.asin,
         marketplace,
-        page_limit: AMAZON_PAGE_LIMIT,
+        page_limit: pageLimit,
+        page_limit_source: input.runtimeSettings?.platformSettingSource ?? "extension-default",
+        platform_setting_updated_at: input.runtimeSettings?.platformSettingUpdatedAt ?? null,
         pages: pages.map((page) => ({
           url: page.url,
           observed_page: page.observed_page,
@@ -149,6 +158,18 @@ async function captureAmazonReviews(
       coverage_confidence: coverageConfidence
     }
   };
+}
+
+function normalizeAmazonPageLimit(value: number | undefined): number {
+  if (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    value < MIN_AMAZON_PAGE_LIMIT ||
+    value > MAX_AMAZON_PAGE_LIMIT
+  ) {
+    return DEFAULT_AMAZON_PAGE_LIMIT;
+  }
+  return value;
 }
 
 export function inferMarketplace(sourceUrl: string): string {

@@ -6,6 +6,7 @@ export type PageSnapshot = {
   rating: string | null;
   reviewCount: string | null;
   subreddit: string | null;
+  instagramMediaKind: string | null;
 };
 
 export function getPageSnapshot(detectedPage: DetectedPage, documentRoot: Document, sourceUrl: string): PageSnapshot {
@@ -15,7 +16,8 @@ export function getPageSnapshot(detectedPage: DetectedPage, documentRoot: Docume
       marketplace: marketplaceFromUrl(sourceUrl),
       rating: extractAmazonRating(documentRoot),
       reviewCount: extractAmazonReviewCount(documentRoot),
-      subreddit: null
+      subreddit: null,
+      instagramMediaKind: null
     };
   }
 
@@ -28,7 +30,22 @@ export function getPageSnapshot(detectedPage: DetectedPage, documentRoot: Docume
       marketplace: null,
       rating: null,
       reviewCount: null,
-      subreddit: subredditFromUrl(sourceUrl)
+      subreddit: subredditFromUrl(sourceUrl),
+      instagramMediaKind: null
+    };
+  }
+
+  if (detectedPage.platform === "instagram") {
+    return {
+      title:
+        attributeFromSelector(documentRoot, "meta[property='og:title']", "content") ??
+        textFromSelector(documentRoot, "h1") ??
+        `Instagram ${detectedPage.mediaKind}`,
+      marketplace: null,
+      rating: null,
+      reviewCount: null,
+      subreddit: null,
+      instagramMediaKind: detectedPage.mediaKind
     };
   }
 
@@ -37,7 +54,8 @@ export function getPageSnapshot(detectedPage: DetectedPage, documentRoot: Docume
     marketplace: null,
     rating: null,
     reviewCount: null,
-    subreddit: null
+    subreddit: null,
+    instagramMediaKind: null
   };
 }
 

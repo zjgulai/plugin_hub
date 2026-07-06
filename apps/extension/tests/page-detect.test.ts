@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   detectAmazonPageUrl,
+  detectInstagramMediaPageUrl,
   detectPage,
   detectPageForTarget,
   detectRedditThreadPageUrl
@@ -56,6 +57,21 @@ describe("detectPage", () => {
     });
   });
 
+  it("detects Instagram media pages", () => {
+    expect(detectPage("https://www.instagram.com/p/ABC123_def-/")).toEqual({
+      platform: "instagram",
+      pageKind: "instagram_media",
+      mediaKind: "post",
+      shortcode: "ABC123_def-"
+    });
+    expect(detectPage("https://www.instagram.com/reel/Reel123_/")).toEqual({
+      platform: "instagram",
+      pageKind: "instagram_media",
+      mediaKind: "reel",
+      shortcode: "Reel123_"
+    });
+  });
+
   it("detects platform-specific URLs for split extension targets", () => {
     expect(
       detectAmazonPageUrl("https://www.amazon.com/product-reviews/B000000001")
@@ -72,6 +88,12 @@ describe("detectPage", () => {
       pageKind: "reddit_thread",
       threadId: "thread123"
     });
+    expect(detectInstagramMediaPageUrl("https://www.instagram.com/p/ABC123_def-/")).toEqual({
+      platform: "instagram",
+      pageKind: "instagram_media",
+      mediaKind: "post",
+      shortcode: "ABC123_def-"
+    });
   });
 
   it("filters detected pages by extension target", () => {
@@ -83,6 +105,12 @@ describe("detectPage", () => {
     });
     expect(
       detectPageForTarget("https://www.amazon.com/product-reviews/B000000001", "reddit")
+    ).toEqual({
+      platform: "unknown",
+      pageKind: "unknown"
+    });
+    expect(
+      detectPageForTarget("https://www.instagram.com/p/ABC123_def-/", "reddit")
     ).toEqual({
       platform: "unknown",
       pageKind: "unknown"
@@ -139,6 +167,17 @@ describe("detectPage", () => {
       pageKind: "unknown"
     });
     expect(detectPage("https://www.reddit.com/r/example/search/?q=thread123")).toEqual({
+      platform: "unknown",
+      pageKind: "unknown"
+    });
+  });
+
+  it("does not detect non-media or spoofed Instagram URLs", () => {
+    expect(detectPage("https://www.instagram.com/accounts/login/")).toEqual({
+      platform: "unknown",
+      pageKind: "unknown"
+    });
+    expect(detectPage("https://instagram.com.evil.example/p/ABC123_def-/")).toEqual({
       platform: "unknown",
       pageKind: "unknown"
     });

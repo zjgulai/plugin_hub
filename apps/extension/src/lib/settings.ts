@@ -1,5 +1,10 @@
+import {
+  CURRENT_EXTENSION_TARGET,
+  extensionTargetConfig
+} from "./extension-target";
+
 export const API_BASE_URL_STORAGE_KEY = "pluginHubApiBaseUrl";
-export const DEFAULT_API_BASE_URL = "http://localhost:8000";
+export const DEFAULT_API_BASE_URL = extensionTargetConfig(CURRENT_EXTENSION_TARGET).defaultApiBaseUrl;
 
 export async function loadApiBaseUrl(): Promise<string> {
   const result = await chrome.storage.local.get(API_BASE_URL_STORAGE_KEY);

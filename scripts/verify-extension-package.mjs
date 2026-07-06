@@ -3,36 +3,21 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const TARGETS = ["amazon", "reddit"];
-const CONFIG_BY_TARGET = {
-  amazon: {
-    manifestName: "Plugin Hub Amazon VOC Collector",
-    zipSlug: "plugin-hub-amazon-voc",
-    requiredHost: "https://www.amazon.com/*",
-    forbiddenHost: "https://www.reddit.com/*"
-  },
-  reddit: {
-    manifestName: "Plugin Hub Reddit VOC Collector",
-    zipSlug: "plugin-hub-reddit-voc",
-    requiredHost: "https://www.reddit.com/*",
-    forbiddenHost: "https://www.amazon.com/*"
-  }
-};
-
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const registry = JSON.parse(
+  readFileSync(join(repoRoot, "apps", "extension", "extension-targets.json"), "utf8")
+);
+const targetConfigs = registry.targetConfigs ?? {};
+const targetsInRegistry = Array.isArray(registry.targets) ? registry.targets : [];
 const outputDir = join(repoRoot, "tmp", "outputs");
 const targets = resolveTargets(process.argv[2]);
 
-const requiredDistFiles = [
+const baseRequiredDistFiles = [
   "manifest.json",
   "content/content-script.js",
   "background/service-worker.js",
   "popup/index.html",
-  "popup/Popup.js",
-  "icons/icon-16.png",
-  "icons/icon-32.png",
-  "icons/icon-48.png",
-  "icons/icon-128.png"
+  "popup/Popup.js"
 ];
 
 const results = [];
@@ -44,22 +29,41 @@ for (const target of targets) {
 console.log(JSON.stringify({ ok: true, results }, null, 2));
 
 function verifyTarget(target) {
-  const config = CONFIG_BY_TARGET[target];
+  const config = targetConfig(target);
+  const verifyConfig = config.verify ?? {};
   const distDir = join(repoRoot, "apps", "extension", "dist", target);
   const manifestPath = join(distDir, "manifest.json");
 
-  for (const fileName of requiredDistFiles) {
+  for (const fileName of baseRequiredDistFiles) {
     assertFile(join(distDir, fileName), `extension_dist_missing:${target}:${fileName}`);
   }
 
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const iconFileNames = manifestIconFiles(manifest, target);
+  const requiredDistFiles = [...baseRequiredDistFiles, ...iconFileNames];
+  for (const fileName of iconFileNames) {
+    assertFile(join(distDir, fileName), `extension_dist_missing:${target}:${fileName}`);
+  }
+
   assertEqual(manifest.manifest_version, 3, `manifest_version_must_be_3:${target}`);
-  assertEqual(manifest.name, config.manifestName, `manifest_name_changed:${target}`);
+  assertEqual(manifest.name, config.name, `manifest_name_changed:${target}`);
   assertArrayIncludes(manifest.permissions, "activeTab", `permission_activeTab_required:${target}`);
   assertArrayIncludes(manifest.permissions, "storage", `permission_storage_required:${target}`);
-  assertArrayIncludes(manifest.host_permissions, config.requiredHost, `host_permission_required:${target}`);
-  assertArrayExcludes(manifest.host_permissions, config.forbiddenHost, `host_permission_forbidden:${target}`);
-  assertArrayIncludes(manifest.host_permissions, "http://localhost/*", `localhost_host_permission_required:${target}`);
+  assertArrayIncludes(
+    manifest.host_permissions,
+    verifyConfig.requiredHost,
+    `host_permission_required:${target}`
+  );
+  for (const forbiddenHost of verifyConfig.forbiddenHosts) {
+    assertArrayExcludes(manifest.host_permissions, forbiddenHost, `host_permission_forbidden:${target}`);
+  }
+  for (const apiHostPermission of verifyConfig.requiredApiHostPermissions) {
+    assertArrayIncludes(
+      manifest.host_permissions,
+      apiHostPermission,
+      `api_host_permission_required:${target}:${apiHostPermission}`
+    );
+  }
 
   const contentScripts = Array.isArray(manifest.content_scripts) ? manifest.content_scripts : [];
   const mainContentScript = contentScripts.find((script) => {
@@ -68,8 +72,10 @@ function verifyTarget(target) {
   if (!mainContentScript) {
     throw new Error(`content_script_manifest_entry_required:${target}`);
   }
-  assertArrayIncludes(mainContentScript.matches, config.requiredHost, `content_script_match_required:${target}`);
-  assertArrayExcludes(mainContentScript.matches, config.forbiddenHost, `content_script_match_forbidden:${target}`);
+  assertArrayIncludes(mainContentScript.matches, verifyConfig.requiredHost, `content_script_match_required:${target}`);
+  for (const forbiddenHost of verifyConfig.forbiddenHosts) {
+    assertArrayExcludes(mainContentScript.matches, forbiddenHost, `content_script_match_forbidden:${target}`);
+  }
 
   const contentScriptSize = statSync(join(distDir, "content", "content-script.js")).size;
   if (contentScriptSize > 300_000) {
@@ -77,7 +83,7 @@ function verifyTarget(target) {
   }
 
   const version = typeof manifest.version === "string" ? manifest.version : "unknown";
-  const zipPath = join(outputDir, `${config.zipSlug}-${version}.zip`);
+  const zipPath = join(outputDir, `${config.packageSlug}-${version}.zip`);
   assertFile(zipPath, `extension_zip_missing:${target}:${zipPath}`);
 
   const zipEntries = listZipEntries(zipPath);
@@ -97,14 +103,29 @@ function verifyTarget(target) {
 
 function resolveTargets(target) {
   if (target === undefined) {
-    return TARGETS;
+    return targetsInRegistry;
   }
 
-  if (TARGETS.includes(target)) {
+  if (targetsInRegistry.includes(target)) {
     return [target];
   }
 
   throw new Error(`unsupported_extension_target:${target}`);
+}
+
+function targetConfig(target) {
+  const config = targetConfigs[target];
+  if (
+    !config ||
+    typeof config.name !== "string" ||
+    typeof config.packageSlug !== "string" ||
+    typeof config.verify?.requiredHost !== "string" ||
+    !Array.isArray(config.verify?.forbiddenHosts) ||
+    !Array.isArray(config.verify?.requiredApiHostPermissions)
+  ) {
+    throw new Error(`extension_target_config_required:${target}`);
+  }
+  return config;
 }
 
 function listZipEntries(zipPath) {
@@ -117,6 +138,31 @@ function listZipEntries(zipPath) {
   }
 
   return result.stdout.split("\n").filter(Boolean);
+}
+
+function manifestIconFiles(manifest, target) {
+  const iconPaths = [
+    ...iconMapValues(manifest.icons, `manifest_icons_required:${target}`),
+    ...iconMapValues(manifest.action?.default_icon, `manifest_action_icons_required:${target}`)
+  ];
+  const uniqueIconPaths = [...new Set(iconPaths)];
+  if (uniqueIconPaths.length < 4) {
+    throw new Error(`manifest_icon_paths_incomplete:${target}`);
+  }
+  return uniqueIconPaths;
+}
+
+function iconMapValues(value, errorCode) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(errorCode);
+  }
+  return ["16", "32", "48", "128"].map((size) => {
+    const iconPath = value[size];
+    if (typeof iconPath !== "string" || !iconPath.endsWith(`icon-${size}.png`)) {
+      throw new Error(`${errorCode}:${size}`);
+    }
+    return iconPath;
+  });
 }
 
 function assertFile(filePath, errorCode) {
