@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -8,8 +9,20 @@ from fastapi.testclient import TestClient
 from plugin_hub_api.repositories import SqlAlchemyRepository
 from plugin_hub_api.schemas import CollectionTaskStatus
 from plugin_hub_api.services.collection_task_worker import CollectionTaskWorkerConfig
+from plugin_hub_api.services.instagram_graph_capture import InstagramGraphFetchResult
+from plugin_hub_api.services.reddit_capture import RedditUpstreamAccessError
 
 REDDIT_FIXTURE = Path(__file__).parents[3] / "tests" / "fixtures" / "reddit-thread.json"
+INSTAGRAM_FIXTURE = (
+    Path(__file__).parents[3] / "tests" / "fixtures" / "instagram-media-comments.json"
+)
+INSTAGRAM_GRAPH_AUTH_CONTEXT = {
+    "authorization_scope": "instagram_graph_live_read",
+    "authorized_by": "local-test",
+    "authorized_at": "2026-06-21T00:00:00Z",
+    "environment": "local",
+    "production_write": False,
+}
 
 
 def test_post_reddit_collection_task_returns_pending_task(client: TestClient) -> None:
@@ -120,6 +133,477 @@ def test_run_reddit_collection_task_persists_collection_and_marks_completed(
     assert {item["source_kind"] for item in items} == {"reddit_thread", "reddit_comment"}
 
 
+def test_run_reddit_collection_task_applies_stored_max_comment_depth(
+    client: TestClient,
+) -> None:
+    settings_response = client.patch(
+        "/api/platform-settings/reddit",
+        json={
+            "enabled": True,
+            "updated_by": "pytest",
+            "config": {
+                "json_proxy_enabled": True,
+                "max_comment_depth": 0,
+                "notes": "top-level only",
+            },
+        },
+    )
+    assert settings_response.status_code == 200
+    create_response = client.post(
+        "/api/collection-tasks",
+        json={
+            "task": {
+                "platform": "reddit",
+                "source_url": "https://www.reddit.com/r/Coffee/comments/thread123/example/",
+                "requested_capture_method": "server_reddit_json_proxy",
+                "trigger_reason": "manual_retry",
+                "context": {"thread_id": "thread123"},
+            }
+        },
+    )
+    assert create_response.status_code == 202
+    client.app.state.reddit_json_fetcher = _nested_reddit_payload_fetcher
+
+    run_response = client.post(
+        f"/api/collection-tasks/{create_response.json()['collection_task_id']}/run"
+    )
+
+    assert run_response.status_code == 200
+    body = run_response.json()
+    assert body["status"] == "completed"
+    assert body["raw_item_count"] == 2
+    assert body["task"]["context"]["platform_setting_source"] == "stored"
+    assert body["task"]["context"]["platform_config_applied"]["max_comment_depth"] == 0
+    assert body["task"]["context"]["max_comment_depth"] == 0
+
+    voc_response = client.get("/api/voc-units", params={"platform": "reddit"})
+    assert voc_response.status_code == 200
+    source_ids = {item["source_object_id"] for item in voc_response.json()["items"]}
+    assert "t1_top_level" in source_ids
+    assert "t1_nested_reply" not in source_ids
+
+
+def test_run_collection_task_respects_stored_platform_disabled_setting(
+    client: TestClient,
+) -> None:
+    settings_response = client.patch(
+        "/api/platform-settings/reddit",
+        json={
+            "enabled": False,
+            "updated_by": "pytest",
+            "config": {
+                "json_proxy_enabled": True,
+                "max_comment_depth": 8,
+                "notes": "paused",
+            },
+        },
+    )
+    assert settings_response.status_code == 200
+    create_response = client.post(
+        "/api/collection-tasks",
+        json={
+            "task": {
+                "platform": "reddit",
+                "source_url": "https://www.reddit.com/r/Coffee/comments/thread123/example/",
+                "requested_capture_method": "server_reddit_json_proxy",
+                "trigger_reason": "manual_retry",
+                "context": {"thread_id": "thread123"},
+            }
+        },
+    )
+    assert create_response.status_code == 202
+    client.app.state.reddit_json_fetcher = _raising_fetcher
+
+    run_response = client.post(
+        f"/api/collection-tasks/{create_response.json()['collection_task_id']}/run"
+    )
+
+    assert run_response.status_code == 200
+    body = run_response.json()
+    assert body["status"] == "failed"
+    assert body["collection_run_id"] is None
+    assert body["task"]["context"]["last_error_code"] == "platform_disabled_by_settings"
+    assert body["task"]["context"]["retryable"] is False
+    assert body["task"]["context"]["platform_enabled_at_run"] is False
+
+
+def test_run_instagram_fixture_collection_task_persists_collection_and_marks_completed(
+    client: TestClient,
+) -> None:
+    create_response = client.post(
+        "/api/collection-tasks",
+        json={
+            "task": {
+                "platform": "instagram",
+                "source_url": "https://www.instagram.com/p/example/",
+                "requested_capture_method": "server_instagram_fixture_payload",
+                "trigger_reason": "fixture_contract_smoke",
+                "context": {
+                    "media_id": "17900000000000001",
+                    "fixture_payload": json.loads(INSTAGRAM_FIXTURE.read_text()),
+                },
+            }
+        },
+    )
+    assert create_response.status_code == 202
+
+    run_response = client.post(
+        f"/api/collection-tasks/{create_response.json()['collection_task_id']}/run"
+    )
+
+    assert run_response.status_code == 200
+    body = run_response.json()
+    assert body["status"] == "completed"
+    assert body["collection_run_id"].startswith("run_")
+    assert body["raw_item_count"] == 2
+    assert body["voc_unit_count"] == 2
+    assert body["task"]["context"]["collection_run_id"] == body["collection_run_id"]
+    assert body["task"]["context"]["comment_count"] == 2
+
+    voc_response = client.get("/api/voc-units", params={"platform": "instagram"})
+    assert voc_response.status_code == 200
+    items = voc_response.json()["items"]
+    assert len(items) == 2
+    assert {item["source_kind"] for item in items} == {"instagram_comment"}
+
+
+def test_run_instagram_fixture_collection_task_applies_stored_comment_limit(
+    client: TestClient,
+) -> None:
+    settings_response = client.patch(
+        "/api/platform-settings/instagram",
+        json={
+            "enabled": True,
+            "updated_by": "pytest",
+            "config": {
+                "fixture_mode_enabled": True,
+                "graph_api_version": "v25.0",
+                "comment_limit": 1,
+                "notes": "single comment smoke",
+            },
+        },
+    )
+    assert settings_response.status_code == 200
+    create_response = client.post(
+        "/api/collection-tasks",
+        json={
+            "task": {
+                "platform": "instagram",
+                "source_url": "https://www.instagram.com/p/example/",
+                "requested_capture_method": "server_instagram_fixture_payload",
+                "trigger_reason": "fixture_contract_smoke",
+                "context": {
+                    "media_id": "17900000000000001",
+                    "fixture_payload": json.loads(INSTAGRAM_FIXTURE.read_text()),
+                },
+            }
+        },
+    )
+    assert create_response.status_code == 202
+
+    run_response = client.post(
+        f"/api/collection-tasks/{create_response.json()['collection_task_id']}/run"
+    )
+
+    assert run_response.status_code == 200
+    body = run_response.json()
+    assert body["status"] == "completed"
+    assert body["raw_item_count"] == 1
+    assert body["voc_unit_count"] == 1
+    assert body["task"]["context"]["platform_setting_source"] == "stored"
+    assert body["task"]["context"]["platform_config_applied"]["comment_limit"] == 1
+    assert body["task"]["context"]["comment_limit"] == 1
+    assert body["task"]["context"]["comment_count"] == 1
+
+
+def test_run_instagram_fixture_collection_task_respects_fixture_mode_disabled(
+    client: TestClient,
+) -> None:
+    settings_response = client.patch(
+        "/api/platform-settings/instagram",
+        json={
+            "enabled": True,
+            "updated_by": "pytest",
+            "config": {
+                "fixture_mode_enabled": False,
+                "graph_api_version": "v25.0",
+                "comment_limit": 50,
+                "notes": "fixture disabled",
+            },
+        },
+    )
+    assert settings_response.status_code == 200
+    create_response = client.post(
+        "/api/collection-tasks",
+        json={
+            "task": {
+                "platform": "instagram",
+                "source_url": "https://www.instagram.com/p/example/",
+                "requested_capture_method": "server_instagram_fixture_payload",
+                "trigger_reason": "fixture_contract_smoke",
+                "context": {
+                    "media_id": "17900000000000001",
+                    "fixture_payload": json.loads(INSTAGRAM_FIXTURE.read_text()),
+                },
+            }
+        },
+    )
+    assert create_response.status_code == 202
+
+    run_response = client.post(
+        f"/api/collection-tasks/{create_response.json()['collection_task_id']}/run"
+    )
+
+    assert run_response.status_code == 200
+    body = run_response.json()
+    assert body["status"] == "failed"
+    assert body["collection_run_id"] is None
+    assert (
+        body["task"]["context"]["last_error_code"]
+        == "instagram_fixture_mode_disabled_by_settings"
+    )
+    assert body["task"]["context"]["retryable"] is False
+
+
+def test_run_instagram_fixture_collection_task_requires_fixture_payload(
+    client: TestClient,
+) -> None:
+    create_response = client.post(
+        "/api/collection-tasks",
+        json={
+            "task": {
+                "platform": "instagram",
+                "source_url": "https://www.instagram.com/p/example/",
+                "requested_capture_method": "server_instagram_fixture_payload",
+                "trigger_reason": "fixture_contract_smoke",
+                "context": {"media_id": "17900000000000001"},
+            }
+        },
+    )
+    assert create_response.status_code == 202
+
+    run_response = client.post(
+        f"/api/collection-tasks/{create_response.json()['collection_task_id']}/run"
+    )
+
+    assert run_response.status_code == 200
+    body = run_response.json()
+    assert body["status"] == "failed"
+    assert body["collection_run_id"] is None
+    assert body["task"]["context"]["last_error_code"] == "instagram_fixture_payload_required"
+    assert body["task"]["context"]["retryable"] is False
+
+
+def test_run_instagram_graph_collection_task_persists_collection_and_marks_completed(
+    client: TestClient,
+) -> None:
+    create_response = client.post(
+        "/api/collection-tasks",
+        json={
+            "task": {
+                "platform": "instagram",
+                "source_url": "https://www.instagram.com/p/example/",
+                "requested_capture_method": "server_instagram_graph_comments",
+                "trigger_reason": "authorized_graph_read",
+                "context": {
+                    "media_id": "17900000000000001",
+                    **INSTAGRAM_GRAPH_AUTH_CONTEXT,
+                },
+            }
+        },
+    )
+    assert create_response.status_code == 202
+    client.app.state.instagram_graph_comments_fetcher = _instagram_graph_fetcher
+    _enable_instagram_graph_live_read(client)
+
+    run_response = client.post(
+        f"/api/collection-tasks/{create_response.json()['collection_task_id']}/run"
+    )
+
+    assert run_response.status_code == 200
+    body = run_response.json()
+    assert body["status"] == "completed"
+    assert body["collection_run_id"].startswith("run_")
+    assert body["raw_item_count"] == 2
+    assert body["voc_unit_count"] == 2
+    assert body["task"]["context"]["collection_run_id"] == body["collection_run_id"]
+    assert body["task"]["context"]["comment_count"] == 2
+    assert body["task"]["context"]["graph_url"].startswith("https://graph.facebook.com/")
+    assert "access_token" not in body["task"]["context"]["graph_url"]
+
+    voc_response = client.get("/api/voc-units", params={"platform": "instagram"})
+    assert voc_response.status_code == 200
+    items = voc_response.json()["items"]
+    assert len(items) == 2
+    assert {item["source_kind"] for item in items} == {"instagram_comment"}
+    assert items[0]["platform_extension"]["media_id"] == "17900000000000001"
+
+
+def test_run_instagram_graph_collection_task_requires_configured_token(
+    client: TestClient,
+) -> None:
+    create_response = client.post(
+        "/api/collection-tasks",
+        json={
+            "task": {
+                "platform": "instagram",
+                "source_url": "https://www.instagram.com/p/example/",
+                "requested_capture_method": "server_instagram_graph_comments",
+                "trigger_reason": "authorized_graph_read",
+                "context": {"media_id": "17900000000000001"},
+            }
+        },
+    )
+    assert create_response.status_code == 202
+
+    run_response = client.post(
+        f"/api/collection-tasks/{create_response.json()['collection_task_id']}/run"
+    )
+
+    assert run_response.status_code == 200
+    body = run_response.json()
+    assert body["status"] == "failed"
+    assert body["collection_run_id"] is None
+    assert body["task"]["context"]["last_error_code"] == "instagram_graph_access_token_required"
+    assert body["task"]["context"]["retryable"] is False
+
+
+def test_run_instagram_graph_collection_task_requires_live_read_enabled(
+    client: TestClient,
+) -> None:
+    create_response = client.post(
+        "/api/collection-tasks",
+        json={
+            "task": {
+                "platform": "instagram",
+                "source_url": "https://www.instagram.com/p/example/",
+                "requested_capture_method": "server_instagram_graph_comments",
+                "trigger_reason": "authorized_graph_read",
+                "context": {
+                    "media_id": "17900000000000001",
+                    **INSTAGRAM_GRAPH_AUTH_CONTEXT,
+                },
+            }
+        },
+    )
+    assert create_response.status_code == 202
+    client.app.state.instagram_graph_comments_fetcher = _blocked_instagram_graph_fetcher
+
+    run_response = client.post(
+        f"/api/collection-tasks/{create_response.json()['collection_task_id']}/run"
+    )
+
+    assert run_response.status_code == 200
+    body = run_response.json()
+    assert body["status"] == "failed"
+    assert body["collection_run_id"] is None
+    assert body["task"]["context"]["last_error_code"] == "instagram_graph_live_read_not_enabled"
+    assert body["task"]["context"]["retryable"] is False
+
+
+def test_run_instagram_graph_collection_task_requires_task_authorization(
+    client: TestClient,
+) -> None:
+    create_response = client.post(
+        "/api/collection-tasks",
+        json={
+            "task": {
+                "platform": "instagram",
+                "source_url": "https://www.instagram.com/p/example/",
+                "requested_capture_method": "server_instagram_graph_comments",
+                "trigger_reason": "authorized_graph_read",
+                "context": {"media_id": "17900000000000001"},
+            }
+        },
+    )
+    assert create_response.status_code == 202
+    client.app.state.instagram_graph_comments_fetcher = _blocked_instagram_graph_fetcher
+    _enable_instagram_graph_live_read(client)
+
+    run_response = client.post(
+        f"/api/collection-tasks/{create_response.json()['collection_task_id']}/run"
+    )
+
+    assert run_response.status_code == 200
+    body = run_response.json()
+    assert body["status"] == "failed"
+    assert body["collection_run_id"] is None
+    assert (
+        body["task"]["context"]["last_error_code"]
+        == "instagram_graph_live_read_authorization_required"
+    )
+    assert body["task"]["context"]["retryable"] is False
+
+
+def test_run_instagram_graph_collection_task_requires_production_write_false(
+    client: TestClient,
+) -> None:
+    create_response = client.post(
+        "/api/collection-tasks",
+        json={
+            "task": {
+                "platform": "instagram",
+                "source_url": "https://www.instagram.com/p/example/",
+                "requested_capture_method": "server_instagram_graph_comments",
+                "trigger_reason": "authorized_graph_read",
+                "context": {
+                    "media_id": "17900000000000001",
+                    **INSTAGRAM_GRAPH_AUTH_CONTEXT,
+                    "production_write": True,
+                },
+            }
+        },
+    )
+    assert create_response.status_code == 202
+    client.app.state.instagram_graph_comments_fetcher = _blocked_instagram_graph_fetcher
+    _enable_instagram_graph_live_read(client)
+
+    run_response = client.post(
+        f"/api/collection-tasks/{create_response.json()['collection_task_id']}/run"
+    )
+
+    assert run_response.status_code == 200
+    body = run_response.json()
+    assert body["status"] == "failed"
+    assert body["collection_run_id"] is None
+    assert (
+        body["task"]["context"]["last_error_code"]
+        == "instagram_graph_live_read_production_write_must_be_false"
+    )
+    assert body["task"]["context"]["retryable"] is False
+
+
+def test_run_instagram_graph_collection_task_requires_media_id(
+    client: TestClient,
+) -> None:
+    create_response = client.post(
+        "/api/collection-tasks",
+        json={
+            "task": {
+                "platform": "instagram",
+                "source_url": "https://www.instagram.com/p/example/",
+                "requested_capture_method": "server_instagram_graph_comments",
+                "trigger_reason": "authorized_graph_read",
+                "context": {},
+            }
+        },
+    )
+    assert create_response.status_code == 202
+    client.app.state.instagram_graph_comments_fetcher = _instagram_graph_fetcher
+    _enable_instagram_graph_live_read(client)
+
+    run_response = client.post(
+        f"/api/collection-tasks/{create_response.json()['collection_task_id']}/run"
+    )
+
+    assert run_response.status_code == 200
+    body = run_response.json()
+    assert body["status"] == "failed"
+    assert body["collection_run_id"] is None
+    assert body["task"]["context"]["last_error_code"] == "instagram_graph_media_id_required"
+    assert body["task"]["context"]["retryable"] is False
+
+
 def test_run_reddit_collection_task_marks_failed_when_no_raw_items(
     client: TestClient,
 ) -> None:
@@ -188,6 +672,39 @@ def test_run_reddit_collection_task_schedules_retry_for_worker_error(
     assert body["task"]["context"]["retryable"] is True
     assert body["task"]["context"]["retry_scheduled"] is True
     assert isinstance(body["task"]["context"]["next_run_at"], str)
+
+
+def test_run_reddit_collection_task_marks_403_as_authorization_blocker(
+    client: TestClient,
+) -> None:
+    create_response = client.post(
+        "/api/collection-tasks",
+        json={
+            "task": {
+                "platform": "reddit",
+                "source_url": "https://www.reddit.com/r/Coffee/comments/thread123/example/",
+                "requested_capture_method": "server_reddit_json_proxy",
+                "trigger_reason": "manual_retry",
+                "context": {"thread_id": "thread123"},
+            }
+        },
+    )
+    assert create_response.status_code == 202
+    client.app.state.reddit_json_fetcher = _access_denied_fetcher
+
+    run_response = client.post(
+        f"/api/collection-tasks/{create_response.json()['collection_task_id']}/run"
+    )
+
+    assert run_response.status_code == 200
+    body = run_response.json()
+    assert body["status"] == "failed"
+    assert body["collection_run_id"] is None
+    assert body["task"]["context"]["last_error_code"] == "reddit_capture_requires_authorized_access"
+    assert body["task"]["context"]["last_error_message"] == "reddit_upstream_http_403"
+    assert body["task"]["context"]["retryable"] is False
+    assert body["task"]["context"]["retry_scheduled"] is False
+    assert body["task"]["context"]["next_run_at"] is None
 
 
 def test_run_next_collection_task_processes_due_retry(
@@ -540,5 +1057,100 @@ def _empty_payload_fetcher(_url: str) -> object:
     ]
 
 
+def _nested_reddit_payload_fetcher(_url: str) -> object:
+    return [
+        {
+            "kind": "Listing",
+            "data": {
+                "children": [
+                    {
+                        "kind": "t3",
+                        "data": {
+                            "name": "t3_thread123",
+                            "id": "thread123",
+                            "title": "Example thread",
+                            "selftext": "Thread body",
+                            "author": "op",
+                        },
+                    }
+                ]
+            },
+        },
+        {
+            "kind": "Listing",
+            "data": {
+                "children": [
+                    {
+                        "kind": "t1",
+                        "data": {
+                            "name": "t1_top_level",
+                            "id": "top_level",
+                            "body": "Top level comment",
+                            "author": "commenter_one",
+                            "depth": 0,
+                            "replies": {
+                                "kind": "Listing",
+                                "data": {
+                                    "children": [
+                                        {
+                                            "kind": "t1",
+                                            "data": {
+                                                "name": "t1_nested_reply",
+                                                "id": "nested_reply",
+                                                "body": "Nested reply",
+                                                "author": "commenter_two",
+                                                "depth": 1,
+                                            },
+                                        }
+                                    ]
+                                },
+                            },
+                        },
+                    }
+                ]
+            },
+        },
+    ]
+
+
 def _raising_fetcher(_url: str) -> object:
     raise RuntimeError("reddit_upstream_unavailable")
+
+
+def _access_denied_fetcher(_url: str) -> object:
+    raise RedditUpstreamAccessError("reddit_upstream_http_403")
+
+
+def _instagram_graph_fetcher(media_id: str) -> object:
+    assert media_id == "17900000000000001"
+    return InstagramGraphFetchResult(
+        payload={
+            "data": [
+                {
+                    "id": "18000000000000001",
+                    "text": "This color is perfect.",
+                    "username": "buyer_one",
+                    "timestamp": "2026-06-05T10:01:00+0000",
+                    "like_count": 4,
+                },
+                {
+                    "id": "18000000000000002",
+                    "text": "Does it come in a travel size?",
+                    "username": "buyer_two",
+                    "timestamp": "2026-06-05T10:02:00+0000",
+                    "like_count": 1,
+                },
+            ]
+        },
+        graph_url="https://graph.facebook.com/v25.0/17900000000000001/comments?fields=id",
+    )
+
+
+def _blocked_instagram_graph_fetcher(media_id: str) -> object:
+    raise AssertionError(f"instagram graph fetcher should not run for {media_id}")
+
+
+def _enable_instagram_graph_live_read(client: TestClient) -> None:
+    client.app.state.collection_task_worker_config = CollectionTaskWorkerConfig(
+        instagram_graph_live_read_enabled=True
+    )

@@ -233,10 +233,7 @@ def test_reddit_comment_extension_keeps_context_fields_and_comment_flair() -> No
 
     assert voc.platform_extension["subreddit"] == "Coffee"
     assert voc.platform_extension["subreddit_name_prefixed"] == "r/Coffee"
-    assert (
-        voc.platform_extension["permalink"]
-        == "/r/Coffee/comments/thread123/example/comment789/"
-    )
+    assert voc.platform_extension["permalink"] == "/r/Coffee/comments/thread123/example/comment789/"
     assert voc.platform_extension["comment_flair"] == "Owner"
 
 

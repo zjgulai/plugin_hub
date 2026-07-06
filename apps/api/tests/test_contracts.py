@@ -7,8 +7,10 @@ from pydantic import ValidationError
 from plugin_hub_api.schemas import (
     CanonicalVocUnit,
     CollectionRunCreate,
+    EnrichedVocSignal,
     Platform,
     RawSourceItem,
+    RelationEdge,
     SourceKind,
 )
 
@@ -67,6 +69,47 @@ def test_canonical_voc_unit_allows_platform_specific_context() -> None:
     assert voc.body.startswith("The motor")
 
 
+def test_relation_edge_and_enriched_signal_keep_explainable_context() -> None:
+    edge = RelationEdge.model_validate(
+        {
+            "source_platform": Platform.AMAZON,
+            "source_kind": SourceKind.AMAZON_REVIEW,
+            "source_object_id": "R123",
+            "relation_type": "voc_unit_mentions_asin",
+            "from_type": "voc_unit",
+            "from_id": "R123",
+            "to_type": "amazon_asin",
+            "to_id": "B000000001",
+            "evidence_strength": 0.82,
+            "quality_flags": [],
+            "metadata": {"marketplace": "US", "review_page": 2},
+        }
+    )
+    signal = EnrichedVocSignal.model_validate(
+        {
+            "signal_id": "signal_001",
+            "platform": Platform.AMAZON,
+            "source_kind": SourceKind.AMAZON_REVIEW,
+            "source_object_id": "R123",
+            "collection_run_id": "run_001",
+            "topic": "noise",
+            "aspect": "product_noise",
+            "pain_point": "Use environment is disrupted by product noise.",
+            "severity": "medium",
+            "sentiment": "negative",
+            "sentiment_confidence": 0.82,
+            "strategy_relevance": 0.78,
+            "evidence_strength": 0.82,
+            "inference_method": "deterministic_keyword_v1",
+            "evidence_examples": [{"body": "The motor is loud.", "platform": "amazon"}],
+            "relation_edges": [edge],
+        }
+    )
+
+    assert signal.relation_edges[0].to_id == "B000000001"
+    assert signal.evidence_examples[0]["body"] == "The motor is loud."
+
+
 def test_collection_run_create_rejects_invalid_source_url() -> None:
     with pytest.raises(ValidationError):
         CollectionRunCreate.model_validate(
@@ -106,6 +149,24 @@ def test_raw_source_item_rejects_non_json_payload_value() -> None:
                 "raw_payload": {"obj": object()},
                 "raw_payload_hash": "hash123",
                 "captured_at": datetime(2026, 6, 5, tzinfo=UTC),
+            }
+        )
+
+
+def test_relation_edge_rejects_non_json_metadata_value() -> None:
+    with pytest.raises(ValidationError):
+        RelationEdge.model_validate(
+            {
+                "source_platform": Platform.AMAZON,
+                "source_kind": SourceKind.AMAZON_REVIEW,
+                "source_object_id": "R123",
+                "relation_type": "voc_unit_mentions_asin",
+                "from_type": "voc_unit",
+                "from_id": "R123",
+                "to_type": "amazon_asin",
+                "to_id": "B000000001",
+                "evidence_strength": 0.82,
+                "metadata": {"bad": object()},
             }
         )
 

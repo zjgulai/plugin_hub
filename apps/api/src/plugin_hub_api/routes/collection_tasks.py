@@ -25,6 +25,7 @@ from plugin_hub_api.services.collection_task_worker import (
     run_collection_task,
     run_next_collection_task,
 )
+from plugin_hub_api.services.instagram_graph_capture import InstagramGraphCommentsFetcher
 from plugin_hub_api.services.reddit_capture import default_reddit_json_fetcher
 
 router = APIRouter()
@@ -98,6 +99,10 @@ def list_collection_tasks(
 def run_next_collection_task_endpoint(
     repository: Annotated[SqlAlchemyRepository, Depends(get_repository)],
     reddit_json_fetcher: Annotated[Callable[[str], object], Depends(get_reddit_json_fetcher)],
+    instagram_graph_comments_fetcher: Annotated[
+        InstagramGraphCommentsFetcher | None,
+        Depends(get_instagram_graph_comments_fetcher),
+    ],
     worker_config: Annotated[
         CollectionTaskWorkerConfig, Depends(get_collection_task_worker_config)
     ],
@@ -106,6 +111,7 @@ def run_next_collection_task_endpoint(
         result = run_next_collection_task(
             repository=repository,
             reddit_json_fetcher=reddit_json_fetcher,
+            instagram_graph_comments_fetcher=instagram_graph_comments_fetcher,
             config=worker_config,
         )
     except PendingCollectionTaskNotFoundError:
@@ -122,6 +128,10 @@ def run_collection_task_endpoint(
     collection_task_id: str,
     repository: Annotated[SqlAlchemyRepository, Depends(get_repository)],
     reddit_json_fetcher: Annotated[Callable[[str], object], Depends(get_reddit_json_fetcher)],
+    instagram_graph_comments_fetcher: Annotated[
+        InstagramGraphCommentsFetcher | None,
+        Depends(get_instagram_graph_comments_fetcher),
+    ],
     worker_config: Annotated[
         CollectionTaskWorkerConfig, Depends(get_collection_task_worker_config)
     ],
@@ -131,6 +141,7 @@ def run_collection_task_endpoint(
             collection_task_id=collection_task_id,
             repository=repository,
             reddit_json_fetcher=reddit_json_fetcher,
+            instagram_graph_comments_fetcher=instagram_graph_comments_fetcher,
             config=worker_config,
         )
     except CollectionTaskNotFoundError:
@@ -142,6 +153,11 @@ def run_collection_task_endpoint(
 def get_reddit_json_fetcher(request: Request) -> Callable[[str], object]:
     fetcher = getattr(request.app.state, "reddit_json_fetcher", None)
     return fetcher if callable(fetcher) else default_reddit_json_fetcher
+
+
+def get_instagram_graph_comments_fetcher(request: Request) -> InstagramGraphCommentsFetcher | None:
+    fetcher = getattr(request.app.state, "instagram_graph_comments_fetcher", None)
+    return fetcher if callable(fetcher) else None
 
 
 def get_collection_task_worker_config(request: Request) -> CollectionTaskWorkerConfig:

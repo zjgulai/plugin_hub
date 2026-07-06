@@ -10,6 +10,8 @@ from plugin_hub_api.models import (
     CanonicalVocUnitRow,
     CollectionRunRow,
     CollectionTaskRow,
+    PlatformSettingAuditEventRow,
+    PlatformSettingRow,
     RawSourceItemRow,
 )
 from plugin_hub_api.schemas import (
@@ -18,6 +20,9 @@ from plugin_hub_api.schemas import (
     CollectionTask,
     CollectionTaskStatus,
     Platform,
+    PlatformSetting,
+    PlatformSettingAuditEvent,
+    PlatformSettingSource,
     RawSourceItem,
 )
 
@@ -162,6 +167,59 @@ class SqlAlchemyRepository:
             self._session.rollback()
             raise
 
+    def list_platform_settings(self) -> list[PlatformSetting]:
+        rows = self._session.scalars(select(PlatformSettingRow)).all()
+        return [self._platform_setting_from_row(row) for row in rows]
+
+    def get_platform_setting(self, platform: Platform) -> PlatformSetting | None:
+        row = self._session.get(PlatformSettingRow, platform.value)
+        return self._platform_setting_from_row(row) if row is not None else None
+
+    def save_platform_setting(
+        self,
+        *,
+        setting: PlatformSetting,
+        previous_setting: PlatformSetting,
+        changed_fields: list[str],
+    ) -> None:
+        try:
+            row = self._session.get(PlatformSettingRow, setting.platform.value)
+            if row is None:
+                self._session.add(_platform_setting_row(setting))
+            else:
+                _update_platform_setting_row(row, setting)
+
+            self._session.add(
+                PlatformSettingAuditEventRow(
+                    platform=setting.platform.value,
+                    changed_fields=changed_fields,
+                    previous_enabled=previous_setting.enabled,
+                    new_enabled=setting.enabled,
+                    previous_config=previous_setting.config,
+                    new_config=setting.config,
+                    changed_by=setting.updated_by,
+                    created_at=setting.updated_at,
+                )
+            )
+            self._session.commit()
+        except SQLAlchemyError:
+            self._session.rollback()
+            raise
+
+    def list_platform_setting_audit_events(
+        self,
+        platform: Platform,
+        *,
+        limit: int = 20,
+    ) -> list[PlatformSettingAuditEvent]:
+        rows = self._session.scalars(
+            select(PlatformSettingAuditEventRow)
+            .where(PlatformSettingAuditEventRow.platform == platform.value)
+            .order_by(PlatformSettingAuditEventRow.id.desc())
+            .limit(limit)
+        ).all()
+        return [self._platform_setting_audit_event_from_row(row) for row in rows]
+
     def save_collection_and_update_task(
         self,
         *,
@@ -250,6 +308,37 @@ class SqlAlchemyRepository:
             }
         )
 
+    @staticmethod
+    def _platform_setting_from_row(row: PlatformSettingRow) -> PlatformSetting:
+        return PlatformSetting.model_validate(
+            {
+                "platform": row.platform,
+                "enabled": row.enabled,
+                "config": row.config,
+                "updated_at": row.updated_at,
+                "updated_by": row.updated_by,
+                "source": PlatformSettingSource.STORED,
+            }
+        )
+
+    @staticmethod
+    def _platform_setting_audit_event_from_row(
+        row: PlatformSettingAuditEventRow,
+    ) -> PlatformSettingAuditEvent:
+        return PlatformSettingAuditEvent.model_validate(
+            {
+                "id": row.id,
+                "platform": row.platform,
+                "changed_fields": row.changed_fields,
+                "previous_enabled": row.previous_enabled,
+                "new_enabled": row.new_enabled,
+                "previous_config": row.previous_config,
+                "new_config": row.new_config,
+                "changed_by": row.changed_by,
+                "created_at": row.created_at,
+            }
+        )
+
 
 def _collection_run_row(run: CollectionRun) -> CollectionRunRow:
     return CollectionRunRow(
@@ -287,6 +376,23 @@ def _update_collection_task_row(row: CollectionTaskRow, task: CollectionTask) ->
     row.context = task.context
     row.created_at = task.created_at
     row.updated_at = task.updated_at
+
+
+def _platform_setting_row(setting: PlatformSetting) -> PlatformSettingRow:
+    return PlatformSettingRow(
+        platform=setting.platform.value,
+        enabled=setting.enabled,
+        config=setting.config,
+        updated_at=setting.updated_at,
+        updated_by=setting.updated_by,
+    )
+
+
+def _update_platform_setting_row(row: PlatformSettingRow, setting: PlatformSetting) -> None:
+    row.enabled = setting.enabled
+    row.config = setting.config
+    row.updated_at = setting.updated_at
+    row.updated_by = setting.updated_by
 
 
 def _collection_task_is_runnable(task: CollectionTask, reference_time: datetime) -> bool:

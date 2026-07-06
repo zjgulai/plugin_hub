@@ -13,6 +13,7 @@ from plugin_hub_api.schemas import (
 )
 from plugin_hub_api.services.etl import (
     map_amazon_review_to_voc,
+    map_instagram_comment_to_voc,
     map_reddit_comment_to_voc,
     map_reddit_thread_to_voc,
 )
@@ -35,13 +36,22 @@ def map_raw_item_to_voc(*, run: CollectionRun, raw_item: RawSourceItem) -> Canon
             raw_thread=raw_item.raw_payload,
             coverage_confidence=run.coverage_confidence,
         )
-    return map_reddit_comment_to_voc(
-        collection_run_id=run.collection_run_id,
-        source_url=source_url,
-        thread_id=reddit_comment_thread_id(raw_item.raw_payload),
-        raw_comment=raw_item.raw_payload,
-        coverage_confidence=run.coverage_confidence,
-    )
+    if raw_item.source_kind == SourceKind.REDDIT_COMMENT:
+        return map_reddit_comment_to_voc(
+            collection_run_id=run.collection_run_id,
+            source_url=source_url,
+            thread_id=reddit_comment_thread_id(raw_item.raw_payload),
+            raw_comment=raw_item.raw_payload,
+            coverage_confidence=run.coverage_confidence,
+        )
+    if raw_item.source_kind == SourceKind.INSTAGRAM_COMMENT:
+        return map_instagram_comment_to_voc(
+            collection_run_id=run.collection_run_id,
+            source_url=source_url,
+            raw_comment=raw_item.raw_payload,
+            coverage_confidence=run.coverage_confidence,
+        )
+    _raise_source_kind_unsupported()
 
 
 def reddit_comment_thread_id(raw_payload: dict[str, JsonValue]) -> str:
@@ -69,4 +79,11 @@ def _raise_reddit_comment_thread_id_required() -> NoReturn:
     raise HTTPException(
         status_code=422,
         detail="reddit_comment_thread_id_required",
+    )
+
+
+def _raise_source_kind_unsupported() -> NoReturn:
+    raise HTTPException(
+        status_code=422,
+        detail="source_kind_unsupported",
     )

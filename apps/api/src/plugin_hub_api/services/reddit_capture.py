@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from urllib.error import HTTPError
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from urllib.request import Request, urlopen
 
+from plugin_hub_api.config import Settings
 from plugin_hub_api.schemas import (
     JsonValue,
     Platform,
@@ -61,6 +64,7 @@ COMMENT_FIELD_KEYS = (
 MORE_FIELD_KEYS = ("id", "parent_id", "children", "depth")
 
 type RedditJsonFetcher = Callable[[str], object]
+type RedditHttpRequest = Callable[[Request, float], bytes]
 
 
 @dataclass(frozen=True)
@@ -73,9 +77,97 @@ class RedditCaptureResult:
 
 
 @dataclass(frozen=True)
+class RedditOAuthConfig:
+    client_id: str
+    client_secret: str
+    user_agent: str
+    token_url: str = "https://www.reddit.com/api/v1/access_token"
+    oauth_api_base_url: str = "https://oauth.reddit.com"
+    request_timeout_seconds: float = 20.0
+
+
+@dataclass(frozen=True)
+class RedditAccessToken:
+    access_token: str
+    token_type: str
+    expires_at: datetime
+    scope: str | None
+
+
+class RedditOAuthConfigurationError(RuntimeError):
+    pass
+
+
+class RedditOAuthTokenError(RuntimeError):
+    pass
+
+
+class RedditUpstreamAccessError(RuntimeError):
+    pass
+
+
+class RedditOAuthJsonFetcher:
+    def __init__(
+        self,
+        config: RedditOAuthConfig,
+        *,
+        http_request: RedditHttpRequest | None = None,
+        now: Callable[[], datetime] | None = None,
+    ) -> None:
+        self._config = config
+        self._http_request = http_request if http_request is not None else _urlopen_bytes
+        self._now = now if now is not None else lambda: datetime.now(tz=UTC)
+        self._cached_token: RedditAccessToken | None = None
+
+    def __call__(self, url: str) -> str:
+        token = self._access_token()
+        request = Request(
+            build_reddit_oauth_api_url(url, base_url=self._config.oauth_api_base_url),
+            headers={
+                "Accept": "application/json",
+                "Authorization": f"{token.token_type} {token.access_token}",
+                "User-Agent": self._config.user_agent,
+            },
+        )
+        try:
+            body = self._http_request(request, self._config.request_timeout_seconds)
+        except HTTPError as error:
+            raise RedditUpstreamAccessError(f"reddit_upstream_http_{error.code}") from error
+        return body.decode("utf-8")
+
+    def _access_token(self) -> RedditAccessToken:
+        if self._cached_token is not None and self._cached_token.expires_at > (
+            self._now() + timedelta(seconds=60)
+        ):
+            return self._cached_token
+
+        credentials = f"{self._config.client_id}:{self._config.client_secret}".encode()
+        request = Request(
+            self._config.token_url,
+            data=urlencode({"grant_type": "client_credentials"}).encode("utf-8"),
+            headers={
+                "Accept": "application/json",
+                "Authorization": f"Basic {base64.b64encode(credentials).decode('ascii')}",
+                "Content-Type": "application/x-www-form-urlencoded",
+                "User-Agent": self._config.user_agent,
+            },
+            method="POST",
+        )
+        try:
+            body = self._http_request(request, self._config.request_timeout_seconds)
+        except HTTPError as error:
+            raise RedditOAuthTokenError(f"reddit_oauth_token_http_{error.code}") from error
+
+        token = _parse_oauth_token_response(body, now=self._now())
+        self._cached_token = token
+        return token
+
+
+@dataclass(frozen=True)
 class _CommentTraversalResult:
     raw_items: list[RawSourceItem]
     more_node_count: int
+    depth_limited: bool
 
 
 def capture_reddit_thread_json(
@@ -83,6 +175,7 @@ def capture_reddit_thread_json(
     source_url: str,
     captured_at: datetime,
     fetcher: RedditJsonFetcher | None = None,
+    max_comment_depth: int | None = None,
 ) -> RedditCaptureResult:
     json_url = build_reddit_json_url(source_url)
     resolved_fetcher = fetcher if fetcher is not None else default_reddit_json_fetcher
@@ -92,6 +185,7 @@ def capture_reddit_thread_json(
         payload=parsed_payload,
         source_url=source_url,
         captured_at=captured_at,
+        max_comment_depth=max_comment_depth,
     )
 
     return RedditCaptureResult(
@@ -112,6 +206,7 @@ def parse_reddit_thread_json_payload(
     payload: object,
     source_url: str,
     captured_at: datetime,
+    max_comment_depth: int | None = None,
 ) -> tuple[list[RawSourceItem], int, str | None]:
     listings = _parse_listings(payload)
     if listings is None:
@@ -137,8 +232,11 @@ def parse_reddit_thread_json_payload(
         source_url=source_url,
         captured_at=captured_at_iso,
         thread_fullname=thread_fullname,
+        max_comment_depth=max_comment_depth,
+        current_depth=0,
     )
-    return [thread_raw_item, *comments.raw_items], comments.more_node_count, None
+    stop_reason = "max_comment_depth_reached" if comments.depth_limited else None
+    return [thread_raw_item, *comments.raw_items], comments.more_node_count, stop_reason
 
 
 def build_reddit_json_url(source_url: str) -> str:
@@ -158,6 +256,44 @@ def build_reddit_json_url(source_url: str) -> str:
     )
 
 
+def build_reddit_oauth_api_url(
+    json_url: str,
+    *,
+    base_url: str = "https://oauth.reddit.com",
+) -> str:
+    parsed = urlparse(json_url)
+    parsed_base = urlparse(base_url)
+    path = parsed.path
+    if path.endswith(".json"):
+        path = path.removesuffix(".json")
+    return urlunparse(
+        (
+            parsed_base.scheme or "https",
+            parsed_base.netloc or "oauth.reddit.com",
+            path,
+            "",
+            parsed.query,
+            "",
+        )
+    )
+
+
+def build_configured_reddit_json_fetcher(settings: Settings) -> RedditJsonFetcher:
+    has_client_id = bool(settings.reddit_client_id)
+    has_client_secret = bool(settings.reddit_client_secret)
+    if has_client_id != has_client_secret:
+        raise RedditOAuthConfigurationError("reddit_oauth_credentials_incomplete")
+    if not has_client_id or not has_client_secret:
+        return default_reddit_json_fetcher
+    return RedditOAuthJsonFetcher(
+        RedditOAuthConfig(
+            client_id=cast(str, settings.reddit_client_id),
+            client_secret=cast(str, settings.reddit_client_secret),
+            user_agent=settings.reddit_user_agent,
+        )
+    )
+
+
 def default_reddit_json_fetcher(url: str) -> str:
     request = Request(
         url,
@@ -166,9 +302,44 @@ def default_reddit_json_fetcher(url: str) -> str:
             "User-Agent": "PluginHubVOC/0.1 server-side capture",
         },
     )
-    with urlopen(request, timeout=20) as response:
-        body = cast(bytes, response.read())
-        return body.decode("utf-8")
+    try:
+        body = _urlopen_bytes(request, 20)
+    except HTTPError as error:
+        raise RedditUpstreamAccessError(f"reddit_upstream_http_{error.code}") from error
+    return body.decode("utf-8")
+
+
+def _urlopen_bytes(request: Request, timeout: float) -> bytes:
+    with urlopen(request, timeout=timeout) as response:
+        return cast(bytes, response.read())
+
+
+def _parse_oauth_token_response(body: bytes, *, now: datetime) -> RedditAccessToken:
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except json.JSONDecodeError as error:
+        raise RedditOAuthTokenError("reddit_oauth_token_invalid_json") from error
+
+    if not isinstance(payload, dict):
+        raise RedditOAuthTokenError("reddit_oauth_token_invalid_response")
+    access_token = payload.get("access_token")
+    token_type = payload.get("token_type")
+    expires_in = payload.get("expires_in")
+    scope = payload.get("scope")
+    if not isinstance(access_token, str) or not access_token:
+        raise RedditOAuthTokenError("reddit_oauth_token_missing_access_token")
+    if not isinstance(token_type, str) or not token_type:
+        token_type = "bearer"
+    if not isinstance(expires_in, int | float) or isinstance(expires_in, bool):
+        expires_in = 3600
+    if not isinstance(scope, str):
+        scope = None
+    return RedditAccessToken(
+        access_token=access_token,
+        token_type=token_type,
+        expires_at=now + timedelta(seconds=max(0, int(expires_in))),
+        scope=scope,
+    )
 
 
 def _decode_payload(payload: object) -> object:
@@ -229,9 +400,12 @@ def _parse_comments(
     source_url: str,
     captured_at: str,
     thread_fullname: str,
+    max_comment_depth: int | None,
+    current_depth: int,
 ) -> _CommentTraversalResult:
     raw_items: list[RawSourceItem] = []
     more_node_count = 0
+    depth_limited = False
 
     for child in children:
         node = _parse_node(child)
@@ -239,6 +413,10 @@ def _parse_comments(
             continue
 
         if node["kind"] == "t1":
+            node_depth = _comment_depth(node["data"], current_depth)
+            if max_comment_depth is not None and node_depth > max_comment_depth:
+                depth_limited = True
+                continue
             raw_items.append(
                 _build_comment_raw_source_item(
                     data=node["data"],
@@ -249,17 +427,27 @@ def _parse_comments(
             )
             replies = _parse_listing(node["data"].get("replies"))
             if replies is not None:
-                nested = _parse_comments(
-                    children=replies["children"],
-                    source_url=source_url,
-                    captured_at=captured_at,
-                    thread_fullname=thread_fullname,
-                )
-                raw_items.extend(nested.raw_items)
-                more_node_count += nested.more_node_count
+                if max_comment_depth is not None and node_depth >= max_comment_depth:
+                    depth_limited = True
+                else:
+                    nested = _parse_comments(
+                        children=replies["children"],
+                        source_url=source_url,
+                        captured_at=captured_at,
+                        thread_fullname=thread_fullname,
+                        max_comment_depth=max_comment_depth,
+                        current_depth=node_depth + 1,
+                    )
+                    raw_items.extend(nested.raw_items)
+                    more_node_count += nested.more_node_count
+                    depth_limited = depth_limited or nested.depth_limited
             continue
 
         if node["kind"] == "more":
+            node_depth = _comment_depth(node["data"], current_depth)
+            if max_comment_depth is not None and node_depth > max_comment_depth:
+                depth_limited = True
+                continue
             raw_items.append(
                 _build_more_raw_source_item(
                     data=node["data"],
@@ -270,7 +458,18 @@ def _parse_comments(
             )
             more_node_count += 1
 
-    return _CommentTraversalResult(raw_items=raw_items, more_node_count=more_node_count)
+    return _CommentTraversalResult(
+        raw_items=raw_items,
+        more_node_count=more_node_count,
+        depth_limited=depth_limited,
+    )
+
+
+def _comment_depth(data: dict[str, object], fallback: int) -> int:
+    depth = data.get("depth")
+    if isinstance(depth, int) and depth >= 0:
+        return depth
+    return fallback
 
 
 def _build_thread_raw_source_item(
@@ -401,11 +600,7 @@ def _clean_json_value_or_raise(value: object) -> JsonValue:
             raise ValueError("non_finite_float")
         return value
     if isinstance(value, list):
-        return [
-            cleaned
-            for item in value
-            if (cleaned := _clean_json_value(item)) is not None
-        ]
+        return [cleaned for item in value if (cleaned := _clean_json_value(item)) is not None]
     if isinstance(value, dict):
         output: dict[str, JsonValue] = {}
         for key, item in value.items():
@@ -494,6 +689,8 @@ def _reddit_coverage_confidence(
 ) -> float:
     if raw_item_count == 0:
         return 0.2
-    if stop_reason == "more_nodes_not_expanded" or more_node_count > 0:
+    if stop_reason in {"more_nodes_not_expanded", "max_comment_depth_reached"}:
+        return 0.78
+    if more_node_count > 0:
         return 0.78
     return 0.92

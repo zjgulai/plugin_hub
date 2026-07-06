@@ -15,7 +15,11 @@ from plugin_hub_api.services.collection_task_worker import (
     PendingCollectionTaskNotFoundError,
     run_next_collection_task,
 )
-from plugin_hub_api.services.reddit_capture import default_reddit_json_fetcher
+from plugin_hub_api.services.instagram_graph_capture import (
+    InstagramGraphCommentsFetcher,
+    build_configured_instagram_graph_comments_fetcher,
+)
+from plugin_hub_api.services.reddit_capture import build_configured_reddit_json_fetcher
 
 
 def parse_args() -> argparse.Namespace:
@@ -93,12 +97,17 @@ def build_config(settings: Settings, args: argparse.Namespace) -> CollectionTask
             else settings.collection_task_claim_ttl_seconds
         ),
         worker_id=args.worker_id or settings.collection_task_worker_id,
+        instagram_graph_live_read_enabled=settings.instagram_graph_live_read_enabled,
+        instagram_graph_api_version=settings.instagram_graph_api_version,
+        instagram_graph_comment_limit=settings.instagram_graph_comment_limit,
     )
 
 
 def run_worker(
     *,
     session_factory: Callable[[], Session],
+    reddit_json_fetcher: Callable[[str], object],
+    instagram_graph_comments_fetcher: InstagramGraphCommentsFetcher | None,
     config: CollectionTaskWorkerConfig,
     once: bool,
     max_tasks: int,
@@ -111,7 +120,8 @@ def run_worker(
             try:
                 result = run_next_collection_task(
                     repository=repository,
-                    reddit_json_fetcher=default_reddit_json_fetcher,
+                    reddit_json_fetcher=reddit_json_fetcher,
+                    instagram_graph_comments_fetcher=instagram_graph_comments_fetcher,
                     config=config,
                 )
             except PendingCollectionTaskNotFoundError:
@@ -150,6 +160,8 @@ def main() -> None:
     )
     settings = Settings()
     config = build_config(settings, args)
+    reddit_json_fetcher = build_configured_reddit_json_fetcher(settings)
+    instagram_graph_comments_fetcher = build_configured_instagram_graph_comments_fetcher(settings)
     database_url = args.database_url or settings.database_url
     engine = build_engine(database_url)
     init_database(engine)
@@ -164,6 +176,8 @@ def main() -> None:
 
     processed_count = run_worker(
         session_factory=session_factory,
+        reddit_json_fetcher=reddit_json_fetcher,
+        instagram_graph_comments_fetcher=instagram_graph_comments_fetcher,
         config=config,
         once=args.once,
         max_tasks=args.max_tasks,

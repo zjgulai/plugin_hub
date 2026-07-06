@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from plugin_hub_api.db import Base
@@ -34,6 +34,30 @@ class CollectionTaskRow(Base):
     context: Mapped[dict[str, JsonValue]] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class PlatformSettingRow(Base):
+    __tablename__ = "platform_settings"
+
+    platform: Mapped[str] = mapped_column(String(32), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    config: Mapped[dict[str, JsonValue]] = mapped_column(JSON, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class PlatformSettingAuditEventRow(Base):
+    __tablename__ = "platform_setting_audit_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    platform: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    changed_fields: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    previous_enabled: Mapped[bool | None] = mapped_column(Boolean)
+    new_enabled: Mapped[bool | None] = mapped_column(Boolean)
+    previous_config: Mapped[dict[str, JsonValue]] = mapped_column(JSON, nullable=False)
+    new_config: Mapped[dict[str, JsonValue]] = mapped_column(JSON, nullable=False)
+    changed_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class RawSourceItemRow(Base):

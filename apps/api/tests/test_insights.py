@@ -6,7 +6,7 @@ from typing import cast
 from fastapi.testclient import TestClient
 
 from plugin_hub_api.schemas import CanonicalVocUnit, JsonValue
-from plugin_hub_api.services.insights import generate_strategy_notes
+from plugin_hub_api.services.insights import build_voc_signal_bundle, generate_strategy_notes
 
 
 def test_generate_strategy_notes_groups_loud_and_noise_as_noise() -> None:
@@ -29,36 +29,23 @@ def test_generate_strategy_notes_groups_loud_and_noise_as_noise() -> None:
         ]
     )
 
-    assert notes == [
-        {
-            "strategy_type": "voc_template",
-            "topic": "noise",
-            "evidence_count": 2,
-            "evidence_examples": [
-                {
-                    "body": "The grinder is very loud during every morning use.",
-                    "source_object_id": "RLOUD",
-                    "source_url": "https://example.com/source",
-                    "platform": "amazon",
-                    "source_kind": "amazon_review",
-                    "collection_run_id": "run_insights",
-                },
-                {
-                    "body": "The motor noise makes it hard to use in an apartment.",
-                    "source_object_id": "t1_noise",
-                    "source_url": "https://example.com/source",
-                    "platform": "reddit",
-                    "source_kind": "reddit_comment",
-                    "collection_run_id": "run_insights",
-                },
-            ],
-            "recommendation": (
-                "Prioritize reducing noise complaints in product messaging and fixes."
-            ),
-            "evidence_strength": 0.7,
-            "quality_flags": [],
-        }
-    ]
+    assert len(notes) == 1
+    note = notes[0]
+    assert note["strategy_type"] == "voc_template"
+    assert note["topic"] == "noise"
+    assert note["evidence_count"] == 2
+    assert note["recommendation"] == (
+        "Prioritize reducing noise complaints in product messaging and fixes."
+    )
+    assert note["evidence_strength"] == 0.7
+    assert note["quality_flags"] == []
+    examples = cast(list[dict[str, JsonValue]], note["evidence_examples"])
+    assert examples[0]["body"] == "The grinder is very loud during every morning use."
+    assert isinstance(examples[0]["signal_id"], str)
+    assert str(examples[0]["signal_id"]).startswith("signal_")
+    assert examples[0]["aspect"] == "product_noise"
+    assert examples[0]["severity"] == "medium"
+    assert examples[1]["relation_edge_count"] == 0
 
 
 def test_generate_strategy_notes_preserves_low_quality_evidence_flags() -> None:
@@ -94,6 +81,10 @@ def test_generate_strategy_notes_preserves_low_quality_evidence_flags() -> None:
     assert examples[0]["source_url"] == "https://example.com/source"
     assert examples[0]["platform"] == "amazon"
     assert examples[0]["collection_run_id"] == "run_insights"
+    assert isinstance(examples[0]["signal_id"], str)
+    assert str(examples[0]["signal_id"]).startswith("signal_")
+    assert examples[0]["aspect"] == "product_reliability"
+    assert examples[0]["severity"] == "high"
     assert examples[1]["body"] == "It stopped working after one week."
     assert note["quality_flags"] == ["invalid_created_at", "missing_review_id"]
 
@@ -130,6 +121,57 @@ def test_generate_strategy_notes_sorts_equal_counts_by_topic() -> None:
     )
 
     assert [note["topic"] for note in notes] == ["durability", "noise", "price"]
+
+
+def test_build_voc_signal_bundle_creates_relation_edges_and_signals() -> None:
+    bundle = build_voc_signal_bundle(
+        [
+            _voc_unit(
+                platform="amazon",
+                source_kind="amazon_review",
+                source_object_id="RVARIANT",
+                body="The grinder is louder than expected.",
+                coverage_confidence=0.86,
+                asin="B000000001",
+                parent_asin="B000PARENT1",
+                marketplace="US",
+                brand="Acme",
+                product_title="Acme Burr Grinder",
+                platform_extension={"variant_context": {"color": "black", "size": "small"}},
+            ),
+            _voc_unit(
+                platform="reddit",
+                source_kind="reddit_comment",
+                source_object_id="t1_child",
+                body="The motor noise makes it hard to use in an apartment.",
+                coverage_confidence=0.74,
+                thread_id="t3_thread123",
+                parent_id="t1_parent999",
+                reply_role="nested_comment",
+                platform_extension={
+                    "subreddit": "Coffee",
+                    "subreddit_name_prefixed": "r/Coffee",
+                },
+            ),
+        ]
+    )
+
+    assert [signal.topic for signal in bundle.enriched_voc_signals] == ["noise", "noise"]
+    assert bundle.enriched_voc_signals[0].quality_issue is True
+    assert bundle.enriched_voc_signals[1].usage_scenario == "apartment_use"
+    edge_types = {edge.relation_type for edge in bundle.relation_edges}
+    assert edge_types == {
+        "amazon_asin_has_parent",
+        "reddit_comment_replies_to_parent_comment",
+        "reddit_comment_replies_to_thread",
+        "voc_unit_has_variant_context",
+        "voc_unit_in_subreddit",
+        "voc_unit_mentions_asin",
+        "voc_unit_mentions_brand",
+    }
+    amazon_signal = bundle.enriched_voc_signals[0]
+    assert len(amazon_signal.relation_edges) == 4
+    assert amazon_signal.relation_edges[0].source_object_id == "RVARIANT"
 
 
 def test_get_strategy_notes_from_collection_runs_by_platform(client: TestClient) -> None:
@@ -183,12 +225,52 @@ def test_get_strategy_notes_from_collection_runs_by_platform(client: TestClient)
     assert examples[0]["platform"] == "amazon"
     assert examples[0]["source_kind"] == "amazon_review"
     assert examples[0]["collection_run_id"].startswith("run_")
+    assert examples[0]["signal_id"].startswith("signal_")
+    assert examples[0]["aspect"] == "product_noise"
 
     all_response = client.get("/api/insights/strategy-notes")
 
     assert all_response.status_code == 200
     all_notes = all_response.json()["items"]
     assert {note["topic"] for note in all_notes} == {"noise", "price"}
+
+
+def test_get_voc_signals_from_collection_runs_by_platform(client: TestClient) -> None:
+    create_response = client.post(
+        "/api/collection-runs",
+        json={
+            "run": _collection_run(
+                platform="amazon",
+                source_url="https://www.amazon.com/product-reviews/B000000001",
+                coverage_confidence=0.64,
+            ),
+            "raw_items": [
+                _amazon_review_item(
+                    source_object_id="RLOUD",
+                    body="The fan noise is loud enough to wake everyone.",
+                    raw_payload_hash="sha256:amazon-loud",
+                    asin="B000000001",
+                    parent_asin="B000PARENT1",
+                    marketplace="US",
+                )
+            ],
+        },
+    )
+
+    assert create_response.status_code == 201
+
+    response = client.get("/api/insights/voc-signals", params={"platform": "amazon"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["enriched_voc_signals"]) == 1
+    signal = payload["enriched_voc_signals"][0]
+    assert signal["topic"] == "noise"
+    assert signal["aspect"] == "product_noise"
+    assert signal["evidence_strength"] == 0.64
+    assert signal["inference_method"] == "deterministic_keyword_v1"
+    relation_types = {edge["relation_type"] for edge in payload["relation_edges"]}
+    assert relation_types == {"amazon_asin_has_parent", "voc_unit_mentions_asin"}
 
 
 def _voc_unit(
@@ -199,20 +281,40 @@ def _voc_unit(
     body: str,
     coverage_confidence: float,
     quality_flags: list[str] | None = None,
+    asin: str | None = None,
+    parent_asin: str | None = None,
+    marketplace: str | None = None,
+    brand: str | None = None,
+    product_title: str | None = None,
+    thread_id: str | None = None,
+    parent_id: str | None = None,
+    reply_role: str | None = None,
+    platform_extension: dict[str, JsonValue] | None = None,
 ) -> CanonicalVocUnit:
-    return CanonicalVocUnit.model_validate(
-        {
-            "platform": platform,
-            "source_kind": source_kind,
-            "source_object_id": source_object_id,
-            "collection_run_id": "run_insights",
-            "source_url": "https://example.com/source",
-            "captured_at": "2026-06-05T00:00:00+00:00",
-            "body": body,
-            "quality_flags": quality_flags or [],
-            "coverage_confidence": coverage_confidence,
-        }
-    )
+    payload: dict[str, object] = {
+        "platform": platform,
+        "source_kind": source_kind,
+        "source_object_id": source_object_id,
+        "collection_run_id": "run_insights",
+        "source_url": "https://example.com/source",
+        "captured_at": "2026-06-05T00:00:00+00:00",
+        "body": body,
+        "quality_flags": quality_flags or [],
+        "coverage_confidence": coverage_confidence,
+    }
+    optional_fields: dict[str, object | None] = {
+        "asin": asin,
+        "parent_asin": parent_asin,
+        "marketplace": marketplace,
+        "brand": brand,
+        "product_title": product_title,
+        "thread_id": thread_id,
+        "parent_id": parent_id,
+        "reply_role": reply_role,
+        "platform_extension": platform_extension,
+    }
+    payload.update({key: value for key, value in optional_fields.items() if value is not None})
+    return CanonicalVocUnit.model_validate(payload)
 
 
 def _collection_run(
@@ -236,19 +338,29 @@ def _amazon_review_item(
     source_object_id: str,
     body: str,
     raw_payload_hash: str,
+    asin: str | None = None,
+    parent_asin: str | None = None,
+    marketplace: str | None = None,
 ) -> dict[str, object]:
+    raw_payload: dict[str, object] = {
+        "review_id": source_object_id,
+        "rating": 2,
+        "body": body,
+        "captured_at": "2026-06-05T00:00:00+00:00",
+    }
+    if asin is not None:
+        raw_payload["asin"] = asin
+    if parent_asin is not None:
+        raw_payload["parent_asin"] = parent_asin
+    if marketplace is not None:
+        raw_payload["marketplace"] = marketplace
     return {
         "platform": "amazon",
         "source_kind": "amazon_review",
         "source_object_id": source_object_id,
         "raw_schema_version": "amazon-review-v1",
         "parser_version": "parser-v1",
-        "raw_payload": {
-            "review_id": source_object_id,
-            "rating": 2,
-            "body": body,
-            "captured_at": "2026-06-05T00:00:00+00:00",
-        },
+        "raw_payload": raw_payload,
         "raw_payload_hash": raw_payload_hash,
         "captured_at": datetime(2026, 6, 5, tzinfo=UTC).isoformat(),
     }
