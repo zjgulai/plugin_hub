@@ -1,0 +1,98 @@
+name: plugin_hub
+
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+      args:
+        PIP_INDEX_URL: ${PLUGIN_HUB_BUILD_PIP_INDEX_URL:-https://mirrors.cloud.tencent.com/pypi/simple}
+        UV_DEFAULT_INDEX: ${PLUGIN_HUB_BUILD_UV_DEFAULT_INDEX:-https://mirrors.cloud.tencent.com/pypi/simple}
+    image: plugin-hub-api:latest
+    container_name: plugin-hub-api
+    restart: unless-stopped
+    environment:
+      PLUGIN_HUB_DATABASE_URL: sqlite+pysqlite:////data/plugin_hub.db
+      PLUGIN_HUB_COLLECTION_TASK_WORKER_ID: plugin-hub-api
+      PLUGIN_HUB_COLLECTION_TASK_MAX_ATTEMPTS: ${PLUGIN_HUB_COLLECTION_TASK_MAX_ATTEMPTS:-3}
+      PLUGIN_HUB_COLLECTION_TASK_RETRY_DELAY_SECONDS: ${PLUGIN_HUB_COLLECTION_TASK_RETRY_DELAY_SECONDS:-300}
+      PLUGIN_HUB_COLLECTION_TASK_CLAIM_TTL_SECONDS: ${PLUGIN_HUB_COLLECTION_TASK_CLAIM_TTL_SECONDS:-900}
+      PLUGIN_HUB_REDDIT_CLIENT_ID: ${PLUGIN_HUB_REDDIT_CLIENT_ID:-}
+      PLUGIN_HUB_REDDIT_CLIENT_SECRET: ${PLUGIN_HUB_REDDIT_CLIENT_SECRET:-}
+      PLUGIN_HUB_REDDIT_USER_AGENT: ${PLUGIN_HUB_REDDIT_USER_AGENT:-PluginHubVOC/0.1 server-side capture}
+    volumes:
+      - /opt/plugin-hub/data:/data
+    expose:
+      - "8000"
+    networks:
+      plugin-hub-net:
+      lighthouse-ai-video-net:
+        aliases:
+          - plugin-hub-api
+    healthcheck:
+      test: ["CMD-SHELL", "python - <<'PY'\nfrom urllib.request import urlopen\nurlopen('http://127.0.0.1:8000/api/voc-units', timeout=5).read()\nPY"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  web:
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+      args:
+        NPM_CONFIG_REGISTRY: ${PLUGIN_HUB_BUILD_NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}
+    image: plugin-hub-web:latest
+    container_name: plugin-hub-web
+    restart: unless-stopped
+    environment:
+      PLUGIN_HUB_API_URL: ${PLUGIN_HUB_API_URL:-https://plugin.lute-tlz-dddd.top}
+      PLUGIN_HUB_SITE_ENV: production
+      PLUGIN_HUB_REFRESH_SECONDS: ${PLUGIN_HUB_REFRESH_SECONDS:-30}
+      PLUGIN_HUB_ENABLED_PLATFORMS: ${PLUGIN_HUB_ENABLED_PLATFORMS:-amazon,reddit}
+    expose:
+      - "3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      plugin-hub-net:
+      lighthouse-ai-video-net:
+        aliases:
+          - plugin-hub-web
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  worker:
+    image: plugin-hub-api:latest
+    container_name: plugin-hub-worker
+    restart: unless-stopped
+    command: [".venv/bin/python", "-m", "plugin_hub_api.worker_cli", "--poll-interval-seconds", "10"]
+    environment:
+      PLUGIN_HUB_DATABASE_URL: sqlite+pysqlite:////data/plugin_hub.db
+      PLUGIN_HUB_COLLECTION_TASK_WORKER_ID: plugin-hub-worker
+      PLUGIN_HUB_COLLECTION_TASK_MAX_ATTEMPTS: ${PLUGIN_HUB_COLLECTION_TASK_MAX_ATTEMPTS:-3}
+      PLUGIN_HUB_COLLECTION_TASK_RETRY_DELAY_SECONDS: ${PLUGIN_HUB_COLLECTION_TASK_RETRY_DELAY_SECONDS:-300}
+      PLUGIN_HUB_COLLECTION_TASK_CLAIM_TTL_SECONDS: ${PLUGIN_HUB_COLLECTION_TASK_CLAIM_TTL_SECONDS:-900}
+      PLUGIN_HUB_REDDIT_CLIENT_ID: ${PLUGIN_HUB_REDDIT_CLIENT_ID:-}
+      PLUGIN_HUB_REDDIT_CLIENT_SECRET: ${PLUGIN_HUB_REDDIT_CLIENT_SECRET:-}
+      PLUGIN_HUB_REDDIT_USER_AGENT: ${PLUGIN_HUB_REDDIT_USER_AGENT:-PluginHubVOC/0.1 server-side capture}
+    volumes:
+      - /opt/plugin-hub/data:/data
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - plugin-hub-net
+
+networks:
+  plugin-hub-net:
+    name: plugin_hub_net
+    driver: bridge
+  lighthouse-ai-video-net:
+    name: lighthouse_ai_video_net
+    external: true
