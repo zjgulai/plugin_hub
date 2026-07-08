@@ -176,7 +176,8 @@ export function ContentCommandBar({
     collectionTaskResult,
     canCreateServerTask,
     authorizationGated: isInstagramAuthorizationGated,
-    error
+    error,
+    apiBaseUrl
   });
 
   async function handlePreview() {
@@ -749,7 +750,8 @@ function recoverySuggestionForState({
   collectionTaskResult,
   canCreateServerTask,
   authorizationGated,
-  error
+  error,
+  apiBaseUrl
 }: {
   detectedPage: DetectedPage;
   captureSummary: CaptureSummary | null;
@@ -757,12 +759,13 @@ function recoverySuggestionForState({
   canCreateServerTask: boolean;
   authorizationGated: boolean;
   error: string | null;
+  apiBaseUrl: string;
 }): RecoverySuggestion | null {
   if (error) {
     return {
       tone: "error",
       title: "恢复建议",
-      detail: recoveryDetailForError(error)
+      detail: recoveryDetailForError(error, apiBaseUrl)
     };
   }
 
@@ -801,7 +804,7 @@ function recoverySuggestionForState({
   return null;
 }
 
-function recoveryDetailForError(error: string): string {
+function recoveryDetailForError(error: string, apiBaseUrl: string): string {
   if (error === "collection_run_requires_raw_items_submit_server_task") {
     return "当前预览没有有效 Raw VOC，先提交服务端补采任务或切换到可访问的页面后再回传。";
   }
@@ -809,7 +812,7 @@ function recoveryDetailForError(error: string): string {
     return "后台平台配置已关闭，先在 VOC Hub 启用该平台或切换到已启用平台。";
   }
   if (error.includes("fetch") || error.includes("network")) {
-    return "网络或 API 不可达，检查 API 地址后重试；不要把本次结果记为平台采集成功。";
+    return `网络或 API 不可达（当前 API：${apiBaseUrl}）。展开“回传设置”确认地址；如果使用本地 API，请先启动后端后重试；不要把本次结果记为平台采集成功。`;
   }
   return `保留当前状态并复核错误码：${error}`;
 }

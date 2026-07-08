@@ -4,11 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ContentCommandBar } from "../src/content/ui/ContentCommandBar";
 import { captureCurrentPage } from "../src/lib/capture";
+import type { CollectionRunPayload } from "../src/types/contracts";
 import {
   CREATE_COLLECTION_TASK_MESSAGE_TYPE,
   GET_PLATFORM_SETTING_MESSAGE_TYPE,
   GET_STRATEGY_NOTES_MESSAGE_TYPE,
-  UPLOAD_COLLECTION_MESSAGE_TYPE
+  UPLOAD_COLLECTION_MESSAGE_TYPE,
+  type CaptureSummary
 } from "../src/types/messages";
 
 declare global {
@@ -474,6 +476,84 @@ describe("ContentCommandBar", () => {
       }
     });
     expect(rootElement.textContent).toContain("Task task_test · pending");
+  }, 20_000);
+
+  it("shows the effective API URL when Reddit upload cannot reach the backend", async () => {
+    const sendMessage = vi.mocked(chrome.runtime.sendMessage);
+    sendMessage.mockResolvedValue({ error: "Failed to fetch" });
+    const redditPayload = {
+      run: {
+        platform: "reddit",
+        source_url: "https://www.reddit.com/r/shopify/comments/1umbsm4/shopify_store_traffic_is_100_visitorsday_but/",
+        capture_method: "extension_reddit_dom_fallback",
+        coverage_scope: {
+          page_kind: "reddit_thread",
+          thread_id: "1umbsm4",
+          fallback_parser: "reddit_dom",
+          raw_item_count: 1
+        },
+        stop_reason: "reddit_json_unavailable_dom_fallback",
+        coverage_confidence: 0.35
+      },
+      raw_items: [
+        {
+          platform: "reddit",
+          source_kind: "reddit_thread",
+          source_object_id: "t3_1umbsm4",
+          raw_schema_version: "raw_reddit_thread_v1",
+          parser_version: "reddit-dom-parser@0.1.0",
+          raw_payload: {
+            title: "Shopify store traffic is 100+ visitors/day but sales suddenly stopped.",
+            source_url: "https://www.reddit.com/r/shopify/comments/1umbsm4/shopify_store_traffic_is_100_visitorsday_but/"
+          },
+          raw_payload_hash: "fnv1a64:test",
+          captured_at: "2026-07-07T00:00:00.000Z"
+        }
+      ]
+    } satisfies CollectionRunPayload;
+    const redditSummary = {
+      platform: "reddit",
+      page_kind: "reddit_thread",
+      raw_item_count: 1,
+      stop_reason: "reddit_json_unavailable_dom_fallback",
+      coverage_confidence: 0.35
+    } satisfies CaptureSummary;
+
+    await act(async () => {
+      root.render(
+        <ContentCommandBar
+          detectedPage={{
+            platform: "reddit",
+            pageKind: "reddit_thread",
+            threadId: "1umbsm4"
+          }}
+          sourceUrl="https://www.reddit.com/r/shopify/comments/1umbsm4/shopify_store_traffic_is_100_visitorsday_but/"
+          documentRoot={document}
+          onDismiss={vi.fn()}
+          captureCurrentPage={vi.fn(async () => ({
+            payload: redditPayload,
+            summary: redditSummary
+          }))}
+        />
+      );
+    });
+
+    const previewButton = Array.from(rootElement.querySelectorAll("button")).find(
+      (button) => button.textContent === "采集预览"
+    );
+    await act(async () => {
+      previewButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const uploadButton = Array.from(rootElement.querySelectorAll("button")).find(
+      (button) => button.textContent === "回传到后台"
+    );
+    await act(async () => {
+      uploadButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(rootElement.textContent).toContain("当前 API：http://localhost:8000");
+    expect(rootElement.textContent).toContain("展开“回传设置”确认地址");
   }, 20_000);
 
   it("renders Instagram target as authorization-gated without enabling page capture", async () => {

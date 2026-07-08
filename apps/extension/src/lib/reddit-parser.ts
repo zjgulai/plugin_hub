@@ -54,6 +54,8 @@ const COMMENT_FIELD_KEYS = [
 ] as const;
 
 const MORE_FIELD_KEYS = ["id", "parent_id", "children", "depth"] as const;
+const DOM_THREAD_SELECTOR = ".thing.link, [data-fullname^='t3_'], shreddit-post";
+const DOM_COMMENT_SELECTOR = ".comment, [data-fullname^='t1_'], shreddit-comment, [thingid^='t1_']";
 
 export interface ParseRedditThreadJsonOptions {
   capturedAt?: string;
@@ -291,20 +293,22 @@ function buildDomThreadData(
   threadFullname: string,
   subreddit: string | null
 ): Record<string, unknown> | null {
-  const threadElement = root.querySelector(".thing.link, [data-fullname^='t3_'], shreddit-post");
-  const title = firstText(root, [
-    ".thing.link a.title",
-    ".link a.title",
-    "a.title",
-    "shreddit-post h1",
-    "shreddit-post [slot='title']"
-  ]);
+  const threadElement = root.querySelector(DOM_THREAD_SELECTOR);
+  const title =
+    firstText(root, [
+      ".thing.link a.title",
+      ".link a.title",
+      "a.title",
+      "shreddit-post h1",
+      "shreddit-post [slot='title']"
+    ]) ?? attributeFromFirst(root, ["shreddit-post"], "post-title");
 
   if (!threadElement && !title) {
     return null;
   }
 
   const permalink = pathnameOrNull(sourceUrl);
+  const subredditName = subreddit ?? subredditFromPrefixedName(attributeFromFirst(root, ["shreddit-post"], "subreddit-prefixed-name"));
 
   return {
     name: threadFullname,
@@ -314,13 +318,22 @@ function buildDomThreadData(
       ".thing.link .usertext-body .md",
       ".thing.link .usertext-body",
       ".link .usertext-body .md",
-      ".link .usertext-body"
+      ".link .usertext-body",
+      "shreddit-post [slot='text-body']",
+      "[slot='text-body']"
     ]),
-    author: firstText(root, [".thing.link a.author", ".link a.author", "a.author"]),
-    subreddit,
-    subreddit_name_prefixed: subreddit ? `r/${subreddit}` : undefined,
-    num_comments: countDomComments(root),
-    permalink,
+    author: attributeFromFirst(root, ["shreddit-post"], "author") ?? firstText(root, [
+      ".thing.link a.author",
+      ".link a.author",
+      "a.author",
+      "shreddit-post [slot='authorName']",
+      "shreddit-post a[href^='/user/']",
+      "shreddit-post a[href^='/u/']"
+    ]),
+    subreddit: subredditName,
+    subreddit_name_prefixed: subredditName ? `r/${subredditName}` : undefined,
+    num_comments: numberFromString(attributeFromFirst(root, ["shreddit-post"], "comment-count")) ?? countDomComments(root),
+    permalink: attributeFromFirst(root, ["shreddit-post"], "permalink") ?? permalink,
     url: sourceUrl
   };
 }
@@ -334,7 +347,7 @@ function buildDomCommentRawSourceItems(
 ): RawSourceItem[] {
   const rawItems: RawSourceItem[] = [];
   const seenSourceObjectIds = new Set<string>();
-  const commentElements = Array.from(root.querySelectorAll(".comment, [data-fullname^='t1_']"));
+  const commentElements = Array.from(root.querySelectorAll(DOM_COMMENT_SELECTOR));
 
   for (const commentElement of commentElements) {
     const data = buildDomCommentData(commentElement, sourceUrl, threadFullname, subreddit);
@@ -368,11 +381,24 @@ function buildDomCommentData(
   threadFullname: string,
   subreddit: string | null
 ): Record<string, unknown> | null {
-  const fullname = attribute(commentElement, "data-fullname");
-  const fallbackId = attribute(commentElement, "id")?.replace(/^thing_/, "");
+  const fullname = attribute(commentElement, "data-fullname") ?? attribute(commentElement, "thingid");
+  const fallbackId =
+    attribute(commentElement, "id")?.replace(/^thing_/, "") ??
+    attribute(commentElement, "comment-id") ??
+    attribute(commentElement, "commentid");
   const name = fullname?.startsWith("t1_") ? fullname : fallbackId?.startsWith("t1_") ? fallbackId : null;
-  const body = firstText(commentElement, [".usertext-body .md", ".usertext-body"]);
-  const author = attribute(commentElement, "data-author") ?? firstText(commentElement, ["a.author"]);
+  const body = firstText(commentElement, [
+    ".usertext-body .md",
+    ".usertext-body",
+    "[slot='comment']",
+    "[slot='comment-body']",
+    "[data-testid='comment']",
+    "[id^='comment-content']"
+  ]);
+  const author = attribute(commentElement, "data-author") ?? attribute(commentElement, "author") ?? firstText(
+    commentElement,
+    ["a.author", "[slot='authorName']", "a[href^='/user/']", "a[href^='/u/']"]
+  );
 
   if (!name && !body && !author) {
     return null;
@@ -383,7 +409,12 @@ function buildDomCommentData(
     id: name?.replace(/^t1_/, ""),
     body,
     author,
-    parent_id: normalizeRedditParentId(attribute(commentElement, "data-parent"), threadFullname),
+    parent_id: normalizeRedditParentId(
+      attribute(commentElement, "data-parent") ??
+        attribute(commentElement, "parentid") ??
+        attribute(commentElement, "parent-id"),
+      threadFullname
+    ),
     link_id: threadFullname,
     thread_id: threadFullname,
     depth: domCommentDepth(commentElement),
@@ -392,8 +423,12 @@ function buildDomCommentData(
     is_submitter: commentElement.classList.contains("submitter"),
     subreddit,
     subreddit_name_prefixed: subreddit ? `r/${subreddit}` : undefined,
-    permalink: absoluteUrl(attributeFromFirst(commentElement, ["a.bylink", "a[data-event-action='permalink']"], "href"), sourceUrl),
-    author_flair_text: firstText(commentElement, [".flair"])
+    permalink: absoluteUrl(
+      attribute(commentElement, "permalink") ??
+        attributeFromFirst(commentElement, ["a.bylink", "a[data-event-action='permalink']"], "href"),
+      sourceUrl
+    ),
+    author_flair_text: firstText(commentElement, [".flair", "[slot='authorFlair']"])
   };
 }
 
@@ -686,6 +721,14 @@ function redditSubredditFromUrl(sourceUrl: string): string | null {
   }
 }
 
+function subredditFromPrefixedName(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  return value.replace(/^r\//i, "").trim() || null;
+}
+
 function pathnameOrNull(sourceUrl: string): string | null {
   try {
     return new URL(sourceUrl).pathname;
@@ -695,11 +738,13 @@ function pathnameOrNull(sourceUrl: string): string | null {
 }
 
 function countDomComments(root: ParentNode): number {
-  return Array.from(root.querySelectorAll(".comment, [data-fullname^='t1_']")).filter(
+  return Array.from(root.querySelectorAll(DOM_COMMENT_SELECTOR)).filter(
     (element) =>
       attribute(element, "data-fullname")?.startsWith("t1_") ||
+      attribute(element, "thingid")?.startsWith("t1_") ||
       attribute(element, "id")?.startsWith("thing_t1_") ||
-      firstText(element, [".usertext-body .md", ".usertext-body"]) !== null
+      attribute(element, "comment-id") !== null ||
+      firstText(element, [".usertext-body .md", ".usertext-body", "[slot='comment']", "[slot='comment-body']"]) !== null
   ).length;
 }
 
@@ -712,7 +757,7 @@ function normalizeRedditParentId(parentId: string | null, threadFullname: string
 }
 
 function domCommentDepth(commentElement: Element): number {
-  const dataDepth = numberFromString(attribute(commentElement, "data-depth"));
+  const dataDepth = numberFromString(attribute(commentElement, "data-depth") ?? attribute(commentElement, "depth"));
   if (dataDepth !== null) {
     return dataDepth;
   }
@@ -721,7 +766,7 @@ function domCommentDepth(commentElement: Element): number {
   let parent = commentElement.parentElement;
 
   while (parent) {
-    if (parent.matches(".comment, [data-fullname^='t1_']")) {
+    if (parent.matches(DOM_COMMENT_SELECTOR)) {
       depth += 1;
     }
     parent = parent.parentElement;
@@ -731,9 +776,13 @@ function domCommentDepth(commentElement: Element): number {
 }
 
 function domCreatedUtc(commentElement: Element): number | null {
-  const datetime = attributeFromFirst(commentElement, ["time[datetime]"], "datetime");
+  const datetime =
+    attribute(commentElement, "created-timestamp") ??
+    attribute(commentElement, "created") ??
+    attributeFromFirst(commentElement, ["time[datetime]"], "datetime");
   if (!datetime) {
-    return null;
+    const milliseconds = numberFromString(attribute(commentElement, "created-timestamp-ms"));
+    return milliseconds === null ? null : Math.floor(milliseconds / 1000);
   }
 
   const timestamp = new Date(datetime).getTime();
@@ -741,7 +790,13 @@ function domCreatedUtc(commentElement: Element): number | null {
 }
 
 function domScore(commentElement: Element): number | null {
-  return numberFromString(firstText(commentElement, [".score.unvoted", ".score.likes", ".score.dislikes"]));
+  return numberFromString(attribute(commentElement, "score") ?? firstText(commentElement, [
+    ".score.unvoted",
+    ".score.likes",
+    ".score.dislikes",
+    "[slot='vote-score']",
+    "[id^='vote-arrows']"
+  ]));
 }
 
 function numberFromString(value: string | null): number | null {
