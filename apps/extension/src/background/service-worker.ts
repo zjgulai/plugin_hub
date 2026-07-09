@@ -1,5 +1,6 @@
 import {
   createCollectionTask,
+  getInsightBriefs,
   getPlatformSetting,
   getStrategyNotes,
   uploadCollectionRun,
@@ -9,16 +10,19 @@ import type {
   CollectionRunPayload,
   CollectionTaskPayload,
   CollectionTaskResult,
+  InsightBriefsResponse,
   Platform,
   PlatformSettingResult,
   StrategyNotesResponse
 } from "../types/contracts";
 import {
   CREATE_COLLECTION_TASK_MESSAGE_TYPE,
+  GET_INSIGHT_BRIEFS_MESSAGE_TYPE,
   GET_PLATFORM_SETTING_MESSAGE_TYPE,
   GET_STRATEGY_NOTES_MESSAGE_TYPE,
   UPLOAD_COLLECTION_MESSAGE_TYPE,
   type CreateCollectionTaskMessage,
+  type GetInsightBriefsMessage,
   type GetPlatformSettingMessage,
   type GetStrategyNotesMessage,
   type UploadCollectionMessage
@@ -28,6 +32,7 @@ type UploadCollectionResponse = CollectionRunUploadResult | { error: string };
 type CreateCollectionTaskResponse = CollectionTaskResult | { error: string };
 type GetPlatformSettingResponse = PlatformSettingResult | { error: string };
 type GetStrategyNotesResponse = StrategyNotesResponse | { error: string };
+type GetInsightBriefsResponse = InsightBriefsResponse | { error: string };
 
 chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
   if (isUploadCollectionMessage(message)) {
@@ -73,6 +78,18 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
         sendResponse({
           error: error instanceof Error ? error.message : "strategy_notes_fetch_failed:unknown"
         } satisfies GetStrategyNotesResponse)
+      );
+
+    return true;
+  }
+
+  if (isGetInsightBriefsMessage(message)) {
+    void getInsightBriefs(message.apiBaseUrl, message.platform)
+      .then((result) => sendResponse(result satisfies GetInsightBriefsResponse))
+      .catch((error: unknown) =>
+        sendResponse({
+          error: error instanceof Error ? error.message : "insight_briefs_fetch_failed:unknown"
+        } satisfies GetInsightBriefsResponse)
       );
 
     return true;
@@ -124,6 +141,18 @@ function isGetStrategyNotesMessage(message: unknown): message is GetStrategyNote
 
   return (
     message.type === GET_STRATEGY_NOTES_MESSAGE_TYPE &&
+    typeof message.apiBaseUrl === "string" &&
+    isPlatform(message.platform)
+  );
+}
+
+function isGetInsightBriefsMessage(message: unknown): message is GetInsightBriefsMessage {
+  if (!isRecord(message)) {
+    return false;
+  }
+
+  return (
+    message.type === GET_INSIGHT_BRIEFS_MESSAGE_TYPE &&
     typeof message.apiBaseUrl === "string" &&
     isPlatform(message.platform)
   );

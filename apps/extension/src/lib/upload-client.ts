@@ -1,10 +1,19 @@
 import {
   assertJsonObject,
   assertJsonValue,
+  type ActionRecommendation,
+  type BriefConfidence,
+  type BusinessSignal,
   type CollectionRunPayload,
   type CollectionTaskPayload,
   type CollectionTaskResult,
   type CollectionTaskStatus,
+  type DataGap,
+  type EvidenceReference,
+  type ExecutiveFinding,
+  type InsightBrief,
+  type InsightBriefsResponse,
+  type InsightScope,
   type PlatformSettingResult,
   type StrategyNote,
   type StrategyNotesResponse,
@@ -108,6 +117,28 @@ export async function getStrategyNotes(
   }
 
   return parseStrategyNotesResponse(await response.json());
+}
+
+export async function getInsightBriefs(
+  apiBaseUrl: string,
+  platform: Platform,
+  fetcher: UploadFetcher = fetch
+): Promise<InsightBriefsResponse> {
+  const response = await fetcher(
+    `${trimBaseUrl(apiBaseUrl)}/api/insights/briefs?platform=${encodeURIComponent(platform)}`,
+    {
+      method: "GET",
+      headers: {
+        Accept: "application/json"
+      }
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`insight_briefs_fetch_failed:${response.status}`);
+  }
+
+  return parseInsightBriefsResponse(await response.json());
 }
 
 function trimBaseUrl(apiBaseUrl: string): string {
@@ -282,6 +313,181 @@ function parseStrategyNote(value: unknown): StrategyNote {
     evidence_strength: evidenceStrength,
     quality_flags: qualityFlags
   };
+}
+
+function parseInsightBriefsResponse(value: unknown): InsightBriefsResponse {
+  if (!isRecord(value) || !Array.isArray(value.items)) {
+    throw new TypeError("insight_brief_response_invalid");
+  }
+
+  return {
+    items: value.items.map(parseInsightBrief)
+  };
+}
+
+function parseInsightBrief(value: unknown): InsightBrief {
+  if (!isRecord(value)) {
+    throw new TypeError("insight_brief_response_invalid");
+  }
+
+  return {
+    brief_id: requiredString(value.brief_id),
+    template_id: requiredString(value.template_id),
+    template_version: requiredString(value.template_version),
+    language: requiredString(value.language),
+    advisor_profile: requiredString(value.advisor_profile),
+    scope: parseInsightScope(value.scope),
+    headline: requiredString(value.headline),
+    executive_findings: objectList(value.executive_findings).map(parseExecutiveFinding),
+    business_signals: objectList(value.business_signals).map(parseBusinessSignal),
+    action_plan: objectList(value.action_plan).map(parseActionRecommendation),
+    evidence_refs: objectList(value.evidence_refs).map(parseEvidenceReference),
+    confidence: parseBriefConfidence(value.confidence),
+    data_gaps: objectList(value.data_gaps).map(parseDataGap),
+    generation_method: requiredString(value.generation_method),
+    created_at: requiredString(value.created_at)
+  };
+}
+
+function parseInsightScope(value: unknown): InsightScope {
+  if (!isRecord(value) || !isPlatform(value.platform)) {
+    throw new TypeError("insight_brief_response_invalid");
+  }
+
+  return {
+    platform: value.platform,
+    source_object_type: requiredString(value.source_object_type),
+    source_object_id: requiredString(value.source_object_id),
+    source_url: requiredString(value.source_url),
+    collection_run_ids: stringList(value.collection_run_ids),
+    coverage_scope: requiredString(value.coverage_scope),
+    coverage_confidence: requiredNumber(value.coverage_confidence)
+  };
+}
+
+function parseExecutiveFinding(value: Record<string, unknown>): ExecutiveFinding {
+  return {
+    finding_id: requiredString(value.finding_id),
+    title: requiredString(value.title),
+    business_meaning: requiredString(value.business_meaning),
+    priority: requiredString(value.priority),
+    confidence_level: requiredString(value.confidence_level),
+    evidence_ref_ids: stringList(value.evidence_ref_ids)
+  };
+}
+
+function parseBusinessSignal(value: Record<string, unknown>): BusinessSignal {
+  return {
+    signal_id: requiredString(value.signal_id),
+    signal_type: requiredString(value.signal_type),
+    topic: requiredString(value.topic),
+    aspect: requiredString(value.aspect),
+    customer_language: stringList(value.customer_language),
+    business_impact: requiredString(value.business_impact),
+    severity: requiredString(value.severity),
+    priority: requiredString(value.priority),
+    evidence_strength: requiredString(value.evidence_strength),
+    confidence_reason: requiredString(value.confidence_reason),
+    evidence_ref_ids: stringList(value.evidence_ref_ids),
+    quality_flags: stringList(value.quality_flags)
+  };
+}
+
+function parseActionRecommendation(value: Record<string, unknown>): ActionRecommendation {
+  return {
+    action_id: requiredString(value.action_id),
+    action_type: requiredString(value.action_type),
+    title: requiredString(value.title),
+    recommendation: requiredString(value.recommendation),
+    why_now: requiredString(value.why_now),
+    expected_metric: requiredString(value.expected_metric),
+    owner_role: requiredString(value.owner_role),
+    priority: requiredString(value.priority),
+    effort: requiredString(value.effort),
+    evidence_ref_ids: stringList(value.evidence_ref_ids)
+  };
+}
+
+function parseEvidenceReference(value: Record<string, unknown>): EvidenceReference {
+  if (!isPlatform(value.platform)) {
+    throw new TypeError("insight_brief_response_invalid");
+  }
+
+  return {
+    evidence_ref_id: requiredString(value.evidence_ref_id),
+    voc_unit_id: requiredString(value.voc_unit_id),
+    platform: value.platform,
+    source_kind: requiredString(value.source_kind),
+    source_object_id: requiredString(value.source_object_id),
+    quote: requiredString(value.quote),
+    normalized_quote: requiredString(value.normalized_quote),
+    rating: nullableNumber(value.rating),
+    relation_edge_ids: stringList(value.relation_edge_ids),
+    quality_flags: stringList(value.quality_flags),
+    source_url: requiredString(value.source_url)
+  };
+}
+
+function parseBriefConfidence(value: unknown): BriefConfidence {
+  if (!isRecord(value)) {
+    throw new TypeError("insight_brief_response_invalid");
+  }
+
+  return {
+    level: requiredString(value.level),
+    reason: requiredString(value.reason),
+    evidence_count: requiredNumber(value.evidence_count),
+    source_diversity: requiredString(value.source_diversity),
+    coverage_notes: stringList(value.coverage_notes)
+  };
+}
+
+function parseDataGap(value: Record<string, unknown>): DataGap {
+  if (typeof value.blocks_confidence !== "boolean") {
+    throw new TypeError("insight_brief_response_invalid");
+  }
+
+  return {
+    gap_type: requiredString(value.gap_type),
+    description: requiredString(value.description),
+    recommended_collection: requiredString(value.recommended_collection),
+    blocks_confidence: value.blocks_confidence
+  };
+}
+
+function requiredString(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new TypeError("insight_brief_response_invalid");
+  }
+  return value;
+}
+
+function requiredNumber(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new TypeError("insight_brief_response_invalid");
+  }
+  return value;
+}
+
+function nullableNumber(value: unknown): number | null {
+  if (value === null) {
+    return null;
+  }
+  return requiredNumber(value);
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) {
+    throw new TypeError("insight_brief_response_invalid");
+  }
+  return value;
+}
+
+function objectList(value: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(value) || !value.every(isRecord)) {
+    throw new TypeError("insight_brief_response_invalid");
+  }
+  return value;
 }
 
 function isPlatform(value: unknown): value is Platform {

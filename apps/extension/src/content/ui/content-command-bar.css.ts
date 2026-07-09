@@ -546,6 +546,83 @@ button {
   background: #ffffff;
 }
 
+.ph-insight-brief {
+  background: #fbfcf7;
+}
+
+.ph-brief-card {
+  display: grid;
+  gap: 9px;
+}
+
+.ph-brief-card h3 {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.ph-brief-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.ph-brief-meta div,
+.ph-brief-block,
+.ph-brief-quote {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid #e1e6dc;
+  background: #ffffff;
+}
+
+.ph-brief-meta dt,
+.ph-brief-block span,
+.ph-brief-quote span {
+  color: var(--ph-muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.ph-brief-meta dd {
+  margin: 3px 0 0;
+  color: var(--ph-accent);
+  font-size: 14px;
+  font-weight: 950;
+  overflow-wrap: anywhere;
+}
+
+.ph-brief-reason,
+.ph-brief-block p,
+.ph-brief-quote p {
+  margin: 0;
+  color: var(--ph-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.ph-brief-block {
+  display: grid;
+  gap: 4px;
+}
+
+.ph-brief-block strong {
+  font-size: 13px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.ph-brief-quote {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  border-left: 4px solid var(--ph-platform);
+}
+
 .ph-button-row {
   flex-wrap: wrap;
 }

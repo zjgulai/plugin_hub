@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { DashboardAutoRefresh } from "../src/components/DashboardAutoRefresh";
+import { InsightBriefPanel } from "../src/components/InsightBriefPanel";
 import { PlatformWorkspace } from "../src/components/operations/PlatformWorkspace";
 import { RedditCaptureSubmitButton } from "../src/components/RedditCaptureSubmitButton";
 import { VocEvidenceTable } from "../src/components/VocEvidenceTable";
@@ -9,6 +10,7 @@ import {
   captureRedditThreadByUrl,
   fetchCaptureCapabilities,
   fetchCollectionTasks,
+  fetchInsightBriefs,
   fetchPlatformSettingAuditEvents,
   fetchPlatformSettings,
   fetchStrategyNotes,
@@ -16,6 +18,7 @@ import {
   updatePlatformSetting,
   type CaptureCapability,
   type CollectionTask,
+  type InsightBrief,
   type JsonValue,
   type PlatformSettingAuditEvent,
   type PlatformSetting,
@@ -37,12 +40,14 @@ type DashboardData = {
   captureCapabilities: CaptureCapability[];
   platformSettings: PlatformSetting[];
   platformSettingAuditEvents: PlatformSettingAuditEvent[];
+  insightBriefs: InsightBrief[];
   strategyNotes: StrategyNote[];
   vocError: string | null;
   taskError: string | null;
   capabilityError: string | null;
   platformSettingsError: string | null;
   platformSettingAuditError: string | null;
+  insightError: string | null;
   strategyError: string | null;
   loadedAt: string;
 };
@@ -141,6 +146,7 @@ export default async function Page({ searchParams }: PageProps) {
           capabilities={data.captureCapabilities}
           error={data.capabilityError}
         />
+        <InsightBriefPanel briefs={data.insightBriefs} error={data.insightError} />
         <StrategyPanel notes={data.strategyNotes} error={data.strategyError} />
       </section>
 
@@ -235,6 +241,7 @@ async function loadDashboardData(apiBaseUrl: string): Promise<DashboardData> {
     capabilityResult,
     platformSettingsResult,
     platformSettingAuditResult,
+    insightResult,
     strategyResult
   ] = await Promise.allSettled([
     fetchVocUnits(apiBaseUrl, "all"),
@@ -242,6 +249,7 @@ async function loadDashboardData(apiBaseUrl: string): Promise<DashboardData> {
     fetchCaptureCapabilities(apiBaseUrl),
     fetchPlatformSettings(apiBaseUrl),
     fetchPlatformSettingAuditEventsForActivePlatforms(apiBaseUrl),
+    fetchInsightBriefs(apiBaseUrl, "all"),
     fetchStrategyNotes(apiBaseUrl, "all")
   ]);
 
@@ -254,6 +262,7 @@ async function loadDashboardData(apiBaseUrl: string): Promise<DashboardData> {
       platformSettingsResult.status === "fulfilled" ? platformSettingsResult.value.items : [],
     platformSettingAuditEvents:
       platformSettingAuditResult.status === "fulfilled" ? platformSettingAuditResult.value : [],
+    insightBriefs: insightResult.status === "fulfilled" ? insightResult.value.items : [],
     strategyNotes: strategyResult.status === "fulfilled" ? strategyResult.value.items : [],
     vocError: vocResult.status === "rejected" ? stableError(vocResult.reason) : null,
     taskError: taskResult.status === "rejected" ? stableError(taskResult.reason) : null,
@@ -267,6 +276,7 @@ async function loadDashboardData(apiBaseUrl: string): Promise<DashboardData> {
       platformSettingAuditResult.status === "rejected"
         ? stableError(platformSettingAuditResult.reason)
         : null,
+    insightError: insightResult.status === "rejected" ? stableError(insightResult.reason) : null,
     strategyError: strategyResult.status === "rejected" ? stableError(strategyResult.reason) : null,
     loadedAt: new Date().toISOString()
   };
@@ -537,6 +547,11 @@ function MonitorPanel({
       tone: data.strategyError ? "warning" : "clear"
     },
     {
+      label: "Insight API",
+      value: data.insightError ? data.insightError : "connected",
+      tone: data.insightError ? "warning" : "clear"
+    },
+    {
       label: "Task API",
       value: data.taskError ? data.taskError : `${metrics.pendingTasks} pending`,
       tone: data.taskError ? "warning" : metrics.pendingTasks > 0 ? "warning" : "clear"
@@ -750,6 +765,7 @@ function getApiState(data: DashboardData) {
   }
   if (
     data.strategyError ||
+    data.insightError ||
     data.taskError ||
     data.capabilityError ||
     data.platformSettingsError ||

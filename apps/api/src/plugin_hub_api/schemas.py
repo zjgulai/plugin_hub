@@ -278,3 +278,97 @@ class EnrichedVocSignal(StrictBaseModel):
 class VocSignalBundle(StrictBaseModel):
     relation_edges: list[RelationEdge]
     enriched_voc_signals: list[EnrichedVocSignal]
+
+
+class InsightScope(StrictBaseModel):
+    platform: Platform
+    source_object_type: str = Field(min_length=1, max_length=128)
+    source_object_id: str = Field(min_length=1, max_length=512)
+    source_url: str = Field(min_length=1, max_length=2048)
+    collection_run_ids: list[str]
+    coverage_scope: str = Field(min_length=1, max_length=512)
+    coverage_confidence: float = Field(ge=0.0, le=1.0, strict=True)
+
+
+class ExecutiveFinding(StrictBaseModel):
+    finding_id: str = Field(min_length=1, max_length=128)
+    title: str = Field(min_length=1, max_length=256)
+    business_meaning: str = Field(min_length=1, max_length=1024)
+    priority: str = Field(min_length=1, max_length=16)
+    confidence_level: str = Field(min_length=1, max_length=32)
+    evidence_ref_ids: list[str]
+
+
+class BusinessSignal(StrictBaseModel):
+    signal_id: str = Field(min_length=1, max_length=128)
+    signal_type: str = Field(min_length=1, max_length=128)
+    topic: str = Field(min_length=1, max_length=128)
+    aspect: str = Field(min_length=1, max_length=128)
+    customer_language: list[str] = Field(default_factory=list)
+    business_impact: str = Field(min_length=1, max_length=1024)
+    severity: str = Field(min_length=1, max_length=32)
+    priority: str = Field(min_length=1, max_length=16)
+    evidence_strength: str = Field(min_length=1, max_length=32)
+    confidence_reason: str = Field(min_length=1, max_length=1024)
+    evidence_ref_ids: list[str]
+    quality_flags: list[str] = Field(default_factory=list)
+
+
+class ActionRecommendation(StrictBaseModel):
+    action_id: str = Field(min_length=1, max_length=128)
+    action_type: str = Field(min_length=1, max_length=64)
+    title: str = Field(min_length=1, max_length=256)
+    recommendation: str = Field(min_length=1, max_length=1024)
+    why_now: str = Field(min_length=1, max_length=1024)
+    expected_metric: str = Field(min_length=1, max_length=128)
+    owner_role: str = Field(min_length=1, max_length=128)
+    priority: str = Field(min_length=1, max_length=16)
+    effort: str = Field(min_length=1, max_length=32)
+    evidence_ref_ids: list[str]
+
+
+class EvidenceReference(StrictBaseModel):
+    evidence_ref_id: str = Field(min_length=1, max_length=128)
+    voc_unit_id: str = Field(min_length=1, max_length=512)
+    platform: Platform
+    source_kind: SourceKind
+    source_object_id: str = Field(min_length=1, max_length=512)
+    quote: str
+    normalized_quote: str | None = None
+    rating: float | None = None
+    relation_edge_ids: list[str] = Field(default_factory=list)
+    quality_flags: list[str] = Field(default_factory=list)
+    source_url: str = Field(min_length=1, max_length=2048)
+
+
+class BriefConfidence(StrictBaseModel):
+    level: str = Field(min_length=1, max_length=32)
+    reason: str = Field(min_length=1, max_length=1024)
+    evidence_count: int = Field(ge=0)
+    source_diversity: str = Field(min_length=1, max_length=128)
+    coverage_notes: list[str] = Field(default_factory=list)
+
+
+class DataGap(StrictBaseModel):
+    gap_type: str = Field(min_length=1, max_length=128)
+    description: str = Field(min_length=1, max_length=1024)
+    recommended_collection: str = Field(min_length=1, max_length=1024)
+    blocks_confidence: bool
+
+
+class InsightBrief(StrictBaseModel):
+    brief_id: str = Field(min_length=1, max_length=128)
+    template_id: str = Field(min_length=1, max_length=128)
+    template_version: str = Field(min_length=1, max_length=32)
+    language: str = Field(min_length=2, max_length=16)
+    advisor_profile: str = Field(min_length=1, max_length=128)
+    scope: InsightScope
+    headline: str = Field(min_length=1, max_length=512)
+    executive_findings: list[ExecutiveFinding]
+    business_signals: list[BusinessSignal]
+    action_plan: list[ActionRecommendation]
+    evidence_refs: list[EvidenceReference]
+    confidence: BriefConfidence
+    data_gaps: list[DataGap]
+    generation_method: str = Field(min_length=1, max_length=128)
+    created_at: datetime

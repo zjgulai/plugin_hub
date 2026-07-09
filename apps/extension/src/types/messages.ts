@@ -2,6 +2,7 @@ import type { CaptureRuntimeSettings } from "../lib/capture-types";
 import type {
   CollectionRunPayload,
   CollectionTaskPayload,
+  InsightBriefsResponse,
   Platform,
   PlatformSettingResult,
   StrategyNotesResponse
@@ -12,6 +13,7 @@ export const UPLOAD_COLLECTION_MESSAGE_TYPE = "PLUGIN_HUB_UPLOAD_COLLECTION";
 export const CREATE_COLLECTION_TASK_MESSAGE_TYPE = "PLUGIN_HUB_CREATE_COLLECTION_TASK";
 export const GET_PLATFORM_SETTING_MESSAGE_TYPE = "PLUGIN_HUB_GET_PLATFORM_SETTING";
 export const GET_STRATEGY_NOTES_MESSAGE_TYPE = "PLUGIN_HUB_GET_STRATEGY_NOTES";
+export const GET_INSIGHT_BRIEFS_MESSAGE_TYPE = "PLUGIN_HUB_GET_INSIGHT_BRIEFS";
 
 export interface CaptureCurrentPageMessage {
   type: typeof CAPTURE_CURRENT_PAGE_MESSAGE_TYPE;
@@ -60,3 +62,11 @@ export interface GetStrategyNotesMessage {
 }
 
 export type GetStrategyNotesResponse = StrategyNotesResponse | { error: string };
+
+export interface GetInsightBriefsMessage {
+  type: typeof GET_INSIGHT_BRIEFS_MESSAGE_TYPE;
+  apiBaseUrl: string;
+  platform: Platform;
+}
+
+export type GetInsightBriefsResponse = InsightBriefsResponse | { error: string };

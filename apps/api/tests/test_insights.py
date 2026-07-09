@@ -273,6 +273,117 @@ def test_get_voc_signals_from_collection_runs_by_platform(client: TestClient) ->
     assert relation_types == {"amazon_asin_has_parent", "voc_unit_mentions_asin"}
 
 
+def test_get_reddit_insight_briefs_returns_chinese_advisor_brief(
+    client: TestClient,
+) -> None:
+    create_response = client.post(
+        "/api/collection-runs",
+        json={
+            "run": _collection_run(
+                platform="reddit",
+                source_url="https://www.reddit.com/r/shopify/comments/thread123/example/",
+                coverage_confidence=0.58,
+            ),
+            "raw_items": [
+                _reddit_thread_item(
+                    body=(
+                        "Shopify traffic is still 100 visitors a day but no sales. "
+                        "I am wondering if trust issues or checkout issues are blocking buyers."
+                    ),
+                ),
+                _reddit_comment_item(
+                    source_object_id="t1_comment123",
+                    body="I would check trust badges, reviews, and the checkout flow first.",
+                    parent_id="t3_thread123",
+                ),
+            ],
+        },
+    )
+
+    assert create_response.status_code == 201
+
+    response = client.get("/api/insights/briefs", params={"platform": "reddit"})
+
+    assert response.status_code == 200
+    briefs = response.json()["items"]
+    assert len(briefs) == 1
+    brief = briefs[0]
+    assert brief["template_id"] == "reddit_community_commerce_v1"
+    assert brief["template_version"] == "v1"
+    assert brief["language"] == "zh-CN"
+    assert brief["advisor_profile"] == "cross_border_ecommerce_ops"
+    assert brief["scope"]["platform"] == "reddit"
+    assert brief["scope"]["source_object_type"] == "reddit_thread"
+    assert brief["scope"]["source_object_id"] == "t3_thread123"
+    assert "转化" in brief["headline"]
+    assert brief["confidence"]["level"] == "low"
+    assert brief["confidence"]["evidence_count"] == 2
+    assert brief["data_gaps"][0]["gap_type"] == "low_sample"
+    assert brief["business_signals"][0]["signal_type"] == "conversion_blocker"
+    assert brief["business_signals"][0]["priority"] == "P1"
+    assert brief["action_plan"][0]["action_type"] in {"content", "faq"}
+    assert brief["action_plan"][0]["expected_metric"] == "CVR"
+    assert brief["evidence_refs"][0]["platform"] == "reddit"
+    assert brief["evidence_refs"][0]["quote"]
+    assert brief["generation_method"] == "deterministic_template_v1"
+
+
+def test_get_amazon_insight_briefs_returns_listing_ops_actions(
+    client: TestClient,
+) -> None:
+    create_response = client.post(
+        "/api/collection-runs",
+        json={
+            "run": _collection_run(
+                platform="amazon",
+                source_url="https://www.amazon.com/product-reviews/B000000001",
+                coverage_confidence=0.82,
+            ),
+            "raw_items": [
+                _amazon_review_item(
+                    source_object_id="RBROKE",
+                    body="The lid broke after three days even though the listing says durable.",
+                    raw_payload_hash="sha256:amazon-broke",
+                    asin="B000000001",
+                    parent_asin="B000PARENT1",
+                    marketplace="US",
+                ),
+                _amazon_review_item(
+                    source_object_id="RPRICE",
+                    body="The price feels expensive for this quality level.",
+                    raw_payload_hash="sha256:amazon-price",
+                    asin="B000000001",
+                    parent_asin="B000PARENT1",
+                    marketplace="US",
+                ),
+            ],
+        },
+    )
+
+    assert create_response.status_code == 201
+
+    response = client.get("/api/insights/briefs", params={"platform": "amazon"})
+
+    assert response.status_code == 200
+    briefs = response.json()["items"]
+    assert len(briefs) == 1
+    brief = briefs[0]
+    assert brief["template_id"] == "amazon_review_listing_ops_v1"
+    assert brief["language"] == "zh-CN"
+    assert brief["scope"]["platform"] == "amazon"
+    assert brief["scope"]["source_object_type"] == "asin"
+    assert brief["scope"]["source_object_id"] == "B000000001"
+    assert "Amazon" in brief["headline"]
+    signal_types = {signal["signal_type"] for signal in brief["business_signals"]}
+    assert "product_quality_issue" in signal_types
+    assert "conversion_blocker" in signal_types
+    action_types = {action["action_type"] for action in brief["action_plan"]}
+    assert action_types & {"listing", "product"}
+    assert brief["confidence"]["level"] == "medium"
+    assert brief["evidence_refs"][0]["rating"] == 2
+    assert brief["evidence_refs"][0]["relation_edge_ids"]
+
+
 def _voc_unit(
     *,
     platform: str,
@@ -383,5 +494,35 @@ def _reddit_thread_item(*, body: str) -> dict[str, object]:
             "score": 42,
         },
         "raw_payload_hash": "sha256:reddit-thread123",
+        "captured_at": datetime(2026, 6, 5, tzinfo=UTC).isoformat(),
+    }
+
+
+def _reddit_comment_item(
+    *,
+    source_object_id: str,
+    body: str,
+    parent_id: str,
+) -> dict[str, object]:
+    return {
+        "platform": "reddit",
+        "source_kind": "reddit_comment",
+        "source_object_id": source_object_id,
+        "raw_schema_version": "reddit-comment-v1",
+        "parser_version": "parser-v1",
+        "raw_payload": {
+            "name": source_object_id,
+            "id": source_object_id.removeprefix("t1_"),
+            "body": body,
+            "author": "operator_peer",
+            "created_utc": 1780602818.0,
+            "score": 7,
+            "link_id": "t3_thread123",
+            "parent_id": parent_id,
+            "depth": 1,
+            "subreddit": "shopify",
+            "subreddit_name_prefixed": "r/shopify",
+        },
+        "raw_payload_hash": f"sha256:{source_object_id}",
         "captured_at": datetime(2026, 6, 5, tzinfo=UTC).isoformat(),
     }

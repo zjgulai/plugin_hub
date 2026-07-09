@@ -12,21 +12,24 @@ import type {
   CollectionRunPayload,
   CollectionTaskPayload,
   CollectionTaskResult,
+  InsightBrief,
+  InsightBriefsResponse,
   JsonObject,
   Platform,
   StrategyNotesResponse
 } from "../../types/contracts";
 import {
   CREATE_COLLECTION_TASK_MESSAGE_TYPE,
+  GET_INSIGHT_BRIEFS_MESSAGE_TYPE,
   GET_PLATFORM_SETTING_MESSAGE_TYPE,
-  GET_STRATEGY_NOTES_MESSAGE_TYPE,
   UPLOAD_COLLECTION_MESSAGE_TYPE,
   type CaptureSummary,
   type CreateCollectionTaskMessage,
+  type GetInsightBriefsMessage,
+  type GetInsightBriefsResponse,
   type GetPlatformSettingMessage,
   type GetPlatformSettingResponse,
   type GetStrategyNotesMessage,
-  type GetStrategyNotesResponse,
   type UploadCollectionMessage
 } from "../../types/messages";
 import {
@@ -102,6 +105,7 @@ export function ContentCommandBar({
   const [captureSummary, setCaptureSummary] = useState<CaptureSummary | null>(null);
   const [payload, setPayload] = useState<CollectionRunPayload | null>(null);
   const [uploadResult, setUploadResult] = useState<UploadCollectionResponse | null>(null);
+  const [insightBriefs, setInsightBriefs] = useState<InsightBriefsResponse | null>(null);
   const [strategyNotes, setStrategyNotes] = useState<StrategyNotesResponse | null>(null);
   const [collectionTaskResult, setCollectionTaskResult] = useState<CreateCollectionTaskResponse | null>(null);
   const [taskBusy, setTaskBusy] = useState(false);
@@ -135,6 +139,7 @@ export function ContentCommandBar({
     setCaptureSummary(null);
     setPayload(null);
     setUploadResult(null);
+    setInsightBriefs(null);
     setStrategyNotes(null);
     setCollectionTaskResult(null);
     setTaskBusy(false);
@@ -164,6 +169,7 @@ export function ContentCommandBar({
     status,
     captureSummary,
     uploadResult,
+    insightBriefs,
     strategyNotes,
     collectionTaskResult,
     canCreateServerTask,
@@ -185,6 +191,7 @@ export function ContentCommandBar({
     setError(null);
     setNotice(null);
     setUploadResult(null);
+    setInsightBriefs(null);
     setStrategyNotes(null);
 
     try {
@@ -207,6 +214,7 @@ export function ContentCommandBar({
   async function handleUpload() {
     setError(null);
     setNotice(null);
+    setInsightBriefs(null);
     setStrategyNotes(null);
     setStatus(payload ? "uploading" : "capturing");
 
@@ -332,12 +340,12 @@ export function ContentCommandBar({
 
     try {
       if (!isInsightPlatform(detectedPage.platform)) {
-        throw new Error("strategy_notes_platform_required");
+        throw new Error("insight_briefs_platform_required");
       }
       const normalizedApiBaseUrl = await saveApiBaseUrl(apiBaseUrl);
       setApiBaseUrl(normalizedApiBaseUrl);
-      const response = await sendRuntimeMessage<GetStrategyNotesResponse>({
-        type: GET_STRATEGY_NOTES_MESSAGE_TYPE,
+      const response = await sendRuntimeMessage<GetInsightBriefsResponse>({
+        type: GET_INSIGHT_BRIEFS_MESSAGE_TYPE,
         apiBaseUrl: normalizedApiBaseUrl,
         platform: detectedPage.platform
       });
@@ -346,8 +354,9 @@ export function ContentCommandBar({
         throw new Error(response.error);
       }
 
-      setStrategyNotes(response);
-      setNotice(response.items.length > 0 ? "已读取后台 AI 洞察。" : "后台暂无该平台 strategy notes。");
+      setInsightBriefs(response);
+      setStrategyNotes(null);
+      setNotice(response.items.length > 0 ? "已读取后台经营诊断。" : "后台暂无该平台经营诊断。");
       setExpanded(true);
     } catch (nextError) {
       setError(stableError(nextError));
@@ -395,6 +404,7 @@ export function ContentCommandBar({
   const objectTitle = detectedObjectTitle(detectedPage);
   const sourceTitle = snapshot.title ?? objectTitle;
   const sourceLocation = snapshot.marketplace ?? snapshot.subreddit ?? snapshot.instagramMediaKind ?? "-";
+  const primaryInsightBrief = insightBriefs ? selectPrimaryInsightBrief(insightBriefs.items) : null;
 
   return (
     <aside
@@ -602,7 +612,19 @@ export function ContentCommandBar({
             </div>
           </section>
 
-          {strategyNotes ? (
+          {insightBriefs ? (
+            <section className="ph-section ph-insights ph-insight-brief" aria-label="经营诊断">
+              <div className="ph-section-heading">
+                <strong>经营诊断</strong>
+                <span>{insightBriefs.items.length} insight briefs</span>
+              </div>
+              {primaryInsightBrief ? (
+                <InsightBriefSummary brief={primaryInsightBrief} />
+              ) : (
+                <span className="ph-run-state">暂无后台经营诊断</span>
+              )}
+            </section>
+          ) : strategyNotes ? (
             <section className="ph-section ph-insights" aria-label="AI 洞察">
               <div className="ph-section-heading">
                 <strong>AI Insights</strong>
@@ -664,10 +686,70 @@ export function ContentCommandBar({
   );
 }
 
+function InsightBriefSummary({ brief }: { brief: InsightBrief }) {
+  const primaryAction = brief.action_plan[0];
+  const primaryGap = brief.data_gaps[0];
+  const primaryEvidence = brief.evidence_refs[0];
+
+  return (
+    <article className="ph-brief-card">
+      <h3>{brief.headline}</h3>
+      <dl className="ph-brief-meta">
+        <div>
+          <dt>confidence</dt>
+          <dd>{brief.confidence.level}</dd>
+        </div>
+        <div>
+          <dt>evidence</dt>
+          <dd>{brief.confidence.evidence_count}</dd>
+        </div>
+      </dl>
+      <p className="ph-brief-reason">{brief.confidence.reason}</p>
+      {primaryAction ? (
+        <section className="ph-brief-block" aria-label="优先行动">
+          <span>{primaryAction.expected_metric}</span>
+          <strong>{primaryAction.title}</strong>
+          <p>{primaryAction.recommendation}</p>
+        </section>
+      ) : null}
+      {primaryGap ? (
+        <section className="ph-brief-block" aria-label="证据缺口">
+          <span>Data Gap</span>
+          <strong>{primaryGap.description}</strong>
+          <p>{primaryGap.recommended_collection}</p>
+        </section>
+      ) : null}
+      {primaryEvidence ? (
+        <blockquote className="ph-brief-quote">
+          <span>Evidence</span>
+          <p>{primaryEvidence.quote}</p>
+        </blockquote>
+      ) : null}
+    </article>
+  );
+}
+
+function selectPrimaryInsightBrief(briefs: InsightBrief[]): InsightBrief | null {
+  return briefs
+    .slice()
+    .sort((left, right) => insightBriefScore(right) - insightBriefScore(left))[0] ?? null;
+}
+
+function insightBriefScore(brief: InsightBrief): number {
+  const confidenceScore = {
+    high: 4,
+    medium: 3,
+    low: 2,
+    hypothesis: 1
+  }[brief.confidence.level] ?? 0;
+  return confidenceScore * 10 + brief.confidence.evidence_count;
+}
+
 function buildDrawerTabs({
   status,
   captureSummary,
   uploadResult,
+  insightBriefs,
   strategyNotes,
   collectionTaskResult,
   canCreateServerTask,
@@ -676,6 +758,7 @@ function buildDrawerTabs({
   status: CommandBarStatus;
   captureSummary: CaptureSummary | null;
   uploadResult: UploadCollectionResponse | null;
+  insightBriefs: InsightBriefsResponse | null;
   strategyNotes: StrategyNotesResponse | null;
   collectionTaskResult: CreateCollectionTaskResponse | null;
   canCreateServerTask: boolean;
@@ -684,6 +767,7 @@ function buildDrawerTabs({
   const hasRawItems = Boolean(captureSummary && captureSummary.raw_item_count > 0);
   const hasUpload = Boolean(uploadResult && !("error" in uploadResult));
   const hasTask = Boolean(collectionTaskResult && !("error" in collectionTaskResult));
+  const hasInsightBriefs = Boolean(insightBriefs);
   const emptyRaw = Boolean(captureSummary && captureSummary.raw_item_count === 0);
   const failed = status === "error";
 
@@ -720,13 +804,19 @@ function buildDrawerTabs({
     {
       key: "insight",
       label: "洞察",
-      title: strategyNotes ? `${strategyNotes.items.length} 条策略 notes` : "等待后台洞察",
-      detail: strategyNotes
-        ? "已读取后台 strategy notes，可继续判断选品、Listing 或广告动作。"
+      title: insightBriefs
+        ? `${insightBriefs.items.length} 条经营诊断`
+        : strategyNotes
+          ? `${strategyNotes.items.length} 条策略 notes`
+          : "等待后台洞察",
+      detail: insightBriefs
+        ? "已读取后台经营诊断，可快速判断优先运营动作。"
+        : strategyNotes
+          ? "已读取后台 strategy notes，可继续判断选品、Listing 或广告动作。"
         : hasUpload
-          ? "Canonical VOC 已写入后台，可以读取 AI 洞察。"
-          : "洞察需要先完成回传或后台已有策略 notes。",
-      state: strategyNotes ? "done" : hasUpload ? "active" : "waiting"
+          ? "Canonical VOC 已写入后台，可以读取经营诊断。"
+          : "洞察需要先完成回传或后台已有经营诊断。",
+      state: hasInsightBriefs || strategyNotes ? "done" : hasUpload ? "active" : "waiting"
     },
     {
       key: "handoff",
@@ -1046,6 +1136,7 @@ async function sendRuntimeMessage<TResponse>(
     | UploadCollectionMessage
     | CreateCollectionTaskMessage
     | GetPlatformSettingMessage
+    | GetInsightBriefsMessage
     | GetStrategyNotesMessage
 ): Promise<TResponse> {
   return chrome.runtime.sendMessage(message) as Promise<TResponse>;

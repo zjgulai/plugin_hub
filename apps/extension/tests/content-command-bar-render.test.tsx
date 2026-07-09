@@ -7,8 +7,8 @@ import { captureCurrentPage } from "../src/lib/capture";
 import type { CollectionRunPayload } from "../src/types/contracts";
 import {
   CREATE_COLLECTION_TASK_MESSAGE_TYPE,
+  GET_INSIGHT_BRIEFS_MESSAGE_TYPE,
   GET_PLATFORM_SETTING_MESSAGE_TYPE,
-  GET_STRATEGY_NOTES_MESSAGE_TYPE,
   UPLOAD_COLLECTION_MESSAGE_TYPE,
   type CaptureSummary
 } from "../src/types/messages";
@@ -204,7 +204,7 @@ describe("ContentCommandBar", () => {
     expect(rootElement.textContent).toContain("Raw 1");
   }, 20_000);
 
-  it("loads backend AI insight notes after Amazon VOC upload", async () => {
+  it("loads concise advisor insight briefs after Amazon VOC upload", async () => {
     vi.mocked(chrome.storage.local.get).mockImplementation(async () => ({}));
     const sendMessage = vi.mocked(chrome.runtime.sendMessage);
     sendMessage.mockImplementation(async (message: unknown) => {
@@ -245,18 +245,89 @@ describe("ContentCommandBar", () => {
         typeof message === "object" &&
         message !== null &&
         "type" in message &&
-        message.type === GET_STRATEGY_NOTES_MESSAGE_TYPE
+        message.type === GET_INSIGHT_BRIEFS_MESSAGE_TYPE
       ) {
         return {
           items: [
             {
-              strategy_type: "voc_template",
-              topic: "noise",
-              evidence_count: 1,
-              evidence_examples: [],
-              recommendation: "Prioritize reducing noise complaints.",
-              evidence_strength: 0.82,
-              quality_flags: []
+              brief_id: "brief_amazon_B08MHGST8X",
+              template_id: "amazon_review_listing_ops_v1",
+              template_version: "v1",
+              language: "zh-CN",
+              advisor_profile: "cross_border_ecommerce_ops",
+              scope: {
+                platform: "amazon",
+                source_object_type: "asin",
+                source_object_id: "B08MHGST8X",
+                source_url: "https://www.amazon.com/product-reviews/B08MHGST8X",
+                collection_run_ids: ["run_test"],
+                coverage_scope: "review_page",
+                coverage_confidence: 0.58
+              },
+              headline: "评论样本显示 Listing 信任补强优先。",
+              executive_findings: [],
+              business_signals: [
+                {
+                  signal_id: "signal_001",
+                  signal_type: "listing_conversion",
+                  topic: "trust_gap",
+                  aspect: "review_quality",
+                  customer_language: ["Setup was fast and the sound is clear."],
+                  business_impact: "影响转化和页面说服力。",
+                  severity: "medium",
+                  priority: "P1",
+                  evidence_strength: "medium",
+                  confidence_reason: "评论证据可支持页面优化方向。",
+                  evidence_ref_ids: ["evidence_001"],
+                  quality_flags: []
+                }
+              ],
+              action_plan: [
+                {
+                  action_id: "action_001",
+                  action_type: "listing",
+                  title: "补强 Listing 信任解释",
+                  recommendation: "把评价中的正向语言转成首屏卖点与 FAQ。",
+                  why_now: "当前样本已经指向转化页表达问题。",
+                  expected_metric: "CVR",
+                  owner_role: "listing_ops",
+                  priority: "P1",
+                  effort: "low",
+                  evidence_ref_ids: ["evidence_001"]
+                }
+              ],
+              evidence_refs: [
+                {
+                  evidence_ref_id: "evidence_001",
+                  voc_unit_id: "voc_001",
+                  platform: "amazon",
+                  source_kind: "amazon_review",
+                  source_object_id: "R3K2DOANUAPY96",
+                  quote: "Setup was fast and the sound is clear.",
+                  normalized_quote: "用户认可安装效率和声音表现。",
+                  rating: 5,
+                  relation_edge_ids: [],
+                  quality_flags: [],
+                  source_url: "https://www.amazon.com/review/R3K2DOANUAPY96"
+                }
+              ],
+              confidence: {
+                level: "medium",
+                reason: "样本可支持运营动作，但仍需要更多评论覆盖。",
+                evidence_count: 1,
+                source_diversity: "single_asin",
+                coverage_notes: ["coverage_confidence=0.58"]
+              },
+              data_gaps: [
+                {
+                  gap_type: "low_sample",
+                  description: "当前样本量不足，建议继续采集更多 review。",
+                  recommended_collection: "继续采集同 ASIN 多页评论。",
+                  blocks_confidence: true
+                }
+              ],
+              generation_method: "deterministic_template_v1",
+              created_at: "2026-07-08T00:00:00+00:00"
             }
           ]
         };
@@ -304,12 +375,15 @@ describe("ContentCommandBar", () => {
     });
 
     expect(sendMessage).toHaveBeenCalledWith({
-      type: GET_STRATEGY_NOTES_MESSAGE_TYPE,
+      type: GET_INSIGHT_BRIEFS_MESSAGE_TYPE,
       apiBaseUrl: "https://plugin.lute-tlz-dddd.top",
       platform: "amazon"
     });
-    expect(rootElement.textContent).toContain("noise");
-    expect(rootElement.textContent).toContain("Prioritize reducing noise complaints.");
+    expect(rootElement.textContent).toContain("经营诊断");
+    expect(rootElement.textContent).toContain("评论样本显示 Listing 信任补强优先。");
+    expect(rootElement.textContent).toContain("补强 Listing 信任解释");
+    expect(rootElement.textContent).toContain("当前样本量不足");
+    expect(rootElement.textContent).toContain("Setup was fast and the sound is clear.");
   }, 20_000);
 
   it("falls back to the default Amazon page budget when backend settings cannot be read", async () => {

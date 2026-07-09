@@ -161,6 +161,104 @@ export type StrategyNotesResponse = {
   items: StrategyNote[];
 };
 
+export type InsightScope = {
+  platform: VocPlatform;
+  source_object_type: string;
+  source_object_id: string;
+  source_url: string;
+  collection_run_ids: string[];
+  coverage_scope: string;
+  coverage_confidence: number;
+};
+
+export type ExecutiveFinding = {
+  finding_id: string;
+  title: string;
+  business_meaning: string;
+  priority: string;
+  confidence_level: string;
+  evidence_ref_ids: string[];
+};
+
+export type BusinessSignal = {
+  signal_id: string;
+  signal_type: string;
+  topic: string;
+  aspect: string;
+  customer_language: string[];
+  business_impact: string;
+  severity: string;
+  priority: string;
+  evidence_strength: string;
+  confidence_reason: string;
+  evidence_ref_ids: string[];
+  quality_flags: string[];
+};
+
+export type ActionRecommendation = {
+  action_id: string;
+  action_type: string;
+  title: string;
+  recommendation: string;
+  why_now: string;
+  expected_metric: string;
+  owner_role: string;
+  priority: string;
+  effort: string;
+  evidence_ref_ids: string[];
+};
+
+export type EvidenceReference = {
+  evidence_ref_id: string;
+  voc_unit_id: string;
+  platform: VocPlatform;
+  source_kind: string;
+  source_object_id: string;
+  quote: string;
+  normalized_quote: string | null;
+  rating: number | null;
+  relation_edge_ids: string[];
+  quality_flags: string[];
+  source_url: string;
+};
+
+export type BriefConfidence = {
+  level: string;
+  reason: string;
+  evidence_count: number;
+  source_diversity: string;
+  coverage_notes: string[];
+};
+
+export type DataGap = {
+  gap_type: string;
+  description: string;
+  recommended_collection: string;
+  blocks_confidence: boolean;
+};
+
+export type InsightBrief = {
+  brief_id: string;
+  template_id: string;
+  template_version: string;
+  language: string;
+  advisor_profile: string;
+  scope: InsightScope;
+  headline: string;
+  executive_findings: ExecutiveFinding[];
+  business_signals: BusinessSignal[];
+  action_plan: ActionRecommendation[];
+  evidence_refs: EvidenceReference[];
+  confidence: BriefConfidence;
+  data_gaps: DataGap[];
+  generation_method: string;
+  created_at: string;
+};
+
+export type InsightBriefsResponse = {
+  items: InsightBrief[];
+};
+
 export type RedditThreadCaptureResponse = {
   collection_run_id: string;
   raw_item_count: number;
@@ -209,6 +307,22 @@ export async function fetchStrategyNotes(
   const payload = await parseJson(response);
   return {
     items: parseStrategyNotesResponse(payload)
+  };
+}
+
+export async function fetchInsightBriefs(
+  apiBaseUrl: string,
+  platform: VocPlatformFilter,
+  fetcher: VocUnitsFetcher = async (url) => fetch(url)
+): Promise<InsightBriefsResponse> {
+  const response = await fetcher(buildInsightBriefsUrl(apiBaseUrl, platform));
+  if (!response.ok) {
+    throw new Error(`insight_briefs_fetch_failed:${response.status}`);
+  }
+
+  const payload = await parseJson(response, "insight_briefs_invalid_response");
+  return {
+    items: parseInsightBriefsResponse(payload)
   };
 }
 
@@ -401,6 +515,16 @@ function buildInstagramGraphLiveReadPreflightUrl(apiBaseUrl: string): string {
 function buildStrategyNotesUrl(apiBaseUrl: string, platform: VocPlatformFilter): string {
   const normalizedBaseUrl = apiBaseUrl.trim().replace(/\/+$/, "");
   const endpoint = `${normalizedBaseUrl}/api/insights/strategy-notes`;
+  if (platform === "all") {
+    return endpoint;
+  }
+
+  return `${endpoint}?platform=${platform}`;
+}
+
+function buildInsightBriefsUrl(apiBaseUrl: string, platform: VocPlatformFilter): string {
+  const normalizedBaseUrl = apiBaseUrl.trim().replace(/\/+$/, "");
+  const endpoint = `${normalizedBaseUrl}/api/insights/briefs`;
   if (platform === "all") {
     return endpoint;
   }
@@ -602,6 +726,14 @@ function parseStrategyNotesResponse(payload: unknown): StrategyNote[] {
   return payload.items.map(parseStrategyNote);
 }
 
+function parseInsightBriefsResponse(payload: unknown): InsightBrief[] {
+  if (!isRecord(payload) || !Array.isArray(payload.items)) {
+    throw new Error("insight_briefs_invalid_response:items_array_required");
+  }
+
+  return payload.items.map(parseInsightBrief);
+}
+
 function parseCollectionTask(value: unknown): CollectionTask {
   if (!isRecord(value)) {
     throw new Error("collection_tasks_invalid_response:item_object_required");
@@ -776,6 +908,204 @@ function parseStrategyNote(value: unknown): StrategyNote {
   };
 }
 
+function parseInsightBrief(value: unknown): InsightBrief {
+  const errorPrefix = "insight_briefs_invalid_response";
+  if (!isRecord(value)) {
+    throw new Error(`${errorPrefix}:item_object_required`);
+  }
+
+  return {
+    brief_id: requiredStringFor(value.brief_id, "brief_id", errorPrefix),
+    template_id: requiredStringFor(value.template_id, "template_id", errorPrefix),
+    template_version: requiredStringFor(value.template_version, "template_version", errorPrefix),
+    language: requiredStringFor(value.language, "language", errorPrefix),
+    advisor_profile: requiredStringFor(value.advisor_profile, "advisor_profile", errorPrefix),
+    scope: parseInsightScope(value.scope),
+    headline: requiredStringFor(value.headline, "headline", errorPrefix),
+    executive_findings: requiredObjectList(
+      value.executive_findings,
+      "executive_findings",
+      errorPrefix
+    ).map(parseExecutiveFinding),
+    business_signals: requiredObjectList(
+      value.business_signals,
+      "business_signals",
+      errorPrefix
+    ).map(parseBusinessSignal),
+    action_plan: requiredObjectList(value.action_plan, "action_plan", errorPrefix).map(
+      parseActionRecommendation
+    ),
+    evidence_refs: requiredObjectList(value.evidence_refs, "evidence_refs", errorPrefix).map(
+      parseEvidenceReference
+    ),
+    confidence: parseBriefConfidence(value.confidence),
+    data_gaps: requiredObjectList(value.data_gaps, "data_gaps", errorPrefix).map(
+      parseDataGap
+    ),
+    generation_method: requiredStringFor(
+      value.generation_method,
+      "generation_method",
+      errorPrefix
+    ),
+    created_at: requiredStringFor(value.created_at, "created_at", errorPrefix)
+  };
+}
+
+function parseInsightScope(value: unknown): InsightScope {
+  const errorPrefix = "insight_briefs_invalid_response";
+  if (!isRecord(value)) {
+    throw new Error(`${errorPrefix}:scope_object_required`);
+  }
+
+  return {
+    platform: requiredPlatform(value.platform, errorPrefix),
+    source_object_type: requiredStringFor(
+      value.source_object_type,
+      "scope_source_object_type",
+      errorPrefix
+    ),
+    source_object_id: requiredStringFor(
+      value.source_object_id,
+      "scope_source_object_id",
+      errorPrefix
+    ),
+    source_url: requiredStringFor(value.source_url, "scope_source_url", errorPrefix),
+    collection_run_ids: stringList(value.collection_run_ids),
+    coverage_scope: requiredStringFor(
+      value.coverage_scope,
+      "scope_coverage_scope",
+      errorPrefix
+    ),
+    coverage_confidence: requiredFiniteNumber(
+      value.coverage_confidence,
+      "scope_coverage_confidence",
+      errorPrefix
+    )
+  };
+}
+
+function parseExecutiveFinding(value: Record<string, unknown>): ExecutiveFinding {
+  const errorPrefix = "insight_briefs_invalid_response";
+  return {
+    finding_id: requiredStringFor(value.finding_id, "finding_id", errorPrefix),
+    title: requiredStringFor(value.title, "title", errorPrefix),
+    business_meaning: requiredStringFor(
+      value.business_meaning,
+      "business_meaning",
+      errorPrefix
+    ),
+    priority: requiredStringFor(value.priority, "priority", errorPrefix),
+    confidence_level: requiredStringFor(
+      value.confidence_level,
+      "confidence_level",
+      errorPrefix
+    ),
+    evidence_ref_ids: stringList(value.evidence_ref_ids)
+  };
+}
+
+function parseBusinessSignal(value: Record<string, unknown>): BusinessSignal {
+  const errorPrefix = "insight_briefs_invalid_response";
+  return {
+    signal_id: requiredStringFor(value.signal_id, "signal_id", errorPrefix),
+    signal_type: requiredStringFor(value.signal_type, "signal_type", errorPrefix),
+    topic: requiredStringFor(value.topic, "topic", errorPrefix),
+    aspect: requiredStringFor(value.aspect, "aspect", errorPrefix),
+    customer_language: stringList(value.customer_language),
+    business_impact: requiredStringFor(value.business_impact, "business_impact", errorPrefix),
+    severity: requiredStringFor(value.severity, "severity", errorPrefix),
+    priority: requiredStringFor(value.priority, "priority", errorPrefix),
+    evidence_strength: requiredStringFor(
+      value.evidence_strength,
+      "evidence_strength",
+      errorPrefix
+    ),
+    confidence_reason: requiredStringFor(
+      value.confidence_reason,
+      "confidence_reason",
+      errorPrefix
+    ),
+    evidence_ref_ids: stringList(value.evidence_ref_ids),
+    quality_flags: stringList(value.quality_flags)
+  };
+}
+
+function parseActionRecommendation(
+  value: Record<string, unknown>
+): ActionRecommendation {
+  const errorPrefix = "insight_briefs_invalid_response";
+  return {
+    action_id: requiredStringFor(value.action_id, "action_id", errorPrefix),
+    action_type: requiredStringFor(value.action_type, "action_type", errorPrefix),
+    title: requiredStringFor(value.title, "title", errorPrefix),
+    recommendation: requiredStringFor(value.recommendation, "recommendation", errorPrefix),
+    why_now: requiredStringFor(value.why_now, "why_now", errorPrefix),
+    expected_metric: requiredStringFor(value.expected_metric, "expected_metric", errorPrefix),
+    owner_role: requiredStringFor(value.owner_role, "owner_role", errorPrefix),
+    priority: requiredStringFor(value.priority, "priority", errorPrefix),
+    effort: requiredStringFor(value.effort, "effort", errorPrefix),
+    evidence_ref_ids: stringList(value.evidence_ref_ids)
+  };
+}
+
+function parseEvidenceReference(value: Record<string, unknown>): EvidenceReference {
+  const errorPrefix = "insight_briefs_invalid_response";
+  return {
+    evidence_ref_id: requiredStringFor(value.evidence_ref_id, "evidence_ref_id", errorPrefix),
+    voc_unit_id: requiredStringFor(value.voc_unit_id, "voc_unit_id", errorPrefix),
+    platform: requiredPlatform(value.platform, errorPrefix),
+    source_kind: requiredStringFor(value.source_kind, "source_kind", errorPrefix),
+    source_object_id: requiredStringFor(value.source_object_id, "source_object_id", errorPrefix),
+    quote: requiredStringFor(value.quote, "quote", errorPrefix),
+    normalized_quote: optionalString(value.normalized_quote),
+    rating: optionalNumber(value.rating),
+    relation_edge_ids: stringList(value.relation_edge_ids),
+    quality_flags: stringList(value.quality_flags),
+    source_url: requiredStringFor(value.source_url, "source_url", errorPrefix)
+  };
+}
+
+function parseBriefConfidence(value: unknown): BriefConfidence {
+  const errorPrefix = "insight_briefs_invalid_response";
+  if (!isRecord(value)) {
+    throw new Error(`${errorPrefix}:confidence_object_required`);
+  }
+
+  return {
+    level: requiredStringFor(value.level, "confidence_level", errorPrefix),
+    reason: requiredStringFor(value.reason, "confidence_reason", errorPrefix),
+    evidence_count: requiredFiniteIntegerFor(
+      value.evidence_count,
+      "confidence_evidence_count",
+      errorPrefix
+    ),
+    source_diversity: requiredStringFor(
+      value.source_diversity,
+      "confidence_source_diversity",
+      errorPrefix
+    ),
+    coverage_notes: stringList(value.coverage_notes)
+  };
+}
+
+function parseDataGap(value: Record<string, unknown>): DataGap {
+  const errorPrefix = "insight_briefs_invalid_response";
+  return {
+    gap_type: requiredStringFor(value.gap_type, "gap_type", errorPrefix),
+    description: requiredStringFor(value.description, "description", errorPrefix),
+    recommended_collection: requiredStringFor(
+      value.recommended_collection,
+      "recommended_collection",
+      errorPrefix
+    ),
+    blocks_confidence: requiredBooleanFor(
+      value.blocks_confidence,
+      "blocks_confidence",
+      errorPrefix
+    )
+  };
+}
+
 function requiredPlatform(value: unknown, errorPrefix = "voc_units_invalid_response"): VocPlatform {
   if (value === "amazon" || value === "reddit" || value === "instagram") {
     return value;
@@ -931,6 +1261,20 @@ function jsonList(value: unknown): JsonValue[] {
   }
 
   return value.filter(isJsonValue);
+}
+
+function requiredObjectList(
+  value: unknown,
+  field: string,
+  errorPrefix: string
+): Record<string, unknown>[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${errorPrefix}:${field}_array_required`);
+  }
+  if (!value.every(isRecord)) {
+    throw new Error(`${errorPrefix}:${field}_object_required`);
+  }
+  return value;
 }
 
 function isJsonValue(value: unknown): value is JsonValue {
