@@ -10,7 +10,17 @@
     "typecheck": "pnpm typecheck:api && pnpm -r typecheck",
     "typecheck:api": "uv --directory apps/api run mypy",
     "build": "pnpm -r build",
-    "package:extension": "pnpm --filter @plugin-hub/extension build && node scripts/package-extension.mjs"
+    "collection:worker": "uv --directory apps/api run python -m plugin_hub_api.worker_cli",
+    "collection:worker:once": "pnpm collection:worker --once",
+    "collection:worker:daemon": "pnpm collection:worker --poll-interval-seconds 3",
+    "package:extension": "pnpm --filter @plugin-hub/extension build && node scripts/package-extension.mjs",
+    "package:extension:amazon": "pnpm --filter @plugin-hub/extension build:amazon && node scripts/package-extension.mjs amazon",
+    "package:extension:reddit": "pnpm --filter @plugin-hub/extension build:reddit && node scripts/package-extension.mjs reddit",
+    "package:extension:instagram": "pnpm --filter @plugin-hub/extension build:instagram && node scripts/package-extension.mjs instagram",
+    "verify:extension": "node scripts/verify-extension-package.mjs",
+    "verify:extension:amazon": "node scripts/verify-extension-package.mjs amazon",
+    "verify:extension:reddit": "node scripts/verify-extension-package.mjs reddit",
+    "verify:extension:instagram": "node scripts/verify-extension-package.mjs instagram"
   },
   "devDependencies": {
     "typescript": "^5.8.3"

@@ -47,6 +47,14 @@ REDDIT_COMMENT_EXTENSION_KEYS = (
     "permalink",
 )
 
+INSTAGRAM_COMMENT_EXTENSION_KEYS = (
+    "media_id",
+    "like_count",
+    "parent_id",
+    "hidden",
+    "permalink",
+)
+
 
 def map_amazon_review_to_voc(
     *,
@@ -153,6 +161,38 @@ def map_reddit_comment_to_voc(
             "quality_flags": quality_flags,
             "coverage_confidence": coverage_confidence,
             "platform_extension": _reddit_comment_platform_extension(raw_comment),
+        }
+    )
+
+
+def map_instagram_comment_to_voc(
+    *,
+    collection_run_id: str,
+    source_url: str,
+    raw_comment: dict[str, JsonValue],
+    coverage_confidence: float,
+) -> CanonicalVocUnit:
+    quality_flags: list[str] = []
+    source_object_id = _instagram_comment_source_object_id(raw_comment, quality_flags)
+    body = _instagram_comment_body(raw_comment, quality_flags)
+
+    return CanonicalVocUnit.model_validate(
+        {
+            "platform": Platform.INSTAGRAM,
+            "source_kind": SourceKind.INSTAGRAM_COMMENT,
+            "source_object_id": source_object_id,
+            "collection_run_id": collection_run_id,
+            "source_url": source_url,
+            "captured_at": _captured_at_with_flags(raw_comment, quality_flags),
+            "created_at": _instagram_timestamp_with_flags(raw_comment, quality_flags),
+            "author_display": _string_or_none(raw_comment.get("username")),
+            "body": body,
+            "commercial_object_type": "instagram_media",
+            "parent_id": _string_or_none(raw_comment.get("parent_id")),
+            "reply_role": _instagram_reply_role(raw_comment),
+            "quality_flags": quality_flags,
+            "coverage_confidence": coverage_confidence,
+            "platform_extension": _instagram_comment_platform_extension(raw_comment),
         }
     )
 
@@ -371,6 +411,65 @@ def _reddit_comment_reply_role(
     if parent_id is not None and depth is not None:
         return "nested_reply"
     return "unknown_reply_role"
+
+
+def _instagram_comment_source_object_id(
+    raw_comment: dict[str, JsonValue],
+    quality_flags: list[str],
+) -> str:
+    comment_id = _string_or_none(raw_comment.get("id"))
+    if comment_id is not None:
+        return comment_id
+
+    source_object_id = _string_or_none(raw_comment.get("source_object_id"))
+    if source_object_id is not None:
+        return source_object_id
+
+    quality_flags.append("missing_instagram_comment_id")
+    return _stable_missing_id("instagram_missing_comment_id", raw_comment)
+
+
+def _instagram_comment_body(
+    raw_comment: dict[str, JsonValue],
+    quality_flags: list[str],
+) -> str:
+    body = _string_or_none(raw_comment.get("text"))
+    if body is not None:
+        return body
+
+    quality_flags.append("missing_body")
+    return ""
+
+
+def _instagram_timestamp_with_flags(
+    raw_comment: dict[str, JsonValue],
+    quality_flags: list[str],
+) -> datetime | None:
+    timestamp = raw_comment.get("timestamp")
+    if timestamp is None:
+        return None
+
+    parsed = _parse_datetime(timestamp)
+    if parsed is None:
+        quality_flags.append("invalid_instagram_timestamp")
+        return None
+    if isinstance(timestamp, str) and _datetime_string_is_naive(timestamp):
+        quality_flags.append("naive_instagram_timestamp_assumed_utc")
+    return parsed
+
+
+def _instagram_reply_role(raw_comment: dict[str, JsonValue]) -> str:
+    return "comment_reply" if _string_or_none(raw_comment.get("parent_id")) else "top_level_comment"
+
+
+def _instagram_comment_platform_extension(
+    raw_comment: dict[str, JsonValue],
+) -> dict[str, JsonValue]:
+    extension: dict[str, JsonValue] = {}
+    for key in INSTAGRAM_COMMENT_EXTENSION_KEYS:
+        if key in raw_comment:
+            extension[key] = ensure_json_value(raw_comment[key])
+    return extension
 
 
 def _created_utc_with_flags(

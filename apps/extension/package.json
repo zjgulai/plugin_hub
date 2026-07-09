@@ -6,7 +6,10 @@
     "test": "vitest run",
     "lint": "eslint src tests --ext .ts,.tsx",
     "typecheck": "tsc --noEmit",
-    "build": "vite build"
+    "build": "pnpm build:amazon && pnpm build:reddit && pnpm build:instagram",
+    "build:amazon": "PLUGIN_HUB_EXTENSION_TARGET=amazon vite build",
+    "build:reddit": "PLUGIN_HUB_EXTENSION_TARGET=reddit vite build",
+    "build:instagram": "PLUGIN_HUB_EXTENSION_TARGET=instagram vite build"
   },
   "dependencies": {
     "react": "^19.1.0",

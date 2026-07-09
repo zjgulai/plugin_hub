@@ -86,6 +86,53 @@ describe("captureCurrentPage", () => {
     );
   });
 
+  it("applies the Amazon page budget supplied by backend runtime settings", async () => {
+    document.body.innerHTML = amazonPageHtml({
+      reviewId: "R1",
+      body: "The lid leaks after a week.",
+      nextHref: "/product-reviews/B000000001?pageNumber=2"
+    });
+    const fetchedUrls: string[] = [];
+
+    const result = await captureCurrentPage({
+      url: "https://www.amazon.com/product-reviews/B000000001?pageNumber=1",
+      capturedAt: CAPTURED_AT,
+      documentRoot: document,
+      runtimeSettings: {
+        amazonPageLimit: 1,
+        platformSettingEnabled: true,
+        platformSettingSource: "stored",
+        platformSettingUpdatedAt: "2026-06-22T00:00:00.000Z"
+      },
+      fetchText: async (url) => {
+        fetchedUrls.push(url);
+        return amazonPageHtml({
+          reviewId: "R2",
+          body: "The replacement worked better."
+        });
+      }
+    });
+
+    expect(fetchedUrls).toEqual([]);
+    expect(result.payload.run.stop_reason).toBe("page_budget_reached");
+    expect(result.payload.run.coverage_scope).toEqual(
+      expect.objectContaining({
+        page_limit: 1,
+        page_limit_source: "stored",
+        platform_setting_updated_at: "2026-06-22T00:00:00.000Z"
+      })
+    );
+    expect(result.payload.run.coverage_scope.pages).toEqual([
+      {
+        url: "https://www.amazon.com/product-reviews/B000000001?pageNumber=1",
+        observed_page: 1,
+        raw_item_count: 1,
+        next_page_url: "https://www.amazon.com/product-reviews/B000000001?pageNumber=2"
+      }
+    ]);
+    expect(result.payload.raw_items.map((item) => item.source_object_id)).toEqual(["R1"]);
+  });
+
   it("captures Reddit threads through the .json entrypoint", async () => {
     const result = await captureCurrentPage({
       url: "https://www.reddit.com/r/Coffee/comments/thread123/best_grinder/",
@@ -142,12 +189,73 @@ describe("captureCurrentPage", () => {
     ]);
   });
 
+  it("reports Reddit JSON unavailability when both .json and DOM capture are blocked", async () => {
+    document.body.innerHTML = `
+      <main>
+        <h1>You've been blocked by network security.</h1>
+        <p>To continue, log in to your Reddit account or use your developer token</p>
+      </main>
+    `;
+
+    const result = await captureCurrentPage({
+      url: "https://www.reddit.com/r/Coffee/comments/thread123/best_grinder/",
+      capturedAt: CAPTURED_AT,
+      documentRoot: document,
+      fetchJson: async () => {
+        throw new Error("reddit_json_fetch_failed:network");
+      }
+    });
+
+    expect(result.payload.run.capture_method).toBe("extension_reddit_dom_fallback");
+    expect(result.payload.run.stop_reason).toBe("reddit_json_unavailable_dom_empty");
+    expect(result.payload.run.coverage_confidence).toBe(0.2);
+    expect(result.payload.run.coverage_scope).toEqual(
+      expect.objectContaining({
+        json_error: "reddit_json_fetch_failed:network",
+        dom_stop_reason: "missing_thread_dom",
+        raw_item_count: 0
+      })
+    );
+    expect(result.summary.raw_item_count).toBe(0);
+    expect(result.summary.stop_reason).toBe("reddit_json_unavailable_dom_empty");
+  });
+
   it("rejects unsupported pages before building upload payloads", async () => {
     await expect(
       captureCurrentPage({
         url: "https://example.com/products/B000000001"
       })
     ).rejects.toThrow("unsupported_page");
+  });
+
+  it("rejects pages outside the requested split extension target", async () => {
+    await expect(
+      captureCurrentPage({
+        url: "https://www.reddit.com/r/Coffee/comments/thread123/best_grinder/",
+        target: "amazon"
+      })
+    ).rejects.toThrow("unsupported_page");
+    await expect(
+      captureCurrentPage({
+        url: "https://www.amazon.com/product-reviews/B000000001",
+        target: "reddit"
+      })
+    ).rejects.toThrow("unsupported_page");
+    await expect(
+      captureCurrentPage({
+        url: "https://www.instagram.com/p/ABC123_def-/",
+        target: "reddit"
+      })
+    ).rejects.toThrow("unsupported_page");
+  });
+
+  it("keeps Instagram capture gated until an authorized backend path exists", async () => {
+    await expect(
+      captureCurrentPage({
+        url: "https://www.instagram.com/p/ABC123_def-/",
+        target: "instagram"
+      })
+    ).rejects.toThrow("instagram_capture_requires_authorized_backend");
   });
 });
 

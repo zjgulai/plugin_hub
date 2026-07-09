@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "start": "next start",
     "test": "vitest run",
     "lint": "eslint app src tests --ext .ts,.tsx",
     "typecheck": "next typegen && tsc --noEmit"

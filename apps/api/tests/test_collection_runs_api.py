@@ -104,6 +104,15 @@ def test_unsupported_source_kind_is_rejected_by_schema(client: TestClient) -> No
     assert response.status_code == 422
 
 
+def test_empty_raw_items_are_rejected_by_schema(client: TestClient) -> None:
+    response = client.post(
+        "/api/collection-runs",
+        json={"run": _collection_run(), "raw_items": []},
+    )
+
+    assert response.status_code == 422
+
+
 def test_reddit_comment_maps_thread_parent_and_reply_role(client: TestClient) -> None:
     response = client.post(
         "/api/collection-runs",
@@ -142,6 +151,31 @@ def test_reddit_comment_maps_thread_parent_and_reply_role(client: TestClient) ->
     assert item["thread_id"] == "t3_thread123"
     assert item["parent_id"] == "t1_parent999"
     assert item["reply_role"] == "nested_reply"
+
+
+def test_instagram_comment_maps_to_voc_units_by_platform(client: TestClient) -> None:
+    response = client.post(
+        "/api/collection-runs",
+        json={
+            "run": _collection_run(
+                platform="instagram",
+                source_url="https://www.instagram.com/p/example/",
+            ),
+            "raw_items": [_instagram_comment_item()],
+        },
+    )
+
+    assert response.status_code == 201
+
+    voc_response = client.get("/api/voc-units", params={"platform": "instagram"})
+    item = voc_response.json()["items"][0]
+
+    assert item["platform"] == "instagram"
+    assert item["source_kind"] == "instagram_comment"
+    assert item["source_object_id"] == "18000000000000001"
+    assert item["author_display"] == "customer_one"
+    assert item["commercial_object_type"] == "instagram_media"
+    assert item["platform_extension"]["media_id"] == "17900000000000001"
 
 
 def test_reddit_comment_without_thread_linkage_returns_422(client: TestClient) -> None:
@@ -317,6 +351,27 @@ def _reddit_comment_item() -> dict[str, object]:
         },
         "raw_payload_hash": "sha256:reddit-comment456",
         "captured_at": "2026-06-05T00:00:00+00:00",
+    }
+
+
+def _instagram_comment_item() -> dict[str, object]:
+    return {
+        "platform": "instagram",
+        "source_kind": "instagram_comment",
+        "source_object_id": "18000000000000001",
+        "raw_schema_version": "instagram-comment-v1",
+        "parser_version": "parser-v1",
+        "raw_payload": {
+            "id": "18000000000000001",
+            "text": "This pump is quiet enough for night sessions.",
+            "username": "customer_one",
+            "timestamp": "2026-06-05T08:30:00+0000",
+            "media_id": "17900000000000001",
+            "like_count": 4,
+            "captured_at": "2026-06-05T10:00:00+00:00",
+        },
+        "raw_payload_hash": "sha256:instagram-comment1",
+        "captured_at": "2026-06-05T10:00:00+00:00",
     }
 
 

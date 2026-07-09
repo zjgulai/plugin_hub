@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type { CollectionRunPayload } from "../src/types/contracts";
+import type { CollectionRunPayload, CollectionTaskPayload } from "../src/types/contracts";
 import {
+  createCollectionTask,
+  getInsightBriefs,
+  getStrategyNotes,
+  getPlatformSetting,
   type UploadFetcher,
   uploadCollectionRun
 } from "../src/lib/upload-client";
@@ -38,6 +42,19 @@ const payload = {
     }
   ]
 } satisfies CollectionRunPayload;
+
+const taskPayload = {
+  task: {
+    platform: "reddit",
+    source_url: "https://www.reddit.com/r/Coffee/comments/thread123/example/",
+    requested_capture_method: "server_reddit_json_proxy",
+    trigger_reason: "reddit_json_unavailable_dom_empty",
+    context: {
+      thread_id: "thread123",
+      client_raw_item_count: 0
+    }
+  }
+} satisfies CollectionTaskPayload;
 
 describe("uploadCollectionRun", () => {
   it("posts the collection run payload and returns the created counters", async () => {
@@ -211,5 +228,410 @@ describe("uploadCollectionRun", () => {
       uploadCollectionRun("https://api.example.com", invalidPayload, fetcher)
     ).rejects.toThrow("json_number_must_be_finite");
     expect(called).toBe(false);
+  });
+});
+
+describe("createCollectionTask", () => {
+  it("posts a server-side collection task and returns the task status", async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const fetcher: UploadFetcher = async (url, init) => {
+      calls.push({ url, init });
+
+      return {
+        ok: true,
+        status: 202,
+        json: async () => ({
+          collection_task_id: "task-1",
+          platform: "reddit",
+          source_url: taskPayload.task.source_url,
+          requested_capture_method: "server_reddit_json_proxy",
+          trigger_reason: "reddit_json_unavailable_dom_empty",
+          status: "retry_scheduled",
+          context: taskPayload.task.context,
+          created_at: "2026-06-14T00:00:00.000Z",
+          updated_at: "2026-06-14T00:00:00.000Z"
+        })
+      };
+    };
+
+    await expect(createCollectionTask("https://api.example.com", taskPayload, fetcher)).resolves.toEqual({
+      collection_task_id: "task-1",
+      ...taskPayload.task,
+      status: "retry_scheduled",
+      created_at: "2026-06-14T00:00:00.000Z",
+      updated_at: "2026-06-14T00:00:00.000Z"
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual({
+      url: "https://api.example.com/api/collection-tasks",
+      init: {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(taskPayload)
+      }
+    });
+  });
+
+  it("throws a status-keyed error when task creation fails", async () => {
+    const fetcher: UploadFetcher = async () => ({
+      ok: false,
+      status: 503,
+      json: async () => ({ detail: "backend unavailable" })
+    });
+
+    await expect(createCollectionTask("https://api.example.com", taskPayload, fetcher)).rejects.toThrow(
+      "collection_task_create_failed:503"
+    );
+  });
+
+  it("rejects non-object task context before sending the request", async () => {
+    let called = false;
+    const fetcher: UploadFetcher = async () => {
+      called = true;
+      throw new Error("fetcher_should_not_be_called");
+    };
+    const invalidPayload = {
+      task: {
+        ...taskPayload.task,
+        context: ["invalid"]
+      }
+    } as unknown as CollectionTaskPayload;
+
+    await expect(createCollectionTask("https://api.example.com", invalidPayload, fetcher)).rejects.toThrow(
+      "json_object_required"
+    );
+    expect(called).toBe(false);
+  });
+
+  it("rejects invalid task response objects", async () => {
+    const fetcher: UploadFetcher = async () => ({
+      ok: true,
+      status: 202,
+      json: async () => ({
+        collection_task_id: "task-1",
+        platform: "reddit",
+        source_url: taskPayload.task.source_url,
+        requested_capture_method: "server_reddit_json_proxy",
+        trigger_reason: "reddit_json_unavailable_dom_empty",
+        status: "unknown",
+        context: taskPayload.task.context,
+        created_at: "2026-06-14T00:00:00.000Z",
+        updated_at: "2026-06-14T00:00:00.000Z"
+      })
+    });
+
+    await expect(createCollectionTask("https://api.example.com", taskPayload, fetcher)).rejects.toThrow(
+      "collection_task_response_invalid"
+    );
+  });
+});
+
+describe("getPlatformSetting", () => {
+  it("fetches and parses a backend platform setting", async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const fetcher: UploadFetcher = async (url, init) => {
+      calls.push({ url, init });
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          platform: "amazon",
+          enabled: true,
+          config: {
+            page_limit: 2,
+            marketplaces: ["US"],
+            notes: ""
+          },
+          updated_at: "2026-06-22T00:00:00.000Z",
+          updated_by: "operator",
+          source: "stored"
+        })
+      };
+    };
+
+    await expect(getPlatformSetting("https://api.example.com", "amazon", fetcher)).resolves.toEqual({
+      platform: "amazon",
+      enabled: true,
+      config: {
+        page_limit: 2,
+        marketplaces: ["US"],
+        notes: ""
+      },
+      updated_at: "2026-06-22T00:00:00.000Z",
+      updated_by: "operator",
+      source: "stored"
+    });
+    expect(calls).toEqual([
+      {
+        url: "https://api.example.com/api/platform-settings/amazon",
+        init: {
+          method: "GET",
+          headers: {
+            Accept: "application/json"
+          }
+        }
+      }
+    ]);
+  });
+
+  it("rejects platform-setting responses for another platform", async () => {
+    const fetcher: UploadFetcher = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        platform: "reddit",
+        enabled: true,
+        config: {},
+        updated_at: "2026-06-22T00:00:00.000Z",
+        updated_by: "operator",
+        source: "stored"
+      })
+    });
+
+    await expect(getPlatformSetting("https://api.example.com", "amazon", fetcher)).rejects.toThrow(
+      "platform_setting_response_invalid"
+    );
+  });
+});
+
+describe("getStrategyNotes", () => {
+  it("fetches platform-filtered strategy notes from the backend", async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const fetcher: UploadFetcher = async (url, init) => {
+      calls.push({ url, init });
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          items: [
+            {
+              strategy_type: "voc_template",
+              topic: "noise",
+              evidence_count: 1,
+              evidence_examples: [],
+              recommendation: "Prioritize reducing noise complaints.",
+              evidence_strength: 0.82,
+              quality_flags: []
+            }
+          ]
+        })
+      };
+    };
+
+    await expect(getStrategyNotes("https://api.example.com///", "amazon", fetcher)).resolves.toEqual({
+      items: [
+        {
+          strategy_type: "voc_template",
+          topic: "noise",
+          evidence_count: 1,
+          evidence_examples: [],
+          recommendation: "Prioritize reducing noise complaints.",
+          evidence_strength: 0.82,
+          quality_flags: []
+        }
+      ]
+    });
+    expect(calls).toEqual([
+      {
+        url: "https://api.example.com/api/insights/strategy-notes?platform=amazon",
+        init: {
+          method: "GET",
+          headers: {
+            Accept: "application/json"
+          }
+        }
+      }
+    ]);
+  });
+
+  it("throws a status-keyed error when strategy notes cannot be read", async () => {
+    const fetcher: UploadFetcher = async () => ({
+      ok: false,
+      status: 404,
+      json: async () => ({ detail: "route missing" })
+    });
+
+    await expect(getStrategyNotes("https://api.example.com", "amazon", fetcher)).rejects.toThrow(
+      "strategy_notes_fetch_failed:404"
+    );
+  });
+});
+
+describe("getInsightBriefs", () => {
+  it("fetches platform-filtered advisor briefs from the backend", async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const fetcher: UploadFetcher = async (url, init) => {
+      calls.push({ url, init });
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          items: [
+            {
+              brief_id: "brief_amazon_B000000001",
+              template_id: "amazon_review_listing_ops_v1",
+              template_version: "v1",
+              language: "zh-CN",
+              advisor_profile: "cross_border_ecommerce_ops",
+              scope: {
+                platform: "amazon",
+                source_object_type: "asin",
+                source_object_id: "B000000001",
+                source_url: "https://www.amazon.com/product-reviews/B000000001",
+                collection_run_ids: ["run_001"],
+                coverage_scope: "review_page",
+                coverage_confidence: 0.72
+              },
+              headline: "评论样本显示 Listing 信任补强优先。",
+              executive_findings: [],
+              business_signals: [
+                {
+                  signal_id: "signal_001",
+                  signal_type: "listing_conversion",
+                  topic: "trust_gap",
+                  aspect: "review_quality",
+                  customer_language: ["Works well"],
+                  business_impact: "影响转化和页面说服力。",
+                  severity: "medium",
+                  priority: "P1",
+                  evidence_strength: "medium",
+                  confidence_reason: "评论证据可支持页面优化方向。",
+                  evidence_ref_ids: ["evidence_001"],
+                  quality_flags: []
+                }
+              ],
+              action_plan: [
+                {
+                  action_id: "action_001",
+                  action_type: "listing",
+                  title: "补强 Listing 信任解释",
+                  recommendation: "把评价中的正向语言转成首屏卖点与 FAQ。",
+                  why_now: "当前样本已经指向转化页表达问题。",
+                  expected_metric: "CVR",
+                  owner_role: "listing_ops",
+                  priority: "P1",
+                  effort: "low",
+                  evidence_ref_ids: ["evidence_001"]
+                }
+              ],
+              evidence_refs: [
+                {
+                  evidence_ref_id: "evidence_001",
+                  voc_unit_id: "voc_001",
+                  platform: "amazon",
+                  source_kind: "amazon_review",
+                  source_object_id: "R000000001",
+                  quote: "Works well",
+                  normalized_quote: "用户确认产品表现符合预期。",
+                  rating: 5,
+                  relation_edge_ids: [],
+                  quality_flags: [],
+                  source_url: "https://www.amazon.com/review/R000000001"
+                }
+              ],
+              confidence: {
+                level: "medium",
+                reason: "样本可支持运营动作，但仍需要更多评论覆盖。",
+                evidence_count: 1,
+                source_diversity: "single_asin",
+                coverage_notes: ["coverage_confidence=0.72"]
+              },
+              data_gaps: [
+                {
+                  gap_type: "low_sample",
+                  description: "当前样本量不足，建议继续采集更多 review。",
+                  recommended_collection: "继续采集同 ASIN 多页评论。",
+                  blocks_confidence: true
+                }
+              ],
+              generation_method: "deterministic_template_v1",
+              created_at: "2026-07-08T00:00:00+00:00"
+            }
+          ]
+        })
+      };
+    };
+
+    await expect(getInsightBriefs("https://api.example.com///", "amazon", fetcher)).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          brief_id: "brief_amazon_B000000001",
+          headline: "评论样本显示 Listing 信任补强优先。",
+          confidence: expect.objectContaining({
+            level: "medium",
+            evidence_count: 1
+          }),
+          action_plan: [
+            expect.objectContaining({
+              title: "补强 Listing 信任解释",
+              expected_metric: "CVR"
+            })
+          ]
+        })
+      ]
+    });
+    expect(calls).toEqual([
+      {
+        url: "https://api.example.com/api/insights/briefs?platform=amazon",
+        init: {
+          method: "GET",
+          headers: {
+            Accept: "application/json"
+          }
+        }
+      }
+    ]);
+  });
+
+  it("rejects invalid advisor brief response payloads", async () => {
+    const fetcher: UploadFetcher = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        items: [
+          {
+            brief_id: "brief_bad",
+            template_id: "amazon_review_listing_ops_v1",
+            template_version: "v1",
+            language: "zh-CN",
+            advisor_profile: "cross_border_ecommerce_ops",
+            scope: {
+              platform: "amazon",
+              source_object_type: "asin",
+              source_object_id: "B000000001",
+              source_url: "https://www.amazon.com/product-reviews/B000000001",
+              collection_run_ids: [],
+              coverage_scope: "review_page",
+              coverage_confidence: "0.72"
+            },
+            headline: "Bad payload",
+            executive_findings: [],
+            business_signals: [],
+            action_plan: [],
+            evidence_refs: [],
+            confidence: {
+              level: "medium",
+              reason: "bad",
+              evidence_count: 0,
+              source_diversity: "single_asin",
+              coverage_notes: []
+            },
+            data_gaps: [],
+            generation_method: "deterministic_template_v1",
+            created_at: "2026-07-08T00:00:00+00:00"
+          }
+        ]
+      })
+    });
+
+    await expect(getInsightBriefs("https://api.example.com", "amazon", fetcher)).rejects.toThrow(
+      "insight_brief_response_invalid"
+    );
   });
 });

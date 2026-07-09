@@ -15,7 +15,12 @@ type RootLayoutProps = {
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body>
+        <a className="skipLink" href="#main-content">
+          跳到主内容
+        </a>
+        {children}
+      </body>
     </html>
   );
 }

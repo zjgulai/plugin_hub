@@ -67,9 +67,13 @@ function isPlainObject(value: unknown): value is { [key: string]: unknown } {
   return prototype === Object.prototype || prototype === null;
 }
 
-export type Platform = "amazon" | "reddit";
+export type Platform = "amazon" | "reddit" | "instagram";
 
-export type SourceKind = "amazon_review" | "reddit_thread" | "reddit_comment";
+export type SourceKind =
+  | "amazon_review"
+  | "reddit_thread"
+  | "reddit_comment"
+  | "instagram_comment";
 
 export interface CollectionRunCreate {
   platform: Platform;
@@ -88,6 +92,153 @@ export interface CollectionRun extends CollectionRunCreate {
 export interface CollectionRunPayload {
   run: CollectionRunCreate;
   raw_items: RawSourceItem[];
+}
+
+export type CollectionTaskStatus =
+  | "pending"
+  | "running"
+  | "retry_scheduled"
+  | "completed"
+  | "failed";
+
+export interface CollectionTaskCreate {
+  platform: Platform;
+  source_url: string;
+  requested_capture_method: string;
+  trigger_reason: string;
+  context: JsonObject;
+}
+
+export interface CollectionTaskPayload {
+  task: CollectionTaskCreate;
+}
+
+export interface CollectionTaskResult extends CollectionTaskCreate {
+  collection_task_id: string;
+  status: CollectionTaskStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlatformSettingResult {
+  platform: Platform;
+  enabled: boolean;
+  config: JsonObject;
+  updated_at: string;
+  updated_by: string;
+  source: string;
+}
+
+export interface StrategyNote {
+  strategy_type: string;
+  topic: string;
+  evidence_count: number;
+  evidence_examples: JsonValue[];
+  recommendation: string;
+  evidence_strength: number;
+  quality_flags: string[];
+}
+
+export interface StrategyNotesResponse {
+  items: StrategyNote[];
+}
+
+export interface InsightScope {
+  platform: Platform;
+  source_object_type: string;
+  source_object_id: string;
+  source_url: string;
+  collection_run_ids: string[];
+  coverage_scope: string;
+  coverage_confidence: number;
+}
+
+export interface ExecutiveFinding {
+  finding_id: string;
+  title: string;
+  business_meaning: string;
+  priority: string;
+  confidence_level: string;
+  evidence_ref_ids: string[];
+}
+
+export interface BusinessSignal {
+  signal_id: string;
+  signal_type: string;
+  topic: string;
+  aspect: string;
+  customer_language: string[];
+  business_impact: string;
+  severity: string;
+  priority: string;
+  evidence_strength: string;
+  confidence_reason: string;
+  evidence_ref_ids: string[];
+  quality_flags: string[];
+}
+
+export interface ActionRecommendation {
+  action_id: string;
+  action_type: string;
+  title: string;
+  recommendation: string;
+  why_now: string;
+  expected_metric: string;
+  owner_role: string;
+  priority: string;
+  effort: string;
+  evidence_ref_ids: string[];
+}
+
+export interface EvidenceReference {
+  evidence_ref_id: string;
+  voc_unit_id: string;
+  platform: Platform;
+  source_kind: string;
+  source_object_id: string;
+  quote: string;
+  normalized_quote: string;
+  rating: number | null;
+  relation_edge_ids: string[];
+  quality_flags: string[];
+  source_url: string;
+}
+
+export interface BriefConfidence {
+  level: string;
+  reason: string;
+  evidence_count: number;
+  source_diversity: string;
+  coverage_notes: string[];
+}
+
+export interface DataGap {
+  gap_type: string;
+  description: string;
+  recommended_collection: string;
+  blocks_confidence: boolean;
+}
+
+export interface InsightBrief {
+  brief_id: string;
+  template_id: string;
+  template_version: string;
+  language: string;
+  advisor_profile: string;
+  scope: InsightScope;
+  headline: string;
+  executive_findings: ExecutiveFinding[];
+  business_signals: BusinessSignal[];
+  action_plan: ActionRecommendation[];
+  evidence_refs: EvidenceReference[];
+  confidence: BriefConfidence;
+  data_gaps: DataGap[];
+  generation_method: string;
+  created_at: string;
+}
+
+export interface InsightBriefsResponse {
+  items: InsightBrief[];
 }
 
 export interface RawSourceItem {

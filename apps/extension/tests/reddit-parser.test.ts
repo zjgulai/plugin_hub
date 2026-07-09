@@ -387,6 +387,61 @@ describe("parseRedditThreadDom", () => {
     );
   });
 
+  it("parses a modern Reddit shreddit DOM thread and loaded comments", () => {
+    document.body.innerHTML = modernShredditThreadHtml();
+
+    const result = parseRedditThreadDom(
+      document,
+      "https://www.reddit.com/r/shopify/comments/1umbsm4/shopify_store_traffic_is_100_visitorsday_but/",
+      "1umbsm4",
+      { capturedAt: CAPTURED_AT }
+    );
+
+    expect(result.stopReason).toBeNull();
+    expect(result.commentNodeCount).toBe(2);
+    expect(result.rawItems.map((item) => item.source_object_id)).toEqual([
+      "t3_1umbsm4",
+      "t1_comment_alpha",
+      "t1_reply_beta"
+    ]);
+
+    const [thread, topLevelComment, nestedReply] = result.rawItems;
+    expect(thread.raw_payload).toEqual(
+      expect.objectContaining({
+        name: "t3_1umbsm4",
+        id: "1umbsm4",
+        title: "Shopify store traffic is 100+ visitors/day but sales suddenly stopped. What should I check?",
+        selftext: "Hi i have a shopify store. However, now everything has suddenly stopped.",
+        author: "Fun_Outcome4069",
+        subreddit: "shopify",
+        subreddit_name_prefixed: "r/shopify",
+        num_comments: 2
+      })
+    );
+    expect(topLevelComment.raw_payload).toEqual(
+      expect.objectContaining({
+        name: "t1_comment_alpha",
+        body: "Check checkout analytics and payment errors first.",
+        author: "store_helper",
+        parent_id: "t3_1umbsm4",
+        link_id: "t3_1umbsm4",
+        thread_id: "t3_1umbsm4",
+        depth: 0,
+        score: 7,
+        subreddit: "shopify"
+      })
+    );
+    expect(nestedReply.raw_payload).toEqual(
+      expect.objectContaining({
+        name: "t1_reply_beta",
+        body: "Also compare traffic quality before and after the drop.",
+        author: "growth_ops",
+        parent_id: "t1_comment_alpha",
+        depth: 1
+      })
+    );
+  });
+
   it("does not treat Reddit network policy block pages as thread evidence", () => {
     document.body.innerHTML = `
       <h1>whoa there, pardner!</h1>
@@ -528,6 +583,52 @@ function oldRedditThreadHtml(): string {
           </div>
         </div>
       </div>
+    </main>
+  `;
+}
+
+function modernShredditThreadHtml(): string {
+  return `
+    <main>
+      <shreddit-post
+        id="t3_1umbsm4"
+        author="Fun_Outcome4069"
+        post-title="Shopify store traffic is 100+ visitors/day but sales suddenly stopped. What should I check?"
+        subreddit-prefixed-name="r/shopify"
+        comment-count="2"
+        permalink="/r/shopify/comments/1umbsm4/shopify_store_traffic_is_100_visitorsday_but/"
+      >
+        <h1 slot="title">
+          Shopify store traffic is 100+ visitors/day but sales suddenly stopped. What should I check?
+        </h1>
+        <div slot="text-body">
+          <p>Hi i have a shopify store. However, now everything has suddenly stopped.</p>
+        </div>
+      </shreddit-post>
+      <shreddit-comment
+        thingid="t1_comment_alpha"
+        parentid="t3_1umbsm4"
+        author="store_helper"
+        depth="0"
+        score="7"
+        permalink="/r/shopify/comments/1umbsm4/shopify_store_traffic_is_100_visitorsday_but/comment_alpha/"
+        created-timestamp="2026-07-01T12:00:00.000Z"
+      >
+        <div slot="comment">
+          <p>Check checkout analytics and payment errors first.</p>
+        </div>
+        <shreddit-comment
+          thingid="t1_reply_beta"
+          parentid="t1_comment_alpha"
+          author="growth_ops"
+          depth="1"
+          score="3"
+        >
+          <div slot="comment">
+            <p>Also compare traffic quality before and after the drop.</p>
+          </div>
+        </shreddit-comment>
+      </shreddit-comment>
     </main>
   `;
 }

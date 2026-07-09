@@ -1,6 +1,6 @@
 # Plugin Hub
 
-VOC-first Chrome extension and private backend for Amazon and Reddit customer voice collection.
+VOC-first Chrome extensions and a shared private backend for Amazon and Reddit customer voice collection.
 
 ## P0 Scope
 
@@ -13,7 +13,7 @@ VOC-first Chrome extension and private backend for Amazon and Reddit customer vo
 ## Apps
 
 - `apps/api`: FastAPI backend with Pydantic and SQLAlchemy
-- `apps/extension`: Manifest V3 Chrome extension
+- `apps/extension`: Manifest V3 Chrome extension source that builds separate Amazon and Reddit packages
 - `apps/web`: Next.js VOC Hub
 
 ## Local Development
@@ -48,39 +48,64 @@ PLUGIN_HUB_API_URL=http://localhost:8000 pnpm --filter @plugin-hub/web dev
 
 If port `8000` is occupied, run the API on another local port and set the same API URL in VOC Hub and the extension popup.
 
-## Chrome Extension
+## Chrome Extensions
 
-Build the extension:
+Plugin Hub ships one browser plugin per platform while keeping one shared backend and VOC Hub:
+
+- `Plugin Hub Amazon VOC Collector`: Amazon product/review page capture only
+- `Plugin Hub Reddit VOC Collector`: Reddit thread capture only
+
+Both plugins upload to the same `/api/collection-runs` backend contract and store platform-specific evidence through `platform`, `source_kind`, `raw_schema_version`, and `coverage_scope.collector_app`.
+
+Build both extensions:
 
 ```bash
 pnpm --filter @plugin-hub/extension build
 ```
 
-Create a Chrome install package:
+Build one extension:
+
+```bash
+pnpm --filter @plugin-hub/extension build:amazon
+pnpm --filter @plugin-hub/extension build:reddit
+```
+
+Create Chrome install packages for both extensions:
 
 ```bash
 pnpm package:extension
 ```
 
-The zip package is written to `tmp/outputs/plugin-hub-extension-<version>.zip`.
-Use `apps/extension/dist` for local unpacked testing and the zip package for Chrome Web Store upload or manual release handoff.
+Create one package:
 
-Load `apps/extension/dist` in Chrome:
+```bash
+pnpm package:extension:amazon
+pnpm package:extension:reddit
+```
+
+The zip packages are written to:
+
+- `tmp/outputs/plugin-hub-amazon-voc-<version>.zip`
+- `tmp/outputs/plugin-hub-reddit-voc-<version>.zip`
+
+Use `apps/extension/dist/amazon` or `apps/extension/dist/reddit` for local unpacked testing and the zip packages for Chrome Web Store upload or manual release handoff.
+
+Load an unpacked extension in Chrome:
 
 1. Open `chrome://extensions`.
 2. Enable Developer mode.
 3. Select Load unpacked.
-4. Choose `apps/extension/dist`.
+4. Choose `apps/extension/dist/amazon` or `apps/extension/dist/reddit`.
 
-Use the extension:
+Use the extensions:
 
 1. Start the backend.
-2. Open an Amazon review page or Reddit thread page.
-3. Open the Plugin Hub popup.
+2. Open an Amazon product/review page for the Amazon plugin, or a Reddit thread page for the Reddit plugin.
+3. Open the matching Plugin Hub popup.
 4. Confirm the API URL.
 5. Click `采集并回传`.
 
-The extension follows Amazon next-page links up to the current page budget and records `stop_reason`. Reddit capture uses the `.json?raw_json=1` thread payload and records `more` node gaps.
+The Amazon extension follows Amazon next-page links up to the current page budget and records `stop_reason`. The Reddit extension uses the `.json?raw_json=1` thread payload and records `more` node gaps.
 
 ## Quality Gates
 
@@ -92,6 +117,14 @@ pnpm lint
 pnpm typecheck
 pnpm build
 git diff --check
+```
+
+Verify extension packages:
+
+```bash
+pnpm verify:extension
+pnpm verify:extension:amazon
+pnpm verify:extension:reddit
 ```
 
 Run backend tests only:

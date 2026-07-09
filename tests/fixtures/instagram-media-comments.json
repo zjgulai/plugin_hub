@@ -1,0 +1,26 @@
+{
+  "id": "17900000000000001",
+  "permalink": "https://www.instagram.com/p/example/",
+  "comments": {
+    "data": [
+      {
+        "id": "18000000000000001",
+        "text": "This pump is quiet enough for night sessions.",
+        "username": "customer_one",
+        "timestamp": "2026-06-05T08:30:00+0000",
+        "like_count": 4
+      },
+      {
+        "id": "18000000000000002",
+        "text": "Does it work with larger bottles?",
+        "username": "customer_two",
+        "timestamp": "2026-06-05T09:00:00+0000",
+        "like_count": 1,
+        "parent_id": "18000000000000001"
+      }
+    ],
+    "paging": {
+      "next": "https://graph.instagram.com/v23.0/17900000000000001/comments?after=cursor"
+    }
+  }
+}
