@@ -97,7 +97,16 @@ The 'gpt-5.6-sol' model requires a newer version of Codex.
 | Deployment Config | success | 17s |
 | Web and Extension | success | 1m14s |
 
-run event 为 `pull_request`，head 为 `6652e1a53fda2c8bcb8f64c8911653a541dc5ab4`。最终 docs-only closeout head 仍需重复通过同一 workflow，最终状态以 PR checks 为准。
+run event 为 `pull_request`，head 为 `6652e1a53fda2c8bcb8f64c8911653a541dc5ab4`。
+
+docs-only closeout run：`https://github.com/zjgulai/plugin_hub/actions/runs/29103163052`
+
+- head：`71fc5792533886fc6e4d0c50866badd5017f0162`；
+- API：success，22s；
+- Deployment Config：success，14s；
+- Web and Extension：success，1m06s。
+
+后续状态同步提交仍由相同 workflow 检查；最终结论以 PR live checks 为事实源，不再通过追加验收文本制造递归 CI 提交。
 
 ## 6. 仓库治理边界
 
@@ -111,6 +120,6 @@ run event 为 `pull_request`，head 为 `6652e1a53fda2c8bcb8f64c8911653a541dc5ab
 ## 7. 最终边界
 
 ```text
-CI implemented / first pull_request run green / PR remains Draft
+CI implemented / implementation and docs pull_request runs green / PR remains Draft
 production unchanged / no merge / no deploy / no database operation
 ```

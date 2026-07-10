@@ -67,7 +67,7 @@ source: human+ai
 5. `complete` 运行 Codex review 并按证据分级；CLI 版本不支持当前模型，未产生二审结论，人工审查结果保持独立。
 6. `complete` 更新 Loop42 验收记录，显式暂存并提交 CI/docs。
 7. `complete` 推送 PR #3，等待并检查 GitHub checks。
-8. `in_progress` 复核最终 docs-only head、文件范围、checks 和 merge 边界后停止。
+8. `complete` 复核 docs-only head、文件范围、checks 和 merge 边界后停止。
 
 ## 5. 验收标准
 
@@ -85,3 +85,11 @@ source: human+ai
 - no finding：Web API key 仅在 server component/server action 中加载，客户端自动刷新只调用 `router.refresh()`，没有把 key 作为 prop 或浏览器请求头下发。
 - local evidence：workflow YAML、6 个 action SHA、最小权限、无 secret 引用、synthetic key、三个本地等价 job 均已通过。
 - unavailable evidence：Codex CLI review 在重连后返回 `The 'gpt-5.6-sol' model requires a newer version of Codex.`，exit 1；没有 clean review 声明，也没有可接受/拒绝的模型 finding。
+
+## 7. 远端验收结果
+
+- implementation run `29102813050`：API、Deployment Config、Web and Extension 全部 success；
+- docs-only run `29103163052`：API 22s、Deployment Config 14s、Web and Extension 1m06s，全部 success；
+- PR #3 保持 Open、Draft、Mergeable；
+- merge、repository settings 和 production 均未改变；
+- 后续状态以 PR live checks 为事实源，不再通过追加验收文本制造递归 CI 提交。
