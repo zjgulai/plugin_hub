@@ -3,12 +3,12 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { loadExtensionVersionState } from "./extension-version-utils.mjs";
+
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const registry = JSON.parse(
-  readFileSync(join(repoRoot, "apps", "extension", "extension-targets.json"), "utf8")
-);
-const targetConfigs = registry.targetConfigs ?? {};
-const targetsInRegistry = Array.isArray(registry.targets) ? registry.targets : [];
+const versionState = loadExtensionVersionState(repoRoot);
+const targetConfigs = versionState.targetConfigs;
+const targetsInRegistry = versionState.targets;
 const outputDir = join(repoRoot, "tmp", "outputs");
 const targets = resolveTargets(process.argv[2]);
 
@@ -47,6 +47,11 @@ function verifyTarget(target) {
 
   assertEqual(manifest.manifest_version, 3, `manifest_version_must_be_3:${target}`);
   assertEqual(manifest.name, config.name, `manifest_name_changed:${target}`);
+  assertEqual(
+    manifest.version,
+    versionState.versions[target],
+    `manifest_version_changed:${target}`
+  );
   assertArrayIncludes(manifest.permissions, "activeTab", `permission_activeTab_required:${target}`);
   assertArrayIncludes(manifest.permissions, "storage", `permission_storage_required:${target}`);
   assertArrayIncludes(
@@ -82,7 +87,7 @@ function verifyTarget(target) {
     throw new Error(`content_script_too_large:${target}:${contentScriptSize}`);
   }
 
-  const version = typeof manifest.version === "string" ? manifest.version : "unknown";
+  const version = versionState.versions[target];
   const zipPath = join(outputDir, `${config.packageSlug}-${version}.zip`);
   assertFile(zipPath, `extension_zip_missing:${target}:${zipPath}`);
 
