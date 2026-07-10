@@ -5,12 +5,32 @@ module: product_engineering
 topic: plugin-hub-production-evidence-governance
 status: draft
 created: 2026-07-01
-updated: 2026-07-01
+updated: 2026-07-10
 owner: self
 source: codex
 ---
 
 # Plugin Hub Production Evidence Governance Runbook
+
+## 2026-07-10 Adversarial Audit And Deployment Addendum
+
+The July 1 observations and Loop 38 findings below remain historical evidence.
+Loop 39 subsequently deployed the authorized authentication, SQLite, backup,
+permission, and Nginx hardening and completed production recovery acceptance.
+
+Before making any current durability or security claim, read:
+
+```text
+docs/workflows/plugin-hub-loop38-data-asset-adversarial-audit-draft-20260710.md
+docs/workflows/plugin-hub-loop39-production-hardening-acceptance-20260710.md
+```
+
+Current boundary:
+
+```text
+production hardening deployed / verified backup and restore active
+no migration / no provider call / no live capture / no Web Store submission
+```
 
 ## 1. Purpose
 
@@ -140,3 +160,71 @@ To raise the evidence grade for Loop 2 and Loop 3 work:
 3. Confirm `/api/insights/voc-signals` returns 200 in production.
 4. Confirm `/api/capture-capabilities` includes evidence-label fields in production.
 5. Keep Instagram Graph live-read blocked until platform rights, backend-only credential configuration, and explicit live-read approval are present.
+
+## 9. 2026-07-10 Data Asset Hardening Addendum
+
+Before any future durability or security claim, read the Loop 38 adversarial
+audit first. The local candidate now provides API authentication, SQLite
+FK/WAL/busy-timeout parity for API and worker, idempotent extension ingestion,
+payload-hash verification, bounded reads, run-level asset history, verified
+online backups, and SSRF target validation.
+
+The following list was the Loop 38 deployment gate. Loop 39 received separate
+authorization and completed items 1-6; item 7 remains partially open because
+the timer is active but no off-host retention lane exists:
+
+1. create independent API read/write keys and dashboard Basic Auth without printing values;
+2. set `/opt/plugin-hub/data` and `/opt/plugin-hub/backups` to service-owned `0700`;
+3. set DB/WAL/SHM/backup/manifest files to `0600` and verify owner/group;
+4. create and restore a verified online backup before changing journal mode;
+5. prove API and worker both report WAL, FK enabled, FULL synchronous, and the configured busy timeout;
+6. prove anonymous dashboard/API access is denied before enabling plugin writes;
+7. install and observe the backup timer, then create an off-host retention lane.
+
+Derived insight history is still blocked on an append-only snapshot migration.
+Current read-time output cannot be represented as historical persistence.
+
+## 10. 2026-07-10 Authorized Hardening State
+
+Current production evidence:
+
+- dashboard and API anonymous access return 401; Basic Auth/read-key access return 200;
+- all 19 API operations are protected and Nginx rate limiting is active;
+- API and worker use WAL, FK enabled, FULL synchronous, and 15000ms busy timeout;
+- data/backup directories are 0700; DB, backup, manifest, lock, and runtime env are 0600;
+- daily systemd backup timer is enabled and active with verified retention count 14;
+- latest accepted backup is `plugin_hub_20260710T121013Z.db`, with matching manifest/hash and 7/402/402 counts;
+- no-network isolated API restore passed with `quick_check=ok` and zero FK issue;
+- production raw/canonical history remained 7/402/402 with 402/402 payload hashes matching.
+
+Future release checks must use authenticated requests. Do not revert to the
+historical public GET-only checklist without explicitly labeling the expected
+401 response.
+
+## 11. 2026-07-10 Off-Host And Insight Snapshot State
+
+Loop 40 received separate authorization and completed both remaining data-asset
+actions from Loop 39:
+
+- the production backup is pulled to this Mac as an age-encrypted archive after
+  remote manifest/hash/integrity validation;
+- the age identity is stored in Keychain and the recipient public key is kept in
+  the local Plugin Hub config;
+- `com.pray.plugin-hub-offhost-backup` runs daily at 04:15 and retains 30
+  encrypted archives;
+- migration `0001_analysis_snapshots` explicitly creates `analysis_runs` and
+  `analysis_artifact_snapshots`; startup `create_all` does not create them;
+- database triggers reject UPDATE and DELETE on both snapshot tables;
+- production has one Amazon and one Reddit baseline run created after migration,
+  with 824 immutable artifacts and zero digest mismatch;
+- the post-migration production and off-host backup is
+  `plugin_hub_20260710T130106Z.db` / `.tar.age` and passed no-network API restore.
+
+The Mac target is a second host, not a cross-region/object-storage guarantee.
+The LaunchAgent also depends on the user session, SSH alias, and Keychain being
+available. A later durability step should add monitored object storage without
+removing the currently verified local encrypted copy.
+
+No snapshot row represents output from before its recorded `created_at`.
+Historical pre-migration insight output remains unknown and must never be
+reconstructed and relabeled as an original past result.
