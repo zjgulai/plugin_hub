@@ -24,13 +24,12 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 test("loads one managed version for every extension target", () => {
   const state = loadExtensionVersionState(repoRoot);
+  const registry = JSON.parse(
+    readFileSync(resolve(repoRoot, "apps", "extension", "extension-versions.json"), "utf8")
+  );
 
   assert.deepEqual(state.targets, ["amazon", "reddit", "instagram"]);
-  assert.deepEqual(state.versions, {
-    amazon: "0.2.0",
-    reddit: "0.2.0",
-    instagram: "0.2.0"
-  });
+  assert.deepEqual(state.versions, registry);
 });
 
 test("accepts only the managed three-part Chrome-compatible version subset", () => {
@@ -82,6 +81,8 @@ test("compares managed versions numerically", () => {
 test("CLI dry-run reports one independent bump without writing the registry", () => {
   const registryPath = resolve(repoRoot, "apps", "extension", "extension-versions.json");
   const before = readFileSync(registryPath, "utf8");
+  const currentVersion = JSON.parse(before).reddit;
+  const nextVersion = bumpManagedExtensionVersion(currentVersion, "patch");
   const result = spawnSync(
     process.execPath,
     [
@@ -98,9 +99,9 @@ test("CLI dry-run reports one independent bump without writing the registry", ()
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), {
     command: "bump",
-    current_version: "0.2.0",
+    current_version: currentVersion,
     dry_run: true,
-    next_version: "0.2.1",
+    next_version: nextVersion,
     ok: true,
     target: "reddit"
   });
@@ -141,6 +142,9 @@ test("CLI applies one independent bump with an atomic registry replacement", () 
       resolve(repoRoot, "scripts", "manage-extension-version.mjs"),
       join(temporaryScriptsDir, "manage-extension-version.mjs")
     );
+    const temporaryRegistryPath = join(temporaryExtensionDir, "extension-versions.json");
+    const currentVersions = JSON.parse(readFileSync(temporaryRegistryPath, "utf8"));
+    const nextAmazonVersion = bumpManagedExtensionVersion(currentVersions.amazon, "minor");
 
     const result = spawnSync(
       process.execPath,
@@ -150,18 +154,17 @@ test("CLI applies one independent bump with an atomic registry replacement", () 
 
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(
-      JSON.parse(readFileSync(join(temporaryExtensionDir, "extension-versions.json"), "utf8")),
+      JSON.parse(readFileSync(temporaryRegistryPath, "utf8")),
       {
-        amazon: "0.3.0",
-        reddit: "0.2.0",
-        instagram: "0.2.0"
+        ...currentVersions,
+        amazon: nextAmazonVersion
       }
     );
     assert.deepEqual(JSON.parse(result.stdout), {
       command: "bump",
-      current_version: "0.2.0",
+      current_version: currentVersions.amazon,
       dry_run: false,
-      next_version: "0.3.0",
+      next_version: nextAmazonVersion,
       ok: true,
       target: "amazon"
     });
