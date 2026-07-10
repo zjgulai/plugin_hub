@@ -384,6 +384,54 @@ def test_get_amazon_insight_briefs_returns_listing_ops_actions(
     assert brief["evidence_refs"][0]["relation_edge_ids"]
 
 
+def test_get_amazon_insight_briefs_skips_signals_without_exposed_evidence_ref(
+    client: TestClient,
+) -> None:
+    create_response = client.post(
+        "/api/collection-runs",
+        json={
+            "run": _collection_run(
+                platform="amazon",
+                source_url="https://www.amazon.com/product-reviews/B000000001",
+                coverage_confidence=0.82,
+            ),
+            "raw_items": [
+                _amazon_review_item(
+                    source_object_id=f"RGENERAL{i}",
+                    body="The product works well overall and setup was easy.",
+                    raw_payload_hash=f"sha256:amazon-general-{i}",
+                    asin="B000000001",
+                    parent_asin="B000PARENT1",
+                    marketplace="US",
+                )
+                for i in range(8)
+            ]
+            + [
+                _amazon_review_item(
+                    source_object_id="RLATEBROKE",
+                    body="The lid broke after three days even though the listing says durable.",
+                    raw_payload_hash="sha256:amazon-late-broke",
+                    asin="B000000001",
+                    parent_asin="B000PARENT1",
+                    marketplace="US",
+                )
+            ],
+        },
+    )
+
+    assert create_response.status_code == 201
+
+    response = client.get("/api/insights/briefs", params={"platform": "amazon"})
+
+    assert response.status_code == 200
+    brief = response.json()["items"][0]
+    exposed_ref_ids = {ref["evidence_ref_id"] for ref in brief["evidence_refs"]}
+    assert len(brief["evidence_refs"]) == 8
+    assert brief["business_signals"]
+    for signal in brief["business_signals"]:
+        assert set(signal["evidence_ref_ids"]).issubset(exposed_ref_ids)
+
+
 def _voc_unit(
     *,
     platform: str,

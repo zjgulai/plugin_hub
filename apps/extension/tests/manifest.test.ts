@@ -1,11 +1,24 @@
 import { describe, expect, it } from "vitest";
 
+import versionRegistry from "../extension-versions.json";
 import { buildManifest } from "../manifest.config";
+import { extensionVersion } from "../src/lib/extension-version";
 
 describe("extension manifest", () => {
   const amazonManifest = buildManifest("amazon");
   const redditManifest = buildManifest("reddit");
   const instagramManifest = buildManifest("instagram");
+
+  it("uses the independently managed target versions", () => {
+    expect({
+      amazon: amazonManifest.version,
+      reddit: redditManifest.version,
+      instagram: instagramManifest.version
+    }).toEqual(versionRegistry);
+    expect(amazonManifest.version).toBe(extensionVersion("amazon"));
+    expect(redditManifest.version).toBe(extensionVersion("reddit"));
+    expect(instagramManifest.version).toBe(extensionVersion("instagram"));
+  });
 
   it("declares install and toolbar icons", () => {
     expect(amazonManifest.icons).toEqual({

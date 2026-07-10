@@ -3,6 +3,7 @@ import {
   normalizeExtensionTarget,
   type ExtensionTarget
 } from "./src/lib/extension-target";
+import { extensionVersion } from "./src/lib/extension-version";
 
 export function buildManifest(targetInput: ExtensionTarget) {
   const target = normalizeExtensionTarget(targetInput);
@@ -11,7 +12,7 @@ export function buildManifest(targetInput: ExtensionTarget) {
   const manifest = {
     manifest_version: 3,
     name: targetConfig.name,
-    version: "0.1.0",
+    version: extensionVersion(target),
     description: targetConfig.description,
     permissions: ["activeTab", "storage"],
     host_permissions: [...targetConfig.hostPermissions],

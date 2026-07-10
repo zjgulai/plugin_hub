@@ -3,12 +3,12 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { loadExtensionVersionState } from "./extension-version-utils.mjs";
+
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const registry = JSON.parse(
-  readFileSync(join(repoRoot, "apps", "extension", "extension-targets.json"), "utf8")
-);
-const targetConfigs = registry.targetConfigs ?? {};
-const targetsInRegistry = Array.isArray(registry.targets) ? registry.targets : [];
+const versionState = loadExtensionVersionState(repoRoot);
+const targetConfigs = versionState.targetConfigs;
+const targetsInRegistry = versionState.targets;
 const outputDir = join(repoRoot, "tmp", "outputs");
 const targets = resolveTargets(process.argv[2]);
 
@@ -23,7 +23,12 @@ for (const target of targets) {
   }
 
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  const version = typeof manifest.version === "string" ? manifest.version : "unknown";
+  const version = versionState.versions[target];
+  if (manifest.version !== version) {
+    throw new Error(
+      `extension_manifest_version_mismatch:${target}:${version}:${String(manifest.version)}`
+    );
+  }
   const packageSlug = targetConfig(target).packageSlug;
   const zipPath = join(outputDir, `${packageSlug}-${version}.zip`);
   const unpackedPath = join(outputDir, `${packageSlug}-${version}-unpacked`);
