@@ -1,0 +1,8 @@
+[Unit]
+Description=Plugin Hub verified SQLite backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker exec plugin-hub-api .venv/bin/python -m plugin_hub_api.backup_cli --source /data/plugin_hub.db --destination-dir /backups --retention-count 14

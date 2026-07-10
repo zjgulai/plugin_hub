@@ -13,6 +13,11 @@ services:
     restart: unless-stopped
     environment:
       PLUGIN_HUB_DATABASE_URL: sqlite+pysqlite:////data/plugin_hub.db
+      PLUGIN_HUB_SQLITE_BUSY_TIMEOUT_MS: ${PLUGIN_HUB_SQLITE_BUSY_TIMEOUT_MS:-15000}
+      PLUGIN_HUB_SQLITE_WAL_ENABLED: ${PLUGIN_HUB_SQLITE_WAL_ENABLED:-true}
+      PLUGIN_HUB_API_AUTH_MODE: required
+      PLUGIN_HUB_API_READ_KEY: ${PLUGIN_HUB_API_READ_KEY:?PLUGIN_HUB_API_READ_KEY is required}
+      PLUGIN_HUB_API_WRITE_KEY: ${PLUGIN_HUB_API_WRITE_KEY:?PLUGIN_HUB_API_WRITE_KEY is required}
       PLUGIN_HUB_COLLECTION_TASK_WORKER_ID: plugin-hub-api
       PLUGIN_HUB_COLLECTION_TASK_MAX_ATTEMPTS: ${PLUGIN_HUB_COLLECTION_TASK_MAX_ATTEMPTS:-3}
       PLUGIN_HUB_COLLECTION_TASK_RETRY_DELAY_SECONDS: ${PLUGIN_HUB_COLLECTION_TASK_RETRY_DELAY_SECONDS:-300}
@@ -22,6 +27,7 @@ services:
       PLUGIN_HUB_REDDIT_USER_AGENT: ${PLUGIN_HUB_REDDIT_USER_AGENT:-PluginHubVOC/0.1 server-side capture}
     volumes:
       - /opt/plugin-hub/data:/data
+      - /opt/plugin-hub/backups:/backups
     expose:
       - "8000"
     networks:
@@ -30,7 +36,7 @@ services:
         aliases:
           - plugin-hub-api
     healthcheck:
-      test: ["CMD-SHELL", "python - <<'PY'\nfrom urllib.request import urlopen\nurlopen('http://127.0.0.1:8000/api/voc-units', timeout=5).read()\nPY"]
+      test: ["CMD-SHELL", "python - <<'PY'\nfrom urllib.request import urlopen\nurlopen('http://127.0.0.1:8000/readyz', timeout=5).read()\nPY"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -47,8 +53,10 @@ services:
     restart: unless-stopped
     environment:
       PLUGIN_HUB_API_URL: ${PLUGIN_HUB_API_URL:-https://plugin.lute-tlz-dddd.top}
+      PLUGIN_HUB_API_READ_KEY: ${PLUGIN_HUB_API_READ_KEY:?PLUGIN_HUB_API_READ_KEY is required}
+      PLUGIN_HUB_API_WRITE_KEY: ${PLUGIN_HUB_API_WRITE_KEY:?PLUGIN_HUB_API_WRITE_KEY is required}
       PLUGIN_HUB_SITE_ENV: production
-      PLUGIN_HUB_REFRESH_SECONDS: ${PLUGIN_HUB_REFRESH_SECONDS:-30}
+      PLUGIN_HUB_REFRESH_SECONDS: ${PLUGIN_HUB_REFRESH_SECONDS:-60}
       PLUGIN_HUB_ENABLED_PLATFORMS: ${PLUGIN_HUB_ENABLED_PLATFORMS:-amazon,reddit}
     expose:
       - "3000"
@@ -74,6 +82,8 @@ services:
     command: [".venv/bin/python", "-m", "plugin_hub_api.worker_cli", "--poll-interval-seconds", "10"]
     environment:
       PLUGIN_HUB_DATABASE_URL: sqlite+pysqlite:////data/plugin_hub.db
+      PLUGIN_HUB_SQLITE_BUSY_TIMEOUT_MS: ${PLUGIN_HUB_SQLITE_BUSY_TIMEOUT_MS:-15000}
+      PLUGIN_HUB_SQLITE_WAL_ENABLED: ${PLUGIN_HUB_SQLITE_WAL_ENABLED:-true}
       PLUGIN_HUB_COLLECTION_TASK_WORKER_ID: plugin-hub-worker
       PLUGIN_HUB_COLLECTION_TASK_MAX_ATTEMPTS: ${PLUGIN_HUB_COLLECTION_TASK_MAX_ATTEMPTS:-3}
       PLUGIN_HUB_COLLECTION_TASK_RETRY_DELAY_SECONDS: ${PLUGIN_HUB_COLLECTION_TASK_RETRY_DELAY_SECONDS:-300}
