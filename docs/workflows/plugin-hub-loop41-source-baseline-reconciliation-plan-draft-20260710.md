@@ -82,9 +82,9 @@ source: human+ai
 7. `complete` 执行 snapshot migration dry-run、备份恢复 fixture 和 `git diff --check`。
 8. `complete` 只读核对 active production release 的受控源码 hash、镜像/release 标识和服务状态。
 9. `complete` 更新本计划与验收文档，给出事实、推断、未验证项和回滚边界。
-10. `pending` 按显式文件清单逐组暂存，执行 cached diff/secret/staged gate。
-11. `in_progress` 创建原子提交并复验完整 commit stack。
-12. `in_progress` 推送当前分支并创建 Draft PR；停止在 merge 和再部署之前。
+10. `complete` 按显式文件清单逐组暂存，执行 cached diff/secret/staged gate。
+11. `complete` 创建原子提交并复验完整 commit stack。
+12. `complete` 推送当前分支并创建 Draft PR；停止在 merge 和再部署之前。
 
 ## 6. 验收门槛
 
@@ -96,3 +96,12 @@ source: human+ai
 - 生产只读对账无意外 drift，且本轮 `production unchanged`。
 
 精确边界清单见 `plugin-hub-loop41-source-baseline-file-manifest-20260710.tsv`。
+
+## 7. 最终状态
+
+- Draft PR：`https://github.com/zjgulai/plugin_hub/pull/3`；
+- PR 状态：Open、Draft、Mergeable；
+- GitHub 当前未返回 status checks；
+- 67 个 include 文件与 branch diff 完全一致；
+- 剩余工作区仅包含 manifest 明确排除的本地计划、历史证据、旧草稿和浏览器诊断；
+- `production unchanged`，merge 和再次部署仍需单独授权。

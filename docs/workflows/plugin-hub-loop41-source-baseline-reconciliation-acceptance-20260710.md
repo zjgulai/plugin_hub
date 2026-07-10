@@ -26,7 +26,7 @@ Loop38-40 已部署能力现已收口为可审阅的 Git 源码基线。后端�
 - 后端提交：`489387d feat(api): harden and preserve data assets`。
 - 客户端提交：`1b07e65 feat(clients): secure asset operations and plugin versions`。
 - 部署恢复提交：`4b4469b ops: add verified backup and hardened deployment assets`。
-- 治理文档由包含本报告的后续原子提交收口。
+- 治理文档提交：`0aa0972 docs: record data asset production acceptance`。
 
 逐文件边界见 `plugin-hub-loop41-source-baseline-file-manifest-20260710.tsv`。当前 146 个工作区路径全部被 manifest 分类；历史 `output/`、`.kiro/plan`、旧草稿、旧 release packet 和 Chrome 诊断工具未进入应用提交。
 
@@ -106,3 +106,5 @@ no merge / no redeploy / no DB operation / no provider call / no live capture
 ```
 
 下一道门禁是 Draft PR 审查、CI 和原子提交范围复核。merge 与任何再次部署仍需单独授权。
+
+PR #3 当前为 Open、Draft、Mergeable，GitHub 未返回 status checks。没有 status checks 只能说明仓库当前未上报 CI 结果，不能替代本地验证或人工审查。
