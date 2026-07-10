@@ -5,7 +5,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from plugin_hub_api.repositories import SqlAlchemyRepository
 from plugin_hub_api.routes.collection_runs import get_repository
@@ -49,6 +49,9 @@ class CollectionTaskResponse(StrictBaseModel):
 
 class CollectionTasksResponse(StrictBaseModel):
     items: list[CollectionTaskResponse]
+    total: int
+    limit: int
+    offset: int
 
 
 class CollectionTaskRunResponse(StrictBaseModel):
@@ -86,9 +89,21 @@ def create_collection_task(
 def list_collection_tasks(
     repository: Annotated[SqlAlchemyRepository, Depends(get_repository)],
     platform: Platform | None = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
 ) -> CollectionTasksResponse:
     return CollectionTasksResponse(
-        items=[_task_response(task) for task in repository.list_collection_tasks(platform=platform)]
+        items=[
+            _task_response(task)
+            for task in repository.list_collection_tasks(
+                platform=platform,
+                limit=limit,
+                offset=offset,
+            )
+        ],
+        total=repository.count_collection_tasks(platform=platform),
+        limit=limit,
+        offset=offset,
     )
 
 

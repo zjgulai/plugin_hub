@@ -95,6 +95,24 @@ def test_collection_task_rejects_non_object_context(client: TestClient) -> None:
     assert response.status_code == 422
 
 
+def test_reddit_collection_task_rejects_non_reddit_source_host(client: TestClient) -> None:
+    response = client.post(
+        "/api/collection-tasks",
+        json={
+            "task": {
+                "platform": "reddit",
+                "source_url": "http://127.0.0.1:8000/internal",
+                "requested_capture_method": "server_reddit_json_proxy",
+                "trigger_reason": "adversarial_ssrf_probe",
+                "context": {},
+            }
+        },
+    )
+
+    assert response.status_code == 422
+    assert client.get("/api/collection-tasks").json()["items"] == []
+
+
 def test_run_reddit_collection_task_persists_collection_and_marks_completed(
     client: TestClient,
 ) -> None:

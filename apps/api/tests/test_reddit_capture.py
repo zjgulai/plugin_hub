@@ -13,6 +13,7 @@ from plugin_hub_api.services.reddit_capture import (
     RedditOAuthConfig,
     RedditOAuthConfigurationError,
     RedditOAuthJsonFetcher,
+    RedditRedirectHandler,
     build_configured_reddit_json_fetcher,
     build_reddit_json_url,
     build_reddit_oauth_api_url,
@@ -30,6 +31,35 @@ def test_build_reddit_json_url_adds_raw_json_without_losing_query() -> None:
         )
         == "https://www.reddit.com/r/Coffee/comments/thread123/example/.json?sort=confidence&raw_json=1"
     )
+
+
+@pytest.mark.parametrize(
+    "source_url",
+    [
+        "http://127.0.0.1:8000/internal",
+        "https://www.reddit.com.evil.example/r/test/comments/abc/example/",
+        "https://www.reddit.com@127.0.0.1/internal",
+        "http://www.reddit.com/r/test/comments/abc/example/",
+        "https://www.reddit.com:8443/r/test/comments/abc/example/",
+    ],
+)
+def test_build_reddit_json_url_rejects_non_reddit_network_targets(source_url: str) -> None:
+    with pytest.raises(ValueError, match="reddit_source_url_not_allowed"):
+        build_reddit_json_url(source_url)
+
+
+def test_reddit_redirect_handler_rejects_redirect_before_private_target_fetch() -> None:
+    handler = RedditRedirectHandler()
+
+    with pytest.raises(ValueError, match="reddit_network_url_not_allowed"):
+        handler.redirect_request(
+            Request("https://www.reddit.com/r/test/comments/abc/example/.json"),
+            None,
+            302,
+            "Found",
+            {},
+            "http://127.0.0.1:8000/internal",
+        )
 
 
 def test_build_reddit_oauth_api_url_moves_reddit_json_path_to_oauth_host() -> None:

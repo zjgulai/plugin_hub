@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from pydantic import Field
+from typing import Literal
+
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -8,6 +10,20 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PLUGIN_HUB_")
 
     database_url: str = "sqlite+pysqlite:///./plugin_hub.db"
+    sqlite_busy_timeout_ms: int = Field(default=10_000, ge=1_000, le=60_000)
+    sqlite_wal_enabled: bool = False
+    api_auth_mode: Literal["disabled", "required"] = "disabled"
+    api_read_key: SecretStr | None = None
+    api_write_key: SecretStr | None = None
+    trusted_hosts: list[str] = Field(
+        default_factory=lambda: [
+            "testserver",
+            "localhost",
+            "127.0.0.1",
+            "plugin-hub-api",
+            "plugin.lute-tlz-dddd.top",
+        ]
+    )
     collection_task_max_attempts: int = 3
     collection_task_retry_delay_seconds: int = 300
     collection_task_claim_ttl_seconds: int = 900
@@ -26,11 +42,26 @@ class Settings(BaseSettings):
             "http://127.0.0.1:3000",
             "http://localhost:8010",
             "http://127.0.0.1:8010",
-            "https://plugin.lute-tlz-dddd.top",
-            "https://reddit.com",
-            "https://www.reddit.com",
-            "https://old.reddit.com",
-            "https://www.amazon.com",
         ]
     )
     cors_allow_origin_regex: str | None = r"^chrome-extension://[a-z]{32}$"
+
+    def validate_api_auth_configuration(self) -> None:
+        if self.api_auth_mode == "disabled":
+            return
+
+        read_key = _secret_value(self.api_read_key)
+        write_key = _secret_value(self.api_write_key)
+        if read_key is None or write_key is None:
+            raise ValueError("api_auth_keys_required")
+        if len(read_key) < 32 or len(write_key) < 32:
+            raise ValueError("api_auth_keys_too_short")
+        if read_key == write_key:
+            raise ValueError("api_auth_keys_must_be_distinct")
+
+
+def _secret_value(value: SecretStr | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.get_secret_value().strip()
+    return normalized or None

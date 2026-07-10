@@ -5,6 +5,7 @@ import logging
 import time
 from collections.abc import Callable
 
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from plugin_hub_api.config import Settings
@@ -103,6 +104,14 @@ def build_config(settings: Settings, args: argparse.Namespace) -> CollectionTask
     )
 
 
+def build_worker_engine(settings: Settings, database_url: str) -> Engine:
+    return build_engine(
+        database_url,
+        sqlite_busy_timeout_ms=settings.sqlite_busy_timeout_ms,
+        sqlite_wal_enabled=settings.sqlite_wal_enabled,
+    )
+
+
 def run_worker(
     *,
     session_factory: Callable[[], Session],
@@ -163,7 +172,7 @@ def main() -> None:
     reddit_json_fetcher = build_configured_reddit_json_fetcher(settings)
     instagram_graph_comments_fetcher = build_configured_instagram_graph_comments_fetcher(settings)
     database_url = args.database_url or settings.database_url
-    engine = build_engine(database_url)
+    engine = build_worker_engine(settings, database_url)
     init_database(engine)
     session_factory = make_session_factory(engine)
 

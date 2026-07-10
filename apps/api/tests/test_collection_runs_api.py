@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import UTC, datetime
 from typing import cast
 from unittest.mock import MagicMock
@@ -8,8 +9,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from plugin_hub_api.payload_hashes import fnv1a64_payload_hash
 from plugin_hub_api.repositories import SqlAlchemyRepository
-from plugin_hub_api.schemas import CanonicalVocUnit, CollectionRun, RawSourceItem
+from plugin_hub_api.schemas import CanonicalVocUnit, CollectionRun, JsonValue, RawSourceItem
 
 
 def test_post_collection_run_with_amazon_item_returns_counts(client: TestClient) -> None:
@@ -108,6 +110,76 @@ def test_empty_raw_items_are_rejected_by_schema(client: TestClient) -> None:
     response = client.post(
         "/api/collection-runs",
         json={"run": _collection_run(), "raw_items": []},
+    )
+
+    assert response.status_code == 422
+
+
+def test_collection_run_rejects_raw_items_from_another_platform(client: TestClient) -> None:
+    response = client.post(
+        "/api/collection-runs",
+        json={"run": _collection_run(platform="amazon"), "raw_items": [_reddit_thread_item()]},
+    )
+
+    assert response.status_code == 422
+
+
+def test_collection_run_rejects_source_kind_platform_mismatch(client: TestClient) -> None:
+    raw_item = _reddit_thread_item()
+    raw_item["platform"] = "amazon"
+
+    response = client.post(
+        "/api/collection-runs",
+        json={"run": _collection_run(platform="amazon"), "raw_items": [raw_item]},
+    )
+
+    assert response.status_code == 422
+
+
+def test_collection_run_rejects_duplicate_source_objects(client: TestClient) -> None:
+    raw_item = _amazon_review_item()
+    response = client.post(
+        "/api/collection-runs",
+        json={"run": _collection_run(), "raw_items": [raw_item, raw_item]},
+    )
+
+    assert response.status_code == 422
+
+
+def test_extension_collection_run_rejects_tampered_payload_hash(client: TestClient) -> None:
+    run = _collection_run()
+    run["capture_method"] = "extension_dom_next_link_walk"
+    raw_item = _amazon_review_item()
+
+    response = client.post(
+        "/api/collection-runs",
+        json={"run": run, "raw_items": [raw_item]},
+    )
+
+    assert response.status_code == 422
+
+
+def test_extension_collection_run_accepts_verified_payload_hash(client: TestClient) -> None:
+    run = _collection_run()
+    run["capture_method"] = "extension_dom_next_link_walk"
+    raw_item = _amazon_review_item()
+    raw_payload = cast(dict[str, object], raw_item["raw_payload"])
+    raw_item["raw_payload_hash"] = fnv1a64_payload_hash(
+        cast(dict[str, JsonValue], raw_payload)
+    )
+
+    response = client.post(
+        "/api/collection-runs",
+        json={"run": run, "raw_items": [raw_item]},
+    )
+
+    assert response.status_code == 201
+
+
+def test_collection_run_rejects_more_than_two_thousand_raw_items(client: TestClient) -> None:
+    response = client.post(
+        "/api/collection-runs",
+        json={"run": _collection_run(), "raw_items": [_amazon_review_item()] * 2001},
     )
 
     assert response.status_code == 422
@@ -259,6 +331,73 @@ def test_get_voc_units_serializes_url_and_platform_extension(client: TestClient)
     assert item["source_url"] == "https://www.amazon.com/product-reviews/B000000001"
     assert isinstance(item["platform_extension"], dict)
     assert item["platform_extension"]["rating"] == 2
+
+
+def test_get_voc_units_is_bounded_and_reports_total(client: TestClient) -> None:
+    first_item = _amazon_review_item()
+    second_item = deepcopy(first_item)
+    second_item["source_object_id"] = "R124"
+    second_item["raw_payload_hash"] = "sha256:amazon-r124"
+    second_payload = cast(dict[str, object], second_item["raw_payload"])
+    second_payload["review_id"] = "R124"
+
+    for item in (first_item, second_item):
+        response = client.post(
+            "/api/collection-runs",
+            json={"run": _collection_run(), "raw_items": [item]},
+        )
+        assert response.status_code == 201
+
+    response = client.get("/api/voc-units", params={"limit": 1, "offset": 0})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 2
+    assert body["limit"] == 1
+    assert body["offset"] == 0
+    assert len(body["items"]) == 1
+    assert body["items"][0]["source_object_id"] == "R124"
+
+
+def test_collection_run_idempotency_replays_without_duplicate_assets(client: TestClient) -> None:
+    payload = {"run": _collection_run(), "raw_items": [_amazon_review_item()]}
+    headers = {"Idempotency-Key": f"capture-{'a' * 32}"}
+
+    first = client.post("/api/collection-runs", json=payload, headers=headers)
+    second = client.post("/api/collection-runs", json=payload, headers=headers)
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert first.json()["collection_run_id"] == second.json()["collection_run_id"]
+    assert first.json()["replayed"] is False
+    assert second.json()["replayed"] is True
+    summary = client.get("/api/data-assets/summary").json()
+    assert summary["collection_run_count"] == 1
+    assert summary["raw_item_count"] == 1
+    assert summary["canonical_voc_count"] == 1
+
+
+def test_collection_run_idempotency_rejects_key_reuse_with_different_payload(
+    client: TestClient,
+) -> None:
+    headers = {"Idempotency-Key": f"capture-{'b' * 32}"}
+    first_payload = {"run": _collection_run(), "raw_items": [_amazon_review_item()]}
+    changed_item = deepcopy(_amazon_review_item())
+    changed_item["source_object_id"] = "R999"
+    changed_item["raw_payload_hash"] = "sha256:amazon-r999"
+    changed_raw_payload = cast(dict[str, object], changed_item["raw_payload"])
+    changed_raw_payload["review_id"] = "R999"
+
+    first = client.post("/api/collection-runs", json=first_payload, headers=headers)
+    second = client.post(
+        "/api/collection-runs",
+        json={"run": _collection_run(), "raw_items": [changed_item]},
+        headers=headers,
+    )
+
+    assert first.status_code == 201
+    assert second.status_code == 409
+    assert second.json()["detail"] == "idempotency_key_payload_conflict"
 
 
 def test_repository_rolls_back_when_commit_fails() -> None:

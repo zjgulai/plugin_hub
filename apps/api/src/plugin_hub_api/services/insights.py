@@ -143,8 +143,10 @@ def generate_insight_briefs(
     source_object_type: str | None = None,
     source_object_id: str | None = None,
     limit: int = 20,
+    created_at: datetime | None = None,
 ) -> list[InsightBrief]:
     briefs: list[InsightBrief] = []
+    brief_created_at = created_at or datetime.now(tz=UTC)
     for group in _brief_groups(units):
         platform_template_id = INSIGHT_TEMPLATE_BY_PLATFORM.get(group.key.platform)
         if platform_template_id is None:
@@ -160,6 +162,7 @@ def generate_insight_briefs(
                 group=group,
                 template_id=platform_template_id,
                 language=language,
+                created_at=brief_created_at,
             )
         )
 
@@ -248,6 +251,7 @@ def _insight_brief(
     group: BriefGroup,
     template_id: str,
     language: str,
+    created_at: datetime,
 ) -> InsightBrief:
     bundle = build_voc_signal_bundle(group.units)
     evidence_refs = _evidence_references(
@@ -281,7 +285,7 @@ def _insight_brief(
             "confidence": _brief_confidence(group),
             "data_gaps": _data_gaps(group),
             "generation_method": GENERATION_METHOD,
-            "created_at": datetime.now(tz=UTC),
+            "created_at": created_at,
         }
     )
 
