@@ -3,7 +3,7 @@ title: Plugin Hub Loop 42 PR Review And CI Plan
 doc_type: execution_plan
 module: product_engineering
 topic: plugin-hub-pr-review-and-ci-gate
-status: active
+status: accepted
 created: 2026-07-10
 updated: 2026-07-10
 owner: self
@@ -65,9 +65,9 @@ source: human+ai
 3. `complete` 新增最小权限三作业 CI workflow。
 4. `complete` 本地解析 workflow，运行 API/Web/Extension/版本/build/package/Compose 等价门禁。
 5. `complete` 运行 Codex review 并按证据分级；CLI 版本不支持当前模型，未产生二审结论，人工审查结果保持独立。
-6. `pending` 更新 Loop42 验收记录，显式暂存并提交 CI/docs。
-7. `pending` 推送 PR #3，等待并检查 GitHub checks。
-8. `pending` 复核 PR head、文件范围、checks 和 merge 边界后停止。
+6. `complete` 更新 Loop42 验收记录，显式暂存并提交 CI/docs。
+7. `complete` 推送 PR #3，等待并检查 GitHub checks。
+8. `in_progress` 复核最终 docs-only head、文件范围、checks 和 merge 边界后停止。
 
 ## 5. 验收标准
 

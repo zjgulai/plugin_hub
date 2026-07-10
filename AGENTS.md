@@ -6,6 +6,7 @@ Before changing backend persistence, API security, deployment, backup, or insigh
 - `docs/workflows/plugin-hub-loop39-production-hardening-acceptance-20260710.md`
 - `docs/workflows/plugin-hub-loop40-offhost-backup-insight-snapshot-acceptance-20260710.md`
 - `docs/workflows/plugin-hub-loop42-pr-review-ci-plan-draft-20260710.md`
+- `docs/workflows/plugin-hub-loop42-pr-review-ci-acceptance-20260710.md`
 - `docs/workflows/plugin-hub-production-evidence-governance-runbook-draft-20260701.md`
 
 Preserve these project invariants:
