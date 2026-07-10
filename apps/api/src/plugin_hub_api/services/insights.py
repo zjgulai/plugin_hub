@@ -349,6 +349,9 @@ def _business_signals(
 ) -> list[BusinessSignal]:
     output: list[BusinessSignal] = []
     for signal in sorted(signals, key=lambda item: (-item.strategy_relevance, item.signal_id)):
+        evidence_ref_id = evidence_ref_ids_by_source.get(signal.source_object_id)
+        if evidence_ref_id is None:
+            continue
         signal_type = _business_signal_type(group.key.platform, signal)
         output.append(
             BusinessSignal.model_validate(
@@ -363,9 +366,7 @@ def _business_signals(
                     "priority": _priority(signal_type),
                     "evidence_strength": _strength_label(signal.evidence_strength),
                     "confidence_reason": _signal_confidence_reason(signal),
-                    "evidence_ref_ids": [
-                        evidence_ref_ids_by_source[signal.source_object_id]
-                    ],
+                    "evidence_ref_ids": [evidence_ref_id],
                     "quality_flags": sorted(set(signal.quality_flags)),
                 }
             )
