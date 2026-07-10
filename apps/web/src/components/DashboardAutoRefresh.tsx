@@ -15,8 +15,35 @@ export function DashboardAutoRefresh({ intervalSeconds }: DashboardAutoRefreshPr
       return undefined;
     }
 
-    const timer = window.setInterval(() => router.refresh(), intervalSeconds * 1000);
-    return () => window.clearInterval(timer);
+    let timer: number | undefined;
+
+    const stopTimer = () => {
+      if (timer !== undefined) {
+        window.clearInterval(timer);
+        timer = undefined;
+      }
+    };
+    const startTimer = () => {
+      stopTimer();
+      if (document.visibilityState === "visible") {
+        timer = window.setInterval(() => router.refresh(), intervalSeconds * 1000);
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        router.refresh();
+        startTimer();
+      } else {
+        stopTimer();
+      }
+    };
+
+    startTimer();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      stopTimer();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [intervalSeconds, router]);
 
   return null;

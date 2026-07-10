@@ -9,9 +9,11 @@ import type { CaptureRuntimeSettings } from "../lib/capture-types";
 import { amazonRuntimeSettingsFromPlatformSetting } from "../lib/platform-runtime-settings";
 import {
   DEFAULT_API_BASE_URL,
+  loadApiKey,
   loadApiBaseUrl,
   normalizeApiBaseUrl,
-  saveApiBaseUrl
+  saveApiBaseUrl,
+  saveApiKey
 } from "../lib/settings";
 import {
   CAPTURE_CURRENT_PAGE_MESSAGE_TYPE,
@@ -46,12 +48,14 @@ const TARGET_CONFIG = extensionTargetConfig(CURRENT_EXTENSION_TARGET);
 
 export function Popup() {
   const [apiBaseUrl, setApiBaseUrl] = useState(DEFAULT_API_BASE_URL);
+  const [apiKey, setApiKey] = useState("");
   const [status, setStatus] = useState<PopupStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<UploadResult | null>(null);
 
   useEffect(() => {
     void loadApiBaseUrl().then(setApiBaseUrl).catch(() => setApiBaseUrl(DEFAULT_API_BASE_URL));
+    void loadApiKey().then(setApiKey).catch(() => setApiKey(""));
   }, []);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -63,6 +67,7 @@ export function Popup() {
       const normalizedApiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
       setApiBaseUrl(normalizedApiBaseUrl);
       await saveApiBaseUrl(normalizedApiBaseUrl);
+      await saveApiKey(apiKey);
       const runtimeSettings = await loadCaptureRuntimeSettings(normalizedApiBaseUrl);
 
       setStatus("capturing");
@@ -129,6 +134,19 @@ export function Popup() {
           value={apiBaseUrl}
           onChange={(event) => setApiBaseUrl(event.currentTarget.value)}
           required
+        />
+        <label htmlFor="api-key">
+          <span>API Key</span>
+        </label>
+        <input
+          id="api-key"
+          name="api-key"
+          type="password"
+          autoComplete="new-password"
+          spellCheck={false}
+          placeholder="生产环境必填"
+          value={apiKey}
+          onChange={(event) => setApiKey(event.currentTarget.value)}
         />
         <button type="submit" disabled={status === "capturing" || status === "uploading"}>
           {buttonLabel(status)}

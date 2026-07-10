@@ -31,6 +31,9 @@ export type VocUnit = {
 
 export type VocUnitsResponse = {
   items: VocUnit[];
+  total?: number;
+  limit?: number;
+  offset?: number;
 };
 
 export type CollectionTaskStatus =
@@ -54,6 +57,49 @@ export type CollectionTask = {
 
 export type CollectionTasksResponse = {
   items: CollectionTask[];
+  total?: number;
+  limit?: number;
+  offset?: number;
+};
+
+export type DataAssetSummary = {
+  collection_run_count: number;
+  raw_item_count: number;
+  canonical_voc_count: number;
+  analysis_eligible_voc_count: number;
+  placeholder_voc_count: number;
+  flagged_voc_count: number;
+  low_confidence_voc_count: number;
+  average_coverage_confidence: number;
+  runs_with_count_mismatch: number;
+  orphan_raw_count: number;
+  orphan_voc_count: number;
+  platform_counts: Record<VocPlatform, number>;
+  latest_run_at: string | null;
+  latest_capture_at: string | null;
+};
+
+export type DataAssetRun = {
+  collection_run_id: string;
+  platform: VocPlatform;
+  capture_method: string;
+  stop_reason: string | null;
+  coverage_confidence: number;
+  created_at: string;
+  first_captured_at: string | null;
+  last_captured_at: string | null;
+  raw_item_count: number;
+  canonical_voc_count: number;
+  analysis_eligible_voc_count: number;
+  placeholder_voc_count: number;
+  asset_state: "complete" | "empty" | "mismatch";
+};
+
+export type DataAssetRunsResponse = {
+  items: DataAssetRun[];
+  total: number;
+  limit: number;
+  offset: number;
 };
 
 export type CaptureCapabilityMode = "extension" | "server" | "fixture";
@@ -289,9 +335,36 @@ export async function fetchVocUnits(
   }
 
   const payload = await parseJson(response);
-  return {
-    items: parseVocUnitsResponse(payload)
-  };
+  return parseVocUnitsResponse(payload);
+}
+
+export async function fetchDataAssetSummary(
+  apiBaseUrl: string,
+  lowConfidenceThreshold: number,
+  fetcher: ApiFetcher = async (url) => fetch(url)
+): Promise<DataAssetSummary> {
+  const response = await fetcher(
+    buildDataAssetSummaryUrl(apiBaseUrl, lowConfidenceThreshold)
+  );
+  if (!response.ok) {
+    throw new Error(`data_asset_summary_fetch_failed:${response.status}`);
+  }
+
+  const payload = await parseJson(response, "data_asset_summary_invalid_response");
+  return parseDataAssetSummary(payload);
+}
+
+export async function fetchDataAssetRuns(
+  apiBaseUrl: string,
+  fetcher: ApiFetcher = async (url) => fetch(url)
+): Promise<DataAssetRunsResponse> {
+  const response = await fetcher(buildDataAssetRunsUrl(apiBaseUrl));
+  if (!response.ok) {
+    throw new Error(`data_asset_runs_fetch_failed:${response.status}`);
+  }
+
+  const payload = await parseJson(response, "data_asset_runs_invalid_response");
+  return parseDataAssetRunsResponse(payload);
 }
 
 export async function fetchStrategyNotes(
@@ -337,9 +410,7 @@ export async function fetchCollectionTasks(
   }
 
   const payload = await parseJson(response, "collection_tasks_invalid_response");
-  return {
-    items: parseCollectionTasksResponse(payload)
-  };
+  return parseCollectionTasksResponse(payload);
 }
 
 export async function fetchCaptureCapabilities(
@@ -475,6 +546,21 @@ function buildVocUnitsUrl(apiBaseUrl: string, platform: VocPlatformFilter): stri
   return `${endpoint}?platform=${platform}`;
 }
 
+function buildDataAssetSummaryUrl(
+  apiBaseUrl: string,
+  lowConfidenceThreshold: number
+): string {
+  const endpoint = `${apiBaseUrl.trim().replace(/\/+$/, "")}/api/data-assets/summary`;
+  const params = new URLSearchParams({
+    low_confidence_threshold: String(lowConfidenceThreshold)
+  });
+  return `${endpoint}?${params.toString()}`;
+}
+
+function buildDataAssetRunsUrl(apiBaseUrl: string): string {
+  return `${apiBaseUrl.trim().replace(/\/+$/, "")}/api/data-assets/runs?limit=50&offset=0`;
+}
+
 function buildCollectionTasksUrl(apiBaseUrl: string, platform: VocPlatformFilter): string {
   const normalizedBaseUrl = apiBaseUrl.trim().replace(/\/+$/, "");
   const endpoint = `${normalizedBaseUrl}/api/collection-tasks`;
@@ -560,20 +646,200 @@ async function responseErrorDetail(response: FetchResponse): Promise<string | nu
   }
 }
 
-function parseVocUnitsResponse(payload: unknown): VocUnit[] {
+function parseVocUnitsResponse(payload: unknown): VocUnitsResponse {
   if (!isRecord(payload) || !Array.isArray(payload.items)) {
     throw new Error("voc_units_invalid_response:items_array_required");
   }
 
-  return payload.items.map(parseVocUnit);
+  return {
+    items: payload.items.map(parseVocUnit),
+    ...optionalPagination(payload)
+  };
 }
 
-function parseCollectionTasksResponse(payload: unknown): CollectionTask[] {
+function parseCollectionTasksResponse(payload: unknown): CollectionTasksResponse {
   if (!isRecord(payload) || !Array.isArray(payload.items)) {
     throw new Error("collection_tasks_invalid_response:items_array_required");
   }
 
-  return payload.items.map(parseCollectionTask);
+  return {
+    items: payload.items.map(parseCollectionTask),
+    ...optionalPagination(payload)
+  };
+}
+
+function parseDataAssetSummary(payload: unknown): DataAssetSummary {
+  if (!isRecord(payload) || !isRecord(payload.platform_counts)) {
+    throw new Error("data_asset_summary_invalid_response:object_required");
+  }
+
+  return {
+    collection_run_count: requiredFiniteIntegerFor(
+      payload.collection_run_count,
+      "collection_run_count",
+      "data_asset_summary_invalid_response"
+    ),
+    raw_item_count: requiredFiniteIntegerFor(
+      payload.raw_item_count,
+      "raw_item_count",
+      "data_asset_summary_invalid_response"
+    ),
+    canonical_voc_count: requiredFiniteIntegerFor(
+      payload.canonical_voc_count,
+      "canonical_voc_count",
+      "data_asset_summary_invalid_response"
+    ),
+    analysis_eligible_voc_count: requiredFiniteIntegerFor(
+      payload.analysis_eligible_voc_count,
+      "analysis_eligible_voc_count",
+      "data_asset_summary_invalid_response"
+    ),
+    placeholder_voc_count: requiredFiniteIntegerFor(
+      payload.placeholder_voc_count,
+      "placeholder_voc_count",
+      "data_asset_summary_invalid_response"
+    ),
+    flagged_voc_count: requiredFiniteIntegerFor(
+      payload.flagged_voc_count,
+      "flagged_voc_count",
+      "data_asset_summary_invalid_response"
+    ),
+    low_confidence_voc_count: requiredFiniteIntegerFor(
+      payload.low_confidence_voc_count,
+      "low_confidence_voc_count",
+      "data_asset_summary_invalid_response"
+    ),
+    average_coverage_confidence: requiredFiniteNumber(
+      payload.average_coverage_confidence,
+      "average_coverage_confidence",
+      "data_asset_summary_invalid_response"
+    ),
+    runs_with_count_mismatch: requiredFiniteIntegerFor(
+      payload.runs_with_count_mismatch,
+      "runs_with_count_mismatch",
+      "data_asset_summary_invalid_response"
+    ),
+    orphan_raw_count: requiredFiniteIntegerFor(
+      payload.orphan_raw_count,
+      "orphan_raw_count",
+      "data_asset_summary_invalid_response"
+    ),
+    orphan_voc_count: requiredFiniteIntegerFor(
+      payload.orphan_voc_count,
+      "orphan_voc_count",
+      "data_asset_summary_invalid_response"
+    ),
+    platform_counts: {
+      amazon: requiredFiniteIntegerFor(
+        payload.platform_counts.amazon,
+        "platform_counts.amazon",
+        "data_asset_summary_invalid_response"
+      ),
+      reddit: requiredFiniteIntegerFor(
+        payload.platform_counts.reddit,
+        "platform_counts.reddit",
+        "data_asset_summary_invalid_response"
+      ),
+      instagram: requiredFiniteIntegerFor(
+        payload.platform_counts.instagram,
+        "platform_counts.instagram",
+        "data_asset_summary_invalid_response"
+      )
+    },
+    latest_run_at: optionalString(payload.latest_run_at),
+    latest_capture_at: optionalString(payload.latest_capture_at)
+  };
+}
+
+function parseDataAssetRunsResponse(payload: unknown): DataAssetRunsResponse {
+  if (!isRecord(payload) || !Array.isArray(payload.items)) {
+    throw new Error("data_asset_runs_invalid_response:items_array_required");
+  }
+  const pagination = optionalPagination(payload);
+  if (
+    pagination.total === undefined ||
+    pagination.limit === undefined ||
+    pagination.offset === undefined
+  ) {
+    throw new Error("data_asset_runs_invalid_response:pagination_required");
+  }
+  return {
+    items: payload.items.map(parseDataAssetRun),
+    total: pagination.total,
+    limit: pagination.limit,
+    offset: pagination.offset
+  };
+}
+
+function parseDataAssetRun(value: unknown): DataAssetRun {
+  if (!isRecord(value)) {
+    throw new Error("data_asset_runs_invalid_response:item_object_required");
+  }
+  const assetState = value.asset_state;
+  if (assetState !== "complete" && assetState !== "empty" && assetState !== "mismatch") {
+    throw new Error("data_asset_runs_invalid_response:asset_state_required");
+  }
+  return {
+    collection_run_id: requiredStringFor(
+      value.collection_run_id,
+      "collection_run_id",
+      "data_asset_runs_invalid_response"
+    ),
+    platform: requiredPlatform(value.platform, "data_asset_runs_invalid_response"),
+    capture_method: requiredStringFor(
+      value.capture_method,
+      "capture_method",
+      "data_asset_runs_invalid_response"
+    ),
+    stop_reason: optionalString(value.stop_reason),
+    coverage_confidence: requiredFiniteNumber(
+      value.coverage_confidence,
+      "coverage_confidence",
+      "data_asset_runs_invalid_response"
+    ),
+    created_at: requiredStringFor(
+      value.created_at,
+      "created_at",
+      "data_asset_runs_invalid_response"
+    ),
+    first_captured_at: optionalString(value.first_captured_at),
+    last_captured_at: optionalString(value.last_captured_at),
+    raw_item_count: requiredFiniteIntegerFor(
+      value.raw_item_count,
+      "raw_item_count",
+      "data_asset_runs_invalid_response"
+    ),
+    canonical_voc_count: requiredFiniteIntegerFor(
+      value.canonical_voc_count,
+      "canonical_voc_count",
+      "data_asset_runs_invalid_response"
+    ),
+    analysis_eligible_voc_count: requiredFiniteIntegerFor(
+      value.analysis_eligible_voc_count,
+      "analysis_eligible_voc_count",
+      "data_asset_runs_invalid_response"
+    ),
+    placeholder_voc_count: requiredFiniteIntegerFor(
+      value.placeholder_voc_count,
+      "placeholder_voc_count",
+      "data_asset_runs_invalid_response"
+    ),
+    asset_state: assetState
+  };
+}
+
+function optionalPagination(
+  payload: Record<string, unknown>
+): Partial<Pick<VocUnitsResponse, "total" | "limit" | "offset">> {
+  const values = [payload.total, payload.limit, payload.offset];
+  if (!values.every((value) => Number.isSafeInteger(value) && Number(value) >= 0)) {
+    return {};
+  }
+  return {
+    total: Number(payload.total),
+    limit: Number(payload.limit),
+    offset: Number(payload.offset)
+  };
 }
 
 function parseCaptureCapabilitiesResponse(payload: unknown): CaptureCapability[] {

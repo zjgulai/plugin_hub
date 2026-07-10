@@ -11,6 +11,7 @@ import { PlatformSettingSubmitButton } from "./PlatformSettingSubmitButton";
 
 type PlatformWorkspaceProps = {
   units: VocUnit[];
+  platformUnitCounts: Record<VocPlatform, number> | null;
   tasks: CollectionTask[];
   capabilities: CaptureCapability[];
   platformSettings: PlatformSetting[];
@@ -105,6 +106,7 @@ const PLANNED_PLATFORMS: PlannedPlatformDefinition[] = [
 
 export function PlatformWorkspace({
   units,
+  platformUnitCounts,
   tasks,
   capabilities,
   platformSettings,
@@ -122,6 +124,7 @@ export function PlatformWorkspace({
     buildPlatformCard(
       definition,
       units,
+      platformUnitCounts,
       tasks,
       capabilities,
       settingsByPlatform.get(definition.platform),
@@ -316,6 +319,7 @@ export function PlatformWorkspace({
 function buildPlatformCard(
   definition: ActivePlatformDefinition,
   units: VocUnit[],
+  platformUnitCounts: Record<VocPlatform, number> | null,
   tasks: CollectionTask[],
   capabilities: CaptureCapability[],
   setting: PlatformSetting | undefined,
@@ -343,7 +347,7 @@ function buildPlatformCard(
     auditEvents: auditEvents.slice(0, 3),
     stage,
     stageLabel: stageLabel(stage),
-    unitCount: platformUnits.length,
+    unitCount: platformUnitCounts?.[definition.platform] ?? platformUnits.length,
     unitDetail: uniqueObjectDetail(definition.platform, platformUnits),
     queueCount: platformTasks.filter((task) => task.status !== "completed").length,
     queueDetail: queueDetail(platformTasks),

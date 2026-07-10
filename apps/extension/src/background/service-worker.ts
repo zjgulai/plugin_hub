@@ -6,6 +6,7 @@ import {
   uploadCollectionRun,
   type CollectionRunUploadResult
 } from "../lib/upload-client";
+import { loadApiKey } from "../lib/settings";
 import type {
   CollectionRunPayload,
   CollectionTaskPayload,
@@ -36,7 +37,8 @@ type GetInsightBriefsResponse = InsightBriefsResponse | { error: string };
 
 chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
   if (isUploadCollectionMessage(message)) {
-    void uploadCollectionRun(message.apiBaseUrl, message.payload)
+    void loadApiKey()
+      .then((apiKey) => uploadCollectionRun(message.apiBaseUrl, message.payload, undefined, apiKey))
       .then((result) => sendResponse(result satisfies UploadCollectionResponse))
       .catch((error: unknown) =>
         sendResponse({
@@ -48,7 +50,8 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
   }
 
   if (isCreateCollectionTaskMessage(message)) {
-    void createCollectionTask(message.apiBaseUrl, message.payload)
+    void loadApiKey()
+      .then((apiKey) => createCollectionTask(message.apiBaseUrl, message.payload, undefined, apiKey))
       .then((result) => sendResponse(result satisfies CreateCollectionTaskResponse))
       .catch((error: unknown) =>
         sendResponse({
@@ -60,7 +63,8 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
   }
 
   if (isGetPlatformSettingMessage(message)) {
-    void getPlatformSetting(message.apiBaseUrl, message.platform)
+    void loadApiKey()
+      .then((apiKey) => getPlatformSetting(message.apiBaseUrl, message.platform, undefined, apiKey))
       .then((result) => sendResponse(result satisfies GetPlatformSettingResponse))
       .catch((error: unknown) =>
         sendResponse({
@@ -72,7 +76,8 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
   }
 
   if (isGetStrategyNotesMessage(message)) {
-    void getStrategyNotes(message.apiBaseUrl, message.platform)
+    void loadApiKey()
+      .then((apiKey) => getStrategyNotes(message.apiBaseUrl, message.platform, undefined, apiKey))
       .then((result) => sendResponse(result satisfies GetStrategyNotesResponse))
       .catch((error: unknown) =>
         sendResponse({
@@ -84,7 +89,8 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
   }
 
   if (isGetInsightBriefsMessage(message)) {
-    void getInsightBriefs(message.apiBaseUrl, message.platform)
+    void loadApiKey()
+      .then((apiKey) => getInsightBriefs(message.apiBaseUrl, message.platform, undefined, apiKey))
       .then((result) => sendResponse(result satisfies GetInsightBriefsResponse))
       .catch((error: unknown) =>
         sendResponse({

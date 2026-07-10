@@ -901,6 +901,9 @@ function recoveryDetailForError(error: string, apiBaseUrl: string): string {
   if (error === "platform_disabled_by_settings") {
     return "后台平台配置已关闭，先在 VOC Hub 启用该平台或切换到已启用平台。";
   }
+  if (error.includes(":401")) {
+    return "API Key 缺失或无权执行当前操作；请在扩展 popup 中更新生产 API Key 后重试。";
+  }
   if (error.includes("fetch") || error.includes("network")) {
     return `网络或 API 不可达（当前 API：${apiBaseUrl}）。展开“回传设置”确认地址；如果使用本地 API，请先启动后端后重试；不要把本次结果记为平台采集成功。`;
   }
