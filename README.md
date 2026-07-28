@@ -65,6 +65,12 @@ server-side from environment variables. Browser plugins store the write key in
 `chrome.storage.local`; configure it through the extension popup. Never compile
 a production key into an extension package or frontend bundle.
 
+Extension API targets are restricted to the configured production origin or an
+explicit loopback development origin (`http://localhost[:port]` or
+`http://127.0.0.1[:port]`). The page command bar only displays the active
+target: it cannot replace it in a runtime message. The service worker validates
+the sender and stored target before reading or attaching the API key.
+
 The lightweight health endpoints are:
 
 - `GET /healthz`: process liveness without a database scan.
@@ -218,7 +224,7 @@ Use the extensions:
 1. Start the backend.
 2. Open an Amazon product/review page for the Amazon plugin, or a Reddit thread page for the Reddit plugin.
 3. Open the matching Plugin Hub popup.
-4. Confirm the API URL.
+4. Confirm the trusted API URL and write key in the popup.
 5. Click `采集并回传`.
 
 The Amazon extension follows Amazon next-page links up to the current page budget and records `stop_reason`. The Reddit extension uses the `.json?raw_json=1` thread payload and records `more` node gaps.

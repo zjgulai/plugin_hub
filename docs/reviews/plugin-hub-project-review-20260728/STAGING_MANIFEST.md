@@ -1,6 +1,6 @@
 # Plugin Hub 2026-07-28 精确暂存与合并清单
 
-状态：Commit A（`3ba8e9c`）、Commit B（`b616235`）与 Graphify 边界纠偏（`7b1c659`）已在本地分支提交；Commit C 仍为候选。未执行 push、PR Ready、merge 或 deploy。
+状态：Commit A（`3ba8e9c`）、Commit B（`b616235`）、Graphify 边界纠偏（`7b1c659`）、Commit C（`c8a7b93`）、Commit D（`513dbc1`）与 Commit E（本文件所在提交）已在本地分支完成。T00-07 关闭了上一轮 `REQUEST CHANGES` 的 1 HIGH + 1 MEDIUM，并完成 377 项本地回归；末次 Codex Review helper 超时终止，人工复核未发现新增 actionable finding，因此审查等级记录为 `COMMENT`，不虚称 helper clean。暂存区在两个提交后已清空；未执行 push、PR Ready、merge 或 deploy。
 
 ## Commit A — data asset durability and local product fixes
 
@@ -66,7 +66,7 @@ scripts/pull-offhost-backup.zsh
 
 ## Commit C — project retrospective and graph artifacts
 
-建议提交信息：`docs(review): add project retrospective and execution plan`
+实际提交信息：`docs(review): add project retrospective and execution plan`
 
 ```text
 docs/reviews/plugin-hub-project-review-20260728/STAGING_MANIFEST.md
@@ -81,6 +81,42 @@ docs/reviews/plugin-hub-project-review-20260728/graphify/graphify-out/graph.html
 docs/reviews/plugin-hub-project-review-20260728/graphify/graphify-out/graph.json
 docs/reviews/plugin-hub-project-review-20260728/graphify/graphify-out/manifest.json
 ```
+
+## Commit D — trusted extension credential boundary（`513dbc1`，已完成）
+
+建议提交信息：`fix(extension): enforce trusted credential boundaries`
+
+```text
+apps/extension/extension-targets.json
+apps/extension/extension-versions.json
+apps/extension/src/background/service-worker.ts
+apps/extension/src/content/content-script-runtime.tsx
+apps/extension/src/content/ui/ContentCommandBar.tsx
+apps/extension/src/lib/settings.ts
+apps/extension/src/popup/Popup.tsx
+apps/extension/src/types/messages.ts
+apps/extension/tests/content-command-bar-render.test.tsx
+apps/extension/tests/manifest.test.ts
+apps/extension/tests/popup.test.tsx
+apps/extension/tests/service-worker.test.ts
+apps/extension/tests/settings.test.ts
+scripts/verify-extension-package.mjs
+```
+
+该提交把 credential-bearing API 目标所有权收回 service worker：先校验 sender 和可信存储目标，再读取 key；来源站点仅保留在 `content_scripts.matches`，从 `host_permissions` 移除。三目标统一 bump 到 `0.2.2`，但不包含 Store upload/submission。
+
+## Commit E — close T00-07 review evidence（本文件所在提交，已完成）
+
+建议提交信息：`docs(review): close extension security gate`
+
+```text
+README.md
+docs/reviews/plugin-hub-project-review-20260728/STAGING_MANIFEST.md
+docs/reviews/plugin-hub-project-review-20260728/index.html
+docs/workflows/workflow-split-extension-browser-e2e-runbook-review.md
+```
+
+本提交只更新当前设计、手册和复审证据；Graphify 图谱仍是 Commit C 的架构基线，不把它描述为包含 T00-07 增量的 fresh graph。
 
 ## 明确排除
 
@@ -106,9 +142,11 @@ docs/reviews/plugin-hub-project-review-20260728/graphify/graphify-out/2026-07-28
 
 1. `[已完成]` Owner 确认 Commit A 范围，并完成 Commit A/B 的逐文件暂存与本地提交。
 2. `[已完成]` 补充 `scripts/browser-harness/` Graphify 排除规则，重建图谱并确认未授权本地资产为 0。
-3. `[进行中]` 逐文件暂存 Commit C，比较 `git diff --cached --name-status` 与本清单。
-4. `[待执行]` Commit C 后跑完整 370 项本地门禁和 final Codex review。
-5. 推送前重新读取 PR #3 head SHA；push 属外部写，需明确授权。
-6. 等待新的 API、Web and Extension、Deployment Config CI；2026-07-10 的历史 green 不可复用为 fresh gate。
-7. Reviewer/owner 接受范围后才把 Draft 转 Ready；Ready 不等于 merge 授权。
-8. Merge 前再做 head guard、base `main`、review、fresh CI 和 mergeability 检查；merge、deploy、生产 migration、Store 分别审批。
+3. `[已完成]` Commit C 已按本清单逐文件提交，对应 `c8a7b93`。
+4. `[已完成]` T00-07 修复可信 API origin/sender、Popup key readiness 和 closed Shadow DOM 纵深防御；新增 sender/target/key race 回归，三包统一为 `0.2.2`。
+5. `[已完成]` 完整 377 项本地门禁、lint/typecheck/build/package/verify 通过；末次独立审查 helper exit 143，人工复核无新增 actionable finding，按 `COMMENT` 留痕。
+6. `[已完成]` Owner 逐文件授权 Commit D/E；两次暂存均与清单精确一致，未使用广泛暂存，未动其他本地资产。
+7. `[待下一门禁]` 只读刷新 PR #3 head/base/mergeability 后，精确 push 当前分支；push 属外部写，需新的明确授权。
+8. 等待新的 API、Web and Extension、Deployment Config CI；2026-07-10 的历史 green 不可复用为 fresh gate。
+9. Reviewer/owner 接受范围后才把 Draft 转 Ready；Ready 不等于 merge 授权。
+10. Merge 前再做 head guard、base `main`、review、fresh CI 和 mergeability 检查；merge、deploy、生产 migration、Store 分别审批。

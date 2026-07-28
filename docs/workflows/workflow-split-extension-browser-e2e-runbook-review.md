@@ -253,13 +253,15 @@ curl -fsS 'http://127.0.0.1:8010/api/voc-units?platform=reddit'
 - Playwright headless 不加载 MV3 extension service worker。
 - Computer Use 读取 Google Chrome 状态超时。
 
-2026-06-19 Browser Harness 已验证可用：
+2026-06-19 Browser Harness 曾对当时的 open-shadow 构建验证可用：
 
 - 可连接真实 Chrome tab。
-- 可读取页面 DOM 和插件 open shadow DOM。
+- 可读取页面 DOM 和当时构建的插件 open shadow DOM。
 - 可点击插件 `采集预览`。
 - 可保存页面截图。
 - 可记录 Reddit `.json?raw_json=1` 的 CDP Network response。
+
+从 0.2.2 候选开始，页面内操作台使用 closed Shadow DOM 作为凭据边界的纵深防御。现有 Browser Harness 不得继续依赖 shadow-root 遍历或从宿主页改写/点击内部控件；真实页面验收需由 owner 在 Chrome 中手工执行，或另行批准能够在扩展上下文内操作的自动化方案。上述 2026-06-19 记录仅是历史证据，不代表当前 harness 仍兼容。
 
 剩余 blocker：
 

@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <meta name="description" content="Plugin Hub 全项目复盘、设计逻辑、使用手册、模块路线图、分支合并与执行计划。">
+  <link rel="icon" href="data:,">
   <title>Plugin Hub · 全项目复盘与演进蓝图 · 2026-07-28</title>
   <style>
     :root {
@@ -499,8 +500,8 @@
         <div class="hero__grid">
           <div class="metric"><span>Graph nodes</span><strong>1,877</strong><small>141 文件扫描 / 4 个 zero-AST JSON</small></div>
           <div class="metric"><span>Graph edges</span><strong>5,145</strong><small>0 dangling / duplicate / self-loop</small></div>
-          <div class="metric"><span>Local tests</span><strong>370</strong><small>219 API + 41 Web + 102 Extension + 8 version</small></div>
-          <div class="metric"><span>Current PR</span><strong>#3 Draft</strong><small>CLEAN · MERGEABLE · 0 behind / 8 ahead</small></div>
+          <div class="metric"><span>Local tests</span><strong>377</strong><small>219 API + 41 Web + 109 Extension + 8 version</small></div>
+          <div class="metric"><span>Current PR</span><strong>#3 Draft</strong><small>MERGEABLE · 历史 CI green · 6 个本地提交待 push</small></div>
         </div>
       </header>
 
@@ -533,7 +534,7 @@
               <li>未访问生产密钥、原始 payload 或用户内容。</li>
               <li>未执行生产 GET smoke、迁移、备份、部署、Nginx 或 timer 操作。</li>
               <li>未调用 Meta/Reddit/Amazon provider，未 live capture/upload。</li>
-              <li>已本地创建 Commit A（<code>3ba8e9c</code>）、Commit B（<code>b616235</code>）与 Graphify 边界纠偏（<code>7b1c659</code>）；未 push、转 Ready 或 merge PR。</li>
+              <li>已本地创建 Commit A（<code>3ba8e9c</code>）、Commit B（<code>b616235</code>）、Graphify 边界纠偏（<code>7b1c659</code>）、Commit C（<code>c8a7b93</code>）、Commit D（<code>513dbc1</code>）与当前文档 Commit E；未 push、转 Ready 或 merge PR。</li>
             </ul>
           </article>
         </div>
@@ -565,11 +566,13 @@
     └── .graphify_root                 <span># 本地图谱根路径，不提交</span></pre>
           <div class="card">
             <h3>提交建议</h3>
-            <p>若要进入 PR，建议按精确 manifest 形成三个候选提交：</p>
+            <p>进入 PR 的本地提交已按精确 manifest 分 lane：</p>
             <ol>
               <li><code>feat: harden data assets, snapshots, backups, and runtime configuration</code>：本轮代码/测试，已本地提交。</li>
               <li><code>chore(graphify): add local analysis boundary</code>：仅 <code>.graphifyignore</code>、<code>.gitignore</code>。</li>
               <li><code>docs(review): add project retrospective and execution plan</code>：本目录可移植的非缓存文件；排除包含本机绝对路径的 <code>.graphify_root</code>。</li>
+              <li><code>513dbc1 fix(extension): enforce trusted credential boundaries</code>：T00-07 代码、测试、manifest 与 0.2.2 版本；已本地提交。</li>
+              <li><code>docs(review): close extension security gate</code>：当前手册、HTML 与复审证据；已作为本文件所在提交完成。</li>
             </ol>
             <p>Graphify AST cache 已删除并被忽略，可按需重建；不把 <code>.kiro/</code>、<code>output/</code>、旧草稿、浏览器工具或 PEM 纳入这些提交。详见 <a href="STAGING_MANIFEST.md">STAGING_MANIFEST.md</a>。</p>
           </div>
@@ -639,7 +642,7 @@
 
       <section class="section" id="graphify">
         <div class="section__heading">
-          <div><p class="kicker">Graphify core analysis</p><h2>代码图谱结论</h2><p>Graphify 作为导航和复杂度雷达使用；指标是本地 AST 证据，不是业务正确性的替代物。</p></div>
+          <div><p class="kicker">Graphify core analysis</p><h2>代码图谱结论</h2><p>Graphify 作为导航和复杂度雷达使用；指标是 Commit C 前的本地 AST 架构基线，不包含 T00-07 安全增量，也不是业务正确性的替代物。</p></div>
           <span class="section__index">06 / 15</span>
         </div>
         <div class="grid-4">
@@ -688,7 +691,7 @@
           <details class="module" open data-search="amazon extension asin review marketplace capture page parser listing">
             <summary><span><b>01 · Amazon VOC 扩展</b><small>独立 MV3 包 · DOM 多页采集 · ASIN/marketplace/rating 语义</small></span><span class="status status--partial">可用 / 需真实 E2E</span></summary>
             <div class="module__body"><div class="module__grid">
-              <div><h4>当前事实</h4><ul><li>独立 target、host permissions、版本 0.2.1。</li><li>商品/评论页检测、next link walk、页预算、去重、stop reason、coverage。</li><li>包验证 15 entries，content script 253,895 bytes。</li></ul></div>
+              <div><h4>当前事实</h4><ul><li>独立 target、API-only host permissions、候选版本 0.2.2。</li><li>商品/评论页检测、next link walk、页预算、去重、stop reason、coverage。</li><li>包验证 15 entries，content script 253,513 bytes。</li></ul></div>
               <div><h4>设计逻辑</h4><ul><li>不承诺全量，只承诺采集范围可解释。</li><li>rating/verified/helpful 作为显式强信号。</li><li>extension payload hash 由服务端重算。</li></ul></div>
               <div><h4>使用方式</h4><ul><li>加载 <code>dist/amazon</code>。</li><li>打开支持的 Amazon 域名商品或评论页。</li><li>预览 → 检查 raw/coverage → 回传或导出。</li></ul></div>
               <div><h4>下一迭代</h4><ul><li>P0：US/UK/DE/CA/AU/JP 真实页面矩阵与 CAPTCHA/空页分类。</li><li>P1：ASIN × market × star segment 对比。</li><li>验收：固定候选 hash、Chrome 卡片、无错误、受控上传与 run 对账。</li></ul></div>
@@ -698,7 +701,7 @@
           <details class="module" open data-search="reddit thread json dom fallback oauth server proxy more node queue">
             <summary><span><b>02 · Reddit VOC 扩展与服务端补采</b><small>.json?raw_json=1 · DOM fallback · thread/comment 树 · worker retry</small></span><span class="status status--partial">双路径 / 外部可达性不稳定</span></summary>
             <div class="module__body"><div class="module__grid">
-              <div><h4>当前事实</h4><ul><li>扩展 JSON 主路径、DOM fallback、server proxy/OAuth skeleton。</li><li>保存 <code>t3_</code>/<code>t1_</code>、parent/depth、deleted/removed、more node。</li><li>content script 256,568 bytes。</li></ul></div>
+              <div><h4>当前事实</h4><ul><li>扩展 JSON 主路径、DOM fallback、server proxy/OAuth skeleton。</li><li>保存 <code>t3_</code>/<code>t1_</code>、parent/depth、deleted/removed、more node。</li><li>0.2.2 包含 15 entries，content script 256,186 bytes。</li></ul></div>
               <div><h4>设计逻辑</h4><ul><li>评论不能脱离 thread 解释。</li><li>more node 物理保留但排除洞察。</li><li>JSON/DOM 都失败时显式提交 server task。</li></ul></div>
               <div><h4>使用方式</h4><ul><li>加载 <code>dist/reddit</code> 并打开 thread。</li><li>扩展先请求 JSON；失败后读 DOM。</li><li>无 raw 时使用“服务端补采”，查看 pending/retry/completed。</li></ul></div>
               <div><h4>下一迭代</h4><ul><li>P0：真实登录态/匿名态/old/new Reddit E2E。</li><li>P1：在已完成 token fencing 上补 10-worker 压测、心跳、任务事件与 SLO。</li><li>P1：受控展开 more node，记录预算与覆盖差。</li></ul></div>
@@ -708,7 +711,7 @@
           <details class="module" open data-search="instagram meta graph authorization preflight token live read gated media comment">
             <summary><span><b>03 · Instagram / Meta 授权模块</b><small>fixture + Graph client skeleton + 三重 fail-closed gate</small></span><span class="status status--blocked">授权门控 / 非 live 完成态</span></summary>
             <div class="module__body"><div class="module__grid">
-              <div><h4>当前事实</h4><ul><li>独立 0.2.1 包、media URL 检测、fixture ETL、Graph URL 与 token 脱敏。</li><li>凭据、live-read switch、task authorization 三道门。</li><li>当前页面捕获明确抛出授权错误，不做 DOM scraping。</li></ul></div>
+              <div><h4>当前事实</h4><ul><li>独立 0.2.2 包、media URL 检测、fixture ETL、Graph URL 与 token 脱敏。</li><li>凭据、live-read switch、task authorization 三道门。</li><li>当前页面捕获明确抛出授权错误，不做 DOM scraping；content script 244,263 bytes。</li></ul></div>
               <div><h4>设计逻辑</h4><ul><li>fixture 成功不等于 Meta 权限成功。</li><li>readiness、dry preflight、live read、production write 四层分离。</li><li>任务必须记录 authorized_by/at/environment，且 production_write=false。</li></ul></div>
               <div><h4>使用方式</h4><ul><li>默认只查看 capability 与 preflight 状态。</li><li>token 仅放后端 runtime；不进插件、日志或仓库。</li><li>任何 live read 需单独审批并在非生产先验收。</li></ul></div>
               <div><h4>下一迭代</h4><ul><li>P0：确认 Meta App、专业账号、权限 scope 与 media ownership。</li><li>P1：授权 live-read 合同测试与单个 media 受控读取。</li><li>生产写、商店提交继续作为独立门禁。</li></ul></div>
@@ -718,8 +721,8 @@
           <details class="module" data-search="shared extension registry manifest package popup command bar shadow dom ui ux">
             <summary><span><b>04 · 扩展共享内核与页面内操作台</b><small>target registry · Shadow DOM · popup settings · ContentCommandBar</small></span><span class="status status--partial">功能完整 / 文件过大</span></summary>
             <div class="module__body"><div class="module__grid">
-              <div><h4>当前事实</h4><ul><li>一套 source 生成三套权限隔离包。</li><li>页面 URL 轮询 + Shadow DOM 挂载。</li><li>预览、回传、导出、洞察、错误恢复在 command bar 内闭环。</li></ul></div>
-              <div><h4>设计逻辑</h4><ul><li>价值发生在平台页面，popup 只做设置。</li><li>同一 pipeline：Detect → Raw → Schema → Canonical → Insight。</li><li>API key 存 chrome.storage.local，由 service worker 注入。</li></ul></div>
+              <div><h4>当前事实</h4><ul><li>一套 source 生成三套权限隔离包。</li><li>页面 URL 轮询 + closed Shadow DOM 挂载。</li><li>预览、回传、导出、洞察、错误恢复在 command bar 内闭环。</li></ul></div>
+              <div><h4>设计逻辑</h4><ul><li>价值发生在平台页面；popup 独占可信 API 目标与 key 设置，页面操作台只读展示目标。</li><li>同一 pipeline：Detect → Raw → Schema → Canonical → Insight。</li><li>service worker 先校验 sender/target，再从 chrome.storage.local 读取并注入 API key。</li></ul></div>
               <div><h4>结构债务</h4><ul><li><code>ContentCommandBar.tsx</code> 1,150 行，CSS 954 行，Popup 500 行。</li><li>三包 popup 均约 329 KB，洞察解析逻辑重复。</li><li>缺少端到端可访问性和真实页面长期回归。</li></ul></div>
               <div><h4>下一迭代</h4><ul><li>拆分 drawer tabs、state machine、platform adapters、API parser。</li><li>洞察与导出按需加载；设置页隐藏 key 并支持 rotation 提示。</li><li>验收：375px、键盘、焦点、页面无污染、bundle budget。</li></ul></div>
             </div></div>
@@ -746,12 +749,12 @@
           </details>
 
           <details class="module" open data-search="task queue worker claim retry stale settings audit concurrency">
-            <summary><span><b>07 · 任务队列与平台配置</b><small>handler registry · retry/stale recovery · settings + audit events</small></span><span class="status status--partial">可运行 / claim 需原子化</span></summary>
+            <summary><span><b>07 · 任务队列与平台配置</b><small>handler registry · atomic claim · lease fencing · retry/stale recovery</small></span><span class="status status--partial">原子所有权完成 / 可观测性待补</span></summary>
             <div class="module__body"><div class="module__grid">
-              <div><h4>当前事实</h4><ul><li>按 <code>(platform, capture_method)</code> 分派 handler。</li><li>pending/running/retry/completed/failed，支持 claim TTL 与 stale 恢复。</li><li>平台设置写入 audit event，并在 Web 展示。</li></ul></div>
-              <div><h4>设计逻辑</h4><ul><li>失败不是裸字符串，要有 retry/terminal 语义。</li><li>API 与 CLI worker 共用 handler 和 DB 配置。</li><li>配置状态不等于 capability ready。</li></ul></div>
-              <div><h4>当前风险</h4><ul><li>claim 先 SELECT 全表、再内存判断和 UPDATE/commit；多执行者无条件更新。</li><li>顺序双 session 测试不能证明真正并发只认领一次。</li><li>缺少队列深度、耗时、失败率、stale 次数指标。</li></ul></div>
-              <div><h4>下一迭代</h4><ul><li>P0：条件 UPDATE/CAS 或受控 <code>BEGIN IMMEDIATE</code>，并发 barrier 测试。</li><li>P1：任务事件表、dead-letter/replay、SLO 与告警。</li><li>验收：N 个 worker 对 1 个 task 只有 1 个 side effect。</li></ul></div>
+              <div><h4>当前事实</h4><ul><li>按 <code>(platform, capture_method)</code> 分派 handler。</li><li>SQLite <code>BEGIN IMMEDIATE</code> 原子 claim；随机 token、租约过期和所有后续写入均做 fencing。</li><li>API/CLI worker 共用 handler；平台设置写 audit event 并在 Web 展示。</li></ul></div>
+              <div><h4>设计逻辑</h4><ul><li>失败不是裸字符串，要有 retry/terminal 语义。</li><li>claim 所有权必须贯穿外部调用与 run/raw/canonical 证据事务。</li><li>配置状态不等于 capability ready。</li></ul></div>
+              <div><h4>当前风险</h4><ul><li>当前并发证明覆盖双 worker，尚无 10-worker 压测与长任务心跳。</li><li>缺少任务事件、dead-letter/replay 和 claim-loss 运营入口。</li><li>缺少队列深度、耗时、失败率、stale 次数指标。</li></ul></div>
+              <div><h4>下一迭代</h4><ul><li>P1：10-worker barrier 压测与长任务租约心跳。</li><li>P1：任务事件表、dead-letter/replay、SLO 与告警。</li><li>验收：N 个 worker 对 1 个 task 只有 1 个 owner/side effect，claim-loss 可观测。</li></ul></div>
             </div></div>
           </details>
 
@@ -778,9 +781,9 @@
           <details class="module" data-search="package version release chrome web store ci github actions branch pr">
             <summary><span><b>10 · 版本、打包、CI 与发布治理</b><small>三插件独立版本 · package verifier · GitHub Actions · evidence grades</small></span><span class="status status--partial">本地与 CI 完整 / 商店未验收</span></summary>
             <div class="module__body"><div class="module__grid">
-              <div><h4>当前事实</h4><ul><li>三目标版本均 0.2.1，可独立 bump。</li><li>三 ZIP 各 15 entries，manifest/host isolation/size 验证通过。</li><li>PR #3 有 API、Web/Extension、Deployment Config 三个 CI job。</li></ul></div>
+              <div><h4>当前事实</h4><ul><li>三目标候选版本均为 0.2.2；本次共享安全内核同步 bump。</li><li>三 ZIP 各 15 entries，manifest/API host isolation/size 验证通过。</li><li>PR #3 有 API、Web/Extension、Deployment Config 三个 CI job。</li></ul></div>
               <div><h4>设计逻辑</h4><ul><li>build ≠ Chrome 手工验收 ≠ Store upload ≠ publication。</li><li>source merge ≠ production deploy。</li><li>每个 live side effect 都有独立批准门。</li></ul></div>
-              <div><h4>当前风险</h4><ul><li>PR #3 仍 Draft，CI 为 7/10 历史 run。</li><li>商店 item ID、published version、manual Chrome acceptance 未闭环。</li><li>本轮新增 Graphify/报告尚未进 PR。</li></ul></div>
+              <div><h4>当前风险</h4><ul><li>PR #3 仍 Draft，CI 为 7/10 历史 run。</li><li>商店 item ID、published version、manual Chrome acceptance 未闭环。</li><li>本轮 Graphify/报告与 0.2.2 安全提交已在本地完成，但尚未 push 进 PR。</li></ul></div>
               <div><h4>下一迭代</h4><ul><li>按本报告 merge plan 重新冻结 scope 与 fresh CI。</li><li>每个平台单独建立候选 hash → Chrome ID → Store item 证据链。</li><li>required checks / branch protection 需 owner 单独决定。</li></ul></div>
             </div></div>
           </details>
@@ -826,7 +829,8 @@ pnpm verify:extension</pre>
               <li>打开 <code>chrome://extensions</code>，开启 Developer mode。</li>
               <li>Load unpacked，选择 <code>apps/extension/dist/amazon</code>、<code>reddit</code> 或 <code>instagram</code>。</li>
               <li>在 popup 设置 API URL 和 write key；不要截图或分享 key。</li>
-              <li>确认扩展名、版本 0.2.1、ID、enabled、0 errors，再打开目标页面。</li>
+              <li>只使用配置的生产 origin 或显式 loopback 开发 origin；来源站点不能作为 API 目标。</li>
+              <li>确认扩展名、版本 0.2.2、ID、enabled、0 errors，再打开目标页面。</li>
             </ol>
           </article>
           <article class="card">
@@ -883,13 +887,15 @@ git diff --check</pre>
 
       <section class="section" id="findings">
         <div class="section__heading">
-          <div><p class="kicker">Findings & debt register</p><h2>完整复盘结论与优先级</h2><p>本轮未发现需要立即停止本地使用的 P0；以下为进入合并或下一产品批次前应处理的高价值项。</p></div>
+          <div><p class="kicker">Findings & debt register</p><h2>完整复盘结论与优先级</h2><p>T00-07 已关闭扩展凭据边界和 Popup 恢复竞态；其余产品与治理债务继续按证据等级推进。</p></div>
           <span class="section__index">09 / 15</span>
         </div>
         <div class="table-wrap">
           <table>
             <thead><tr><th>优先级</th><th>发现</th><th>证据</th><th>影响</th><th>建议闭环</th></tr></thead>
             <tbody>
+              <tr><td><span class="status status--done">已关闭</span></td><td>扩展可信 API origin 与 runtime sender 边界</td><td>消息不再携带 credential target；service worker 在读取 key 前校验 extension/content-script sender 与可信存储 origin；来源站点从 <code>host_permissions</code> 移除；页面操作台使用 closed Shadow DOM</td><td>宿主页不能把存储 key 重定向到自身或任意来源</td><td>继续保留 sender-before-storage、poisoned target、legacy message 和三目标 manifest 回归</td></tr>
+              <tr><td><span class="status status--done">已关闭</span></td><td>Popup API key 异步恢复与失败恢复</td><td>API URL/key 使用 nullable 初始态；设置与 pending upload 完成前 submit disabled；key 读取失败后允许用户显式输入新 key，但空值仍不可提交</td><td>延迟恢复不会覆盖已存 key，存储读取失败也不会永久锁死设置页</td><td>保留 deferred load、rejected load 和 manual recovery 回归</td></tr>
               <tr><td><span class="status status--done">已关闭</span></td><td>任务 claim、续写与证据提交已加租约栅栏</td><td>SQLite <code>BEGIN IMMEDIATE</code> 原子 claim；随机 token；更新/完成/失败/证据事务均校验 token、状态与过期时间；并发与过期 worker 测试通过</td><td>过期 worker 不能覆盖新 owner 或写入 run/raw/canonical</td><td>后续补 10-worker 压测、心跳、事件表与 claim-loss 指标</td></tr>
               <tr><td><span class="status status--done">已关闭</span></td><td>快照历史列表与迁移 guard 的审查缺口</td><td><code>list_runs</code> 单 SQL 同时返回 page/total 且保留调用者事务；dry-run 检查 0002 checksum、两个 trigger 与 REPLACE 实际拒绝</td><td>并发插入不再产生元数据撕裂，迁移行与实际触发器漂移会 fail closed</td><td>生产 migration 仍需 copied DB、backup 与独立批准</td></tr>
               <tr><td><span class="status status--blocked">P1</span></td><td>raw/canonical append-only 未由数据库强制</td><td>snapshot 有四个禁止 UPDATE/DELETE trigger；核心三表没有同类 trigger</td><td>操作员或未来代码可绕过 repository 修改高价值证据</td><td>显式 migration 增加 immutability trigger 与 break-glass runbook</td></tr>
@@ -908,27 +914,27 @@ git diff --check</pre>
 
       <section class="section" id="merge">
         <div class="section__heading">
-          <div><p class="kicker">Branch & merge plan</p><h2>分支合并优化计划</h2><p>当前 PR #3 技术上可合并，但仍是 Draft，且本轮新增交付物尚未进入 PR；因此推荐“先原子收口，再 fresh review”，不直接 merge。</p></div>
+          <div><p class="kicker">Branch & merge plan</p><h2>分支合并优化计划</h2><p>GitHub 显示 PR #3 可合并且历史 CI 为绿；本地安全修复与证据文档已分开提交，但尚未 push，仍需 fresh remote CI 和人工 Chrome 验收。</p></div>
           <span class="section__index">10 / 15</span>
         </div>
         <div class="grid-4">
-          <div class="metric"><span>Branch</span><strong style="font-size:18px">codex/data-asset-…</strong><small>local HEAD 7b1c659</small></div>
-          <div class="metric"><span>Topology</span><strong>0 / +11</strong><small>local behind / ahead origin/main；3 commits 未 push</small></div>
-          <div class="metric"><span>PR state</span><strong>#3 Draft</strong><small>CLEAN / MERGEABLE / 0 reviews</small></div>
+          <div class="metric"><span>Branch</span><strong style="font-size:18px">codex/data-asset-…</strong><small>local HEAD = 当前文档 Commit E</small></div>
+          <div class="metric"><span>Topology</span><strong>0 / +14</strong><small>local behind / ahead origin/main；6 commits 未 push</small></div>
+          <div class="metric"><span>PR state</span><strong>#3 Draft</strong><small>MERGEABLE / review decision 空 / 8 remote commits</small></div>
           <div class="metric"><span>Remote CI</span><strong>3 green</strong><small>历史 run，需 fresh validation</small></div>
         </div>
         <div class="timeline" style="margin-top:14px">
           <article class="step"><div><h3>冻结工作树 lanes</h3><p>把现有未跟踪资产分为：本轮 Graphify/报告、既有计划/草稿/输出、敏感本地文件。只对第一 lane 做 diff。</p></div><div class="step__gate"><strong>Gate</strong><span>禁止 <code>git add .</code>；逐文件 manifest。</span></div></article>
           <article class="step"><div><h3>提交代码与测试候选</h3><p>按 <code>STAGING_MANIFEST.md</code> 逐文件审查 API、Web、Extension、deploy config 与脚本；迁移定义进入 Git 不代表生产执行授权。</p></div><div class="step__gate"><strong>Commit A · 已完成</strong><span><code>feat: harden data assets, snapshots, backups, and runtime configuration</code></span></div></article>
           <article class="step"><div><h3>提交 Graphify 集成边界</h3><p>提交 <code>.graphifyignore</code> 与 <code>.gitignore</code> 安全边界，并通过 <code>7b1c659</code> 补充 browser harness 排除纠偏；验证 PEM、cache、output、tmp 和本地工具均不会进入索引。</p></div><div class="step__gate"><strong>Commit B · 已完成</strong><span><code>chore(graphify): add local analysis boundary</code></span></div></article>
-          <article class="step"><div><h3>提交复盘文档与图谱附件</h3><p>提交本 HTML、staging manifest、graph/report/tree/callflow/manifest；不提交 cache、.kiro、output、旧草稿与 browser harness。</p></div><div class="step__gate"><strong>Candidate commit C</strong><span><code>docs(review): add project retrospective and execution plan</code></span></div></article>
-          <article class="step"><div><h3>Fresh local + Codex review</h3><p>重跑受影响检查、HTML validator/render、Graphify counts 和 <code>codex review --base origin/main</code>，核验每条 finding。</p></div><div class="step__gate"><strong>Stop condition</strong><span>有未解决 P0/P1 或文档事实漂移即停止。</span></div></article>
+          <article class="step"><div><h3>提交复盘文档与图谱附件</h3><p>本 HTML、staging manifest、graph/report/tree/callflow/manifest 已作为 Commit C 提交；未提交 cache、.kiro、output、旧草稿与 browser harness。</p></div><div class="step__gate"><strong>Commit C · 已完成</strong><span><code>c8a7b93 docs(review): add project retrospective and execution plan</code></span></div></article>
+          <article class="step"><div><h3>修复扩展凭据边界</h3><p>可信 API origin/sender、Popup readiness、closed Shadow DOM、API-only host permissions 与 0.2.2 三包已完成；377 项测试及 lint/type/build/package/verify 全绿。</p></div><div class="step__gate"><strong>Commit D/E · 已完成</strong><span><code>513dbc1</code> + 本文件所在文档提交；review 按 COMMENT 留痕。</span></div></article>
           <article class="step"><div><h3>推送并等待 PR CI</h3><p>只有 owner 认可提交范围后才 push。确认 PR 仍 base main、head guard 不漂移，三个 job fresh green。</p></div><div class="step__gate"><strong>Approval</strong><span>push 是外部写，需显式授权。</span></div></article>
           <article class="step"><div><h3>Draft → Ready</h3><p>提交范围、review、checks、文档链接和风险接受记录齐全后，再单独请求转 Ready；不把 Ready 当 merge。</p></div><div class="step__gate"><strong>Gate</strong><span>需要 reviewer/owner 接受 P1 延后项。</span></div></article>
           <article class="step"><div><h3>精确 head-guard merge</h3><p>重新读取 head SHA 后使用 GitHub merge commit，保留已审阅提交序列；不 rebase 改写已审阅身份，不同时删分支。</p></div><div class="step__gate"><strong>Separate approval</strong><span>merge 明确授权；部署仍未授权。</span></div></article>
           <article class="step"><div><h3>合并后只读对账</h3><p>证明 candidate head 是 origin/main 祖先、merge tree 与审阅结果一致、PR MERGED。生产状态仍标记 unchanged。</p></div><div class="step__gate"><strong>Next gate</strong><span>deploy / Store / branch cleanup 分别审批。</span></div></article>
         </div>
-        <div class="callout callout--warning" style="margin-top:12px"><strong>当前建议：NO-GO for immediate merge</strong><p>原因不是本地门禁失败，而是 PR 仍 Draft、本轮代码与报告尚未进入 PR、0 reviews，且 remote checks 是 2026-07-10 的历史结果。Codex review 已清零、本 HTML 已进入最终验收；完成 owner 精确暂存、push、fresh CI 和 reviewer gate 后再评估 Ready。</p></div>
+        <div class="callout callout--warning" style="margin-top:12px"><strong>当前建议：NO-GO for immediate merge</strong><p>Commit D/E 已在本地闭环，但 PR 仍 Draft，remote checks 仍是 2026-07-10 的历史结果，且 0.2.2 尚无真实 Chrome 卡片。下一门禁 T00-09 只能在重新读取 PR head/base 后推送当前分支并等待 fresh CI；Ready、merge、deploy 和 Store 继续分离审批。</p></div>
       </section>
 
       <section class="section" id="roadmap">
@@ -959,12 +965,12 @@ git diff --check</pre>
           <span class="section__index">12 / 15</span>
         </div>
         <div class="timeline">
-          <article class="step"><div><h3>Batch 0 · 报告与 PR 收口</h3><p>验证 HTML、Graphify、Git lanes 和 Codex review；形成精确提交 manifest 与 fresh merge readiness 报告。</p></div><div class="step__gate"><strong>Deliverable</strong><span>本目录 + review clean/accepted ledger + staging manifest。</span></div></article>
+          <article class="step"><div><h3>Batch 0 · 安全纠偏与 PR 收口</h3><p>扩展 API origin/sender 信任边界、Popup settings readiness、手册与本地门禁已完成；Commit D/E 已原子提交。</p></div><div class="step__gate"><strong>已完成</strong><span>7 项新增回归，总计 377 项；review COMMENT ledger；staging manifest。</span></div></article>
           <article class="step"><div><h3>Batch 1 · Queue Operations Hardening</h3><p>原子 claim 与 token fencing 已完成；下一步增加 10-worker 压测、租约心跳、任务事件、dead-letter/replay、claim-loss 指标与 SLO 告警。</p></div><div class="step__gate"><strong>Acceptance</strong><span>10 并发 worker / 1 task / 1 owner；每次 claim-loss 可观测且无额外 side effect。</span></div></article>
           <article class="step"><div><h3>Batch 2 · Core Evidence Migration</h3><p>为核心 schema 建 baseline/version/checksum；加入 run 内唯一约束与 raw/canonical 禁改 trigger。复制生产库 dry-run。</p></div><div class="step__gate"><strong>Approval boundary</strong><span>只做本地与 copied DB；生产 up 另批。</span></div></article>
           <article class="step"><div><h3>Batch 3 · Insight History Workbench</h3><p>新增 snapshot client、history/list/detail、diff、evidence link、review status；拆分 Web API parser 与页面路由。</p></div><div class="step__gate"><strong>Acceptance</strong><span>两个 snapshot 可比较，artifact digest 可验证，移动端无溢出。</span></div></article>
           <article class="step"><div><h3>Batch 4 · Extension Architecture</h3><p>拆 command bar、platform adapter、insight/export chunks；建立 bundle budget、a11y 与错误恢复矩阵。</p></div><div class="step__gate"><strong>Acceptance</strong><span>功能合同不变，三目标权限隔离，包尺寸不回退。</span></div></article>
-          <article class="step"><div><h3>Batch 5 · Exact Chrome Candidate</h3><p>对三套 0.2.1 构建记录 hash、extension ID、加载错误、popup 和目标页表现；Instagram 只证明门控。</p></div><div class="step__gate"><strong>User action</strong><span><code>chrome://extensions</code> 与账号重认证需 owner 手动完成。</span></div></article>
+          <article class="step"><div><h3>Batch 5 · Exact Chrome Candidate</h3><p>对三套 0.2.2 构建记录 hash、extension ID、加载错误、popup 和目标页表现；Instagram 只证明门控。</p></div><div class="step__gate"><strong>User action</strong><span><code>chrome://extensions</code> 与账号重认证需 owner 手动完成。</span></div></article>
           <article class="step"><div><h3>Batch 6 · Production Read-only Freshness</h3><p>经批准后只读检查 release、401/200、counts、timer、latest manifest/archive age、snapshot digests；不触发 backup。</p></div><div class="step__gate"><strong>Evidence</strong><span>L3 read-only，仅支持被观察到的当前状态。</span></div></article>
           <article class="step"><div><h3>Batch 7 · 分离式发布决策</h3><p>代码 merge、生产部署、生产 migration、Store 三项分别做 packet、backup/rollback、approval 与 post-check。</p></div><div class="step__gate"><strong>No bundling</strong><span>一个批准不能隐含其他 side effect。</span></div></article>
         </div>
@@ -976,8 +982,11 @@ git diff --check</pre>
               <tr><td><code>T00-02</code></td><td><span class="status status--done">完成</span></td><td>全项目复盘、设计逻辑、逐模块手册、路线图与合并计划</td><td>本地 Agent</td><td>本 HTML；内部锚点/本地链接/Chrome render 通过</td></tr>
               <tr><td><code>T00-03</code></td><td><span class="status status--done">完成</span></td><td>关闭 key trim、retry idempotency、open count、language、Amazon host、Instagram ID 与 off-host metadata 等审查项</td><td>Codex finding → 本地 Agent</td><td>定向测试 + 全量测试 + lint/typecheck/build/package</td></tr>
               <tr><td><code>T00-04</code></td><td><span class="status status--done">完成</span></td><td>关闭 live DB root、claim token/lease、<code>-O</code> assert、任务/快照读一致性与 0002 guard dry-run</td><td>Codex P1/P2 → 本地 Agent</td><td>并发、过期 owner、checksum/trigger/REPLACE、调用者事务测试通过</td></tr>
-              <tr><td><code>T00-05</code></td><td><span class="status status--done">完成</span></td><td>隔离式 final Codex review、全量回归、Graphify 刷新与 HTML 内容回填</td><td>T00-03/04</td><td><code>NO_ACTIONABLE_FINDINGS</code>；370 tests；纠偏后 1,877 nodes / 5,145 edges</td></tr>
-              <tr><td><code>T00-06</code></td><td><span class="status status--done">完成候选</span></td><td>形成精确 staging manifest 与三个候选提交；未执行暂存</td><td>Owner 范围确认</td><td>不使用 <code>git add .</code>；既有未跟踪资产在排除清单</td></tr>
+              <tr><td><code>T00-05</code></td><td><span class="status status--done">完成</span></td><td>隔离式 Codex review、全量回归、Graphify 架构基线与 HTML 内容回填</td><td>T00-03/04</td><td>上一轮 review 的 1 HIGH + 1 MEDIUM 已进入 T00-07 修复；Graphify 明确标注为增量前基线</td></tr>
+              <tr><td><code>T00-06</code></td><td><span class="status status--done">完成</span></td><td>形成精确 staging manifest 与四个本地提交；Commit C 已提交</td><td>Owner 范围确认</td><td>HEAD <code>c8a7b93</code>；不使用 <code>git add .</code>；既有未跟踪资产保持排除</td></tr>
+              <tr><td><code>T00-07</code></td><td><span class="status status--done">完成</span></td><td>修复后台可信 API origin/sender、Popup key readiness、closed Shadow DOM 与权限边界，并补回归测试</td><td>Owner 已授权业务代码修复</td><td>不可信 sender/target 在读取 key 前被拒绝；恢复完成前 submit disabled；377 tests 与完整门禁通过；复审 COMMENT、无新增 actionable finding</td></tr>
+              <tr><td><code>T00-08</code></td><td><span class="status status--done">完成</span></td><td>按 STAGING_MANIFEST 精确暂存并创建 Commit D/E</td><td>Owner 已逐文件授权</td><td>Commit D <code>513dbc1</code> + 本文件所在 Commit E；两次精确暂存；无 push 或外部写</td></tr>
+              <tr><td><code>T00-09</code></td><td><span class="status status--blocked">待下一门禁</span></td><td>只读刷新 PR #3 head/base/mergeability，精确 push 当前分支并等待 fresh CI</td><td>Owner 单独授权 push</td><td>remote head = local HEAD；三个 fresh jobs 结果归档；不转 Ready、不 merge</td></tr>
               <tr><td><code>T01-01</code></td><td><span class="status status--done">完成</span></td><td>SQLite 跨 worker 原子 claim 并发测试</td><td>本地 DB</td><td>并发 session 对单 task 只有一个 owner</td></tr>
               <tr><td><code>T01-02</code></td><td><span class="status status--done">完成</span></td><td>实现 ownership token 与证据事务 fencing，统一 API 与 CLI worker</td><td>T01-01</td><td>过期 worker 不能覆盖新 claim 或提交证据</td></tr>
               <tr><td><code>T01-03</code></td><td><span class="status status--planned">待执行</span></td><td>10-worker 压测、心跳、任务事件、dead-letter/replay 与 SLO</td><td>T01-02</td><td>claim-loss 可观测；1 task / 1 side effect；失败可安全重放</td></tr>
@@ -985,7 +994,7 @@ git diff --check</pre>
               <tr><td><code>T02-02</code></td><td><span class="status status--planned">待执行</span></td><td>raw/canonical UPDATE/DELETE trigger 与 break-glass runbook</td><td>T02-01</td><td>证据行不可改写；授权恢复流程可审计</td></tr>
               <tr><td><code>T03-01</code></td><td><span class="status status--planned">待执行</span></td><td>Insight snapshot history/list/detail/diff/evidence UI</td><td>T02 稳定 schema</td><td>两个 snapshot 可比较，digest 可验证，移动端无溢出</td></tr>
               <tr><td><code>T04-01</code></td><td><span class="status status--planned">待执行</span></td><td>拆分 Web parser/page、CommandBar 与 popup bundle，建立 size budget</td><td>契约测试先行</td><td>功能不变、三目标权限隔离、包尺寸不回退</td></tr>
-              <tr><td><code>T05-01</code></td><td><span class="status status--blocked">需用户动作</span></td><td>exact 0.2.1 包加载到 Chrome，记录 ID、目标页、错误与截图</td><td>Owner 操作 <code>chrome://extensions</code></td><td>package → extension ID → page → run 证据链</td></tr>
+              <tr><td><code>T05-01</code></td><td><span class="status status--blocked">需用户动作</span></td><td>exact 0.2.2 包加载到 Chrome，记录 ID、目标页、错误与截图</td><td>Owner 操作 <code>chrome://extensions</code></td><td>package hash → extension ID → page → run 证据链</td></tr>
               <tr><td><code>T06-01</code></td><td><span class="status status--blocked">需单独批准</span></td><td>生产只读 freshness：release/auth/counts/timer/backup age/snapshot digest</td><td>生产只读授权</td><td>仅 L3 read-only evidence；不触发 backup/migration</td></tr>
               <tr><td><code>T07-01</code></td><td><span class="status status--blocked">需单独批准</span></td><td>push、Ready、merge、deploy、production migration、Store 分离决策</td><td>Owner 分项批准</td><td>每项独立 packet、head guard、rollback 与 post-check</td></tr>
             </tbody>
@@ -1006,7 +1015,8 @@ git diff --check</pre>
           <article class="card"><h3>证据质量</h3><ul><li>fact / inference / unknown 分开</li><li>local / fixture / prod RO / live 分开</li><li>失败中间证据明确作废</li><li>时间戳与候选 SHA 可追溯</li></ul></article>
           <article class="card"><h3>停止条件</h3><ul><li>secret/权限边界不清</li><li>生产写或 provider 未批准</li><li>节点/边为 0 或图谱过期</li><li>P0/P1 未接受且无 owner 决策</li></ul></article>
         </div>
-        <div class="callout" style="margin-top:12px"><strong>本轮本地质量结果</strong><p>API 219 passed（1 个 Starlette/httpx deprecation warning）、Web 41 passed、Extension 102 passed、version 8 passed，共 370 项；ruff、ESLint、mypy（35 source files）、TypeScript、API sdist/wheel、Next build、三插件 Vite build/package/verify、zsh syntax 与 <code>git diff --check</code> 均通过。Next 仍报告父目录多 lockfile 的非阻塞 workspace-root 警告。</p></div>
+        <div class="callout" style="margin-top:12px"><strong>本轮本地质量结果</strong><p>API 219 passed（1 个 Starlette/httpx deprecation warning）、Web 41 passed、Extension 109 passed、version 8 passed，共 377 项；ruff、ESLint、mypy（35 source files）、TypeScript、API offline sdist/wheel、Next build、三插件 Vite build/package/verify、部署静态检查、shell syntax 与 <code>git diff --check</code> 均通过。首次在线 API build 仅因 PyPI 连接 reset 失败，立即使用本地缓存的 offline build 成功；Next 仍报告父目录多 lockfile 的非阻塞 workspace-root 警告。</p></div>
+        <div class="callout callout--info" style="margin-top:12px"><strong>0.2.2 exact package evidence</strong><p>Amazon：164,383 bytes，SHA-256 <code>5e55a9378f6d5ccb7f7b81f34fa5353b54ccd02099b4adfa526762dfb3296c2c</code>；Instagram：161,524 bytes，SHA-256 <code>e4df6d91454a590e74c8c4bff7d7bae75bacd28053129360447f9f120beddb48</code>；Reddit：164,867 bytes，SHA-256 <code>6f8519ec6cbacaed3d199d98f7fdbd292d4b111fcb91b54def2052c62d228f77</code>。这些是本地候选，不是 Chrome/Store 发布证明。</p></div>
       </section>
 
       <section class="section" id="review">
@@ -1015,13 +1025,13 @@ git diff --check</pre>
           <span class="section__index">14 / 15</span>
         </div>
         <div class="review-box">
-          <strong>状态：CLEAN · NO_ACTIONABLE_FINDINGS</strong>
-          <p>运行方式：隔离式只读 <code>codex exec --ephemeral --sandbox read-only</code>。先审查整个本地 delta，再对每次修复做窄范围复审；最终一轮只复核 <code>InsightSnapshotRepository.list_runs</code> 的单语句分页/计数和调用者事务测试，并以 exit 0 输出 <code>NO_ACTIONABLE_FINDINGS</code>。</p>
+          <strong>状态：COMMENT · 已关闭既有 1 HIGH + 1 MEDIUM；无新增 actionable finding</strong>
+          <p>修复后运行只读 <code>codex review --uncommitted</code>。helper 约 3 分钟无最终文本后按时限终止为 exit 143；隔离 PATH 中的内部测试和递归 review 都以 exit 127 被阻止，没有第二轮审查进程。独立 reviewer 随后逐条核验源码、测试、manifest 和三个 ZIP，未发现新 finding；因此只记录 COMMENT，明确不把非终止 helper 包装成 clean。</p>
           <ul>
-            <li><b>已接受并修复：</b>key trim、retry capture 幂等、open count、语言合同、Amazon host、live DB root、Instagram 重复 ID、off-host metadata、原子 claim、lease fencing、两处 <code>assert</code> 优化绕过、任务/快照读一致性、0002 guard dry-run、调用者事务所有权。</li>
-            <li><b>复核方法：</b>每条 finding 回到源码、事务边界和相邻测试；代码变化后重跑 focused tests 和独立 review。</li>
-            <li><b>正式 rejected findings：</b>无；探索性假设未作为 finding 输出，也未据此扩大重构。</li>
-            <li><b>最终证明：</b>18 个最后定向测试、API 219、全仓 370、lint/type/build/package 均通过。</li>
+            <li><b>已关闭 HIGH：</b>credential-bearing runtime 消息不再接受 API target；service worker 在读取 key 前校验 sender 和可信存储 origin；来源站点从 host permissions 移除，页面 UI 改为 closed Shadow DOM。</li>
+            <li><b>已关闭 MEDIUM：</b>Popup 使用 nullable settings state；恢复完成前禁止提交，key 读取失败时允许用户显式输入新 key 恢复，但空值继续 fail closed。</li>
+            <li><b>复审 rejected candidates：</b>settings 失败永久锁死、旧消息 target 仍生效、来源站点 host permissions 残留、0.2.2 ZIP 未包含最新代码；均由实现、定向测试、manifest/package 核验否决。</li>
+            <li><b>当前本地证明：</b>API 219、全仓 377、lint/type/build/package/verify 通过；三包 exact hash 已记录。它仍不等于真实 Chrome、fresh remote CI、Store 或生产验收。</li>
           </ul>
         </div>
       </section>
