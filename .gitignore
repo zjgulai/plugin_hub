@@ -5,6 +5,7 @@
 .env.*
 !.env.example
 ai_video.pem
+*.pem
 .venv/
 node_modules/
 *.tsbuildinfo
@@ -29,4 +30,5 @@ tmp/
 .superpowers/
 .playwright-mcp/
 .playwright-cli/
+**/graphify-out/cache/
 *.baiduyun.uploading.cfg

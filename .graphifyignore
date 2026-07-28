@@ -1,0 +1,28 @@
+# Local evidence, plans, and browser/build artifacts are not product source.
+.kiro/
+.playwright-cli/
+output/
+tmp/
+graphify-out/
+docs/reviews/plugin-hub-project-review-20260728/graphify/
+
+# Dependency and generated output directories.
+node_modules/
+**/node_modules/
+**/.next/
+**/dist/
+**/build/
+**/__pycache__/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+
+# Local credentials and machine-specific files must never enter analysis output.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
