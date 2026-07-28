@@ -1,0 +1,1111 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="Plugin Hub 全项目复盘、设计逻辑、使用手册、模块路线图、分支合并与执行计划。">
+  <title>Plugin Hub · 全项目复盘与演进蓝图 · 2026-07-28</title>
+  <style>
+    :root {
+      --paper: #f3f0e8;
+      --surface: #fffdf7;
+      --surface-2: #f8f5ed;
+      --ink: #17211c;
+      --muted: #637068;
+      --line: #d8d3c6;
+      --line-strong: #a9b2aa;
+      --green: #176b51;
+      --green-soft: #dcece4;
+      --teal: #087c84;
+      --teal-soft: #d9eef0;
+      --rust: #a64e2e;
+      --rust-soft: #f1dfd6;
+      --amber: #9a6714;
+      --amber-soft: #f4e7c6;
+      --red: #a53535;
+      --red-soft: #f4dddd;
+      --blue: #3a5f8a;
+      --blue-soft: #dfe8f4;
+      --shadow: 0 16px 50px rgba(31, 43, 36, .08);
+      --radius: 14px;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(rgba(23, 107, 81, .035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(23, 107, 81, .035) 1px, transparent 1px),
+        var(--paper);
+      background-size: 32px 32px;
+      font-family: var(--sans);
+      line-height: 1.68;
+    }
+
+    a { color: var(--green); text-underline-offset: 3px; }
+    a:hover { color: var(--rust); }
+    code, pre { font-family: var(--mono); }
+    code {
+      padding: .12rem .34rem;
+      border: 1px solid #e2ddd1;
+      border-radius: 5px;
+      background: #f4f0e7;
+      color: #204b3a;
+      font-size: .9em;
+      overflow-wrap: anywhere;
+    }
+    pre {
+      margin: 0;
+      padding: 16px 18px;
+      overflow: auto;
+      border: 1px solid #34453d;
+      border-radius: 10px;
+      background: #18231e;
+      color: #dcebe3;
+      font-size: 12px;
+      line-height: 1.65;
+      white-space: pre-wrap;
+    }
+
+    .skip-link {
+      position: fixed;
+      left: 16px;
+      top: -80px;
+      z-index: 99;
+      padding: 10px 14px;
+      background: var(--ink);
+      color: white;
+      border-radius: 8px;
+    }
+    .skip-link:focus { top: 16px; }
+
+    .page-shell {
+      width: min(1560px, calc(100vw - 28px));
+      margin: 14px auto 52px;
+      display: grid;
+      grid-template-columns: 276px minmax(0, 1fr);
+      gap: 18px;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 14px;
+      align-self: start;
+      max-height: calc(100vh - 28px);
+      overflow: auto;
+      padding: 20px 16px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      background: rgba(255, 253, 247, .94);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(12px);
+    }
+    .sidebar__brand {
+      padding: 0 8px 16px;
+      border-bottom: 1px solid var(--line);
+    }
+    .sidebar__brand span {
+      display: block;
+      color: var(--green);
+      font: 700 11px/1.2 var(--mono);
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    .sidebar__brand strong {
+      display: block;
+      margin-top: 7px;
+      font-size: 18px;
+      line-height: 1.35;
+    }
+    .sidebar nav { padding: 12px 0; }
+    .sidebar nav a {
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      gap: 3px;
+      padding: 7px 9px;
+      color: var(--muted);
+      border-radius: 7px;
+      text-decoration: none;
+      font-size: 12px;
+    }
+    .sidebar nav a:hover,
+    .sidebar nav a:focus-visible {
+      background: var(--green-soft);
+      color: var(--green);
+    }
+    .sidebar nav b { font-family: var(--mono); font-weight: 700; }
+    .sidebar__actions {
+      display: grid;
+      gap: 8px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+    }
+    button, .button {
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      padding: 9px 11px;
+      background: var(--surface);
+      color: var(--ink);
+      font: 700 12px/1.2 var(--sans);
+      cursor: pointer;
+      text-align: center;
+      text-decoration: none;
+    }
+    button:hover, .button:hover { border-color: var(--green); color: var(--green); }
+
+    main { min-width: 0; }
+    .hero,
+    .section {
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      background: rgba(255, 253, 247, .97);
+      box-shadow: var(--shadow);
+    }
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: clamp(28px, 5vw, 66px);
+      background:
+        radial-gradient(circle at 88% 10%, rgba(8, 124, 132, .17), transparent 32%),
+        radial-gradient(circle at 62% 88%, rgba(166, 78, 46, .12), transparent 36%),
+        #fffdf7;
+    }
+    .hero::after {
+      content: "VOC / EVIDENCE / ACTION";
+      position: absolute;
+      right: -22px;
+      bottom: 10px;
+      color: rgba(23, 33, 28, .05);
+      font: 900 clamp(30px, 6vw, 82px)/1 var(--mono);
+      letter-spacing: -.08em;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+    .kicker {
+      margin: 0 0 12px;
+      color: var(--green);
+      font: 800 12px/1.3 var(--mono);
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    h1, h2, h3, h4 { margin: 0; line-height: 1.22; }
+    h1 { max-width: 980px; font-size: clamp(34px, 6vw, 72px); letter-spacing: -.045em; }
+    h2 { font-size: clamp(24px, 3vw, 38px); letter-spacing: -.025em; }
+    h3 { font-size: 20px; }
+    h4 { font-size: 15px; }
+    .hero__lead {
+      max-width: 900px;
+      margin: 22px 0 0;
+      color: #34443b;
+      font-size: clamp(16px, 2vw, 21px);
+    }
+    .hero__meta,
+    .badge-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 24px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 28px;
+      padding: 5px 9px;
+      border: 1px solid var(--line-strong);
+      border-radius: 999px;
+      background: rgba(255,255,255,.74);
+      color: #405047;
+      font: 700 11px/1.2 var(--mono);
+    }
+    .badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--line-strong); }
+    .badge--fact::before, .badge--good::before { background: var(--green); }
+    .badge--inference::before { background: var(--amber); }
+    .badge--blocked::before, .badge--risk::before { background: var(--red); }
+    .badge--local::before { background: var(--teal); }
+    .badge--historic::before { background: var(--blue); }
+
+    .hero__grid,
+    .grid-2,
+    .grid-3,
+    .grid-4 {
+      display: grid;
+      gap: 12px;
+    }
+    .hero__grid { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 34px; }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .metric,
+    .card,
+    .module,
+    .callout,
+    .step {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--surface-2);
+    }
+    .metric { padding: 14px; }
+    .metric span { display: block; color: var(--muted); font: 700 10px/1.2 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+    .metric strong { display: block; margin-top: 7px; color: var(--ink); font-size: clamp(22px, 3vw, 38px); line-height: 1; overflow-wrap: anywhere; }
+    .metric small { display: block; margin-top: 8px; color: var(--muted); font-size: 11px; }
+
+    .section { margin-top: 18px; padding: clamp(22px, 3.5vw, 42px); scroll-margin-top: 14px; }
+    .section__heading {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--line);
+    }
+    .section__heading p { max-width: 680px; margin: 8px 0 0; color: var(--muted); }
+    .section__index { color: var(--green); font: 800 13px/1 var(--mono); }
+    p { margin: 10px 0 0; }
+    ul, ol { padding-left: 1.25rem; }
+    li + li { margin-top: 6px; }
+    .card { padding: 18px; }
+    .card > p, .module p { color: #45544c; }
+    .card h3 + p, .module h3 + p { margin-top: 7px; }
+
+    .callout { padding: 16px 18px; border-left: 4px solid var(--green); }
+    .callout--warning { border-left-color: var(--amber); background: var(--amber-soft); }
+    .callout--risk { border-left-color: var(--red); background: var(--red-soft); }
+    .callout--info { border-left-color: var(--teal); background: var(--teal-soft); }
+    .callout strong { display: block; }
+
+    .table-wrap {
+      width: 100%;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: white;
+    }
+    table { width: 100%; border-collapse: collapse; min-width: 760px; font-size: 12px; }
+    th, td { padding: 11px 12px; border-bottom: 1px solid #e8e3d8; text-align: left; vertical-align: top; }
+    th { position: sticky; top: 0; z-index: 1; color: #45534b; background: #f0ede5; font: 800 10px/1.35 var(--mono); text-transform: uppercase; letter-spacing: .06em; }
+    tr:last-child td { border-bottom: 0; }
+    tbody tr:hover td { background: #fbfaf5; }
+    .status { display: inline-block; padding: 3px 7px; border-radius: 999px; font: 800 10px/1.2 var(--mono); white-space: nowrap; }
+    .status--done { color: var(--green); background: var(--green-soft); }
+    .status--partial { color: var(--amber); background: var(--amber-soft); }
+    .status--blocked { color: var(--red); background: var(--red-soft); }
+    .status--planned { color: var(--blue); background: var(--blue-soft); }
+
+    .architecture {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(118px, 1fr));
+      gap: 8px;
+      align-items: stretch;
+    }
+    .architecture__node {
+      position: relative;
+      padding: 14px 12px;
+      border: 1px solid var(--line-strong);
+      border-top: 4px solid var(--green);
+      border-radius: 9px;
+      background: white;
+    }
+    .architecture__node:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      top: 50%;
+      right: -10px;
+      z-index: 2;
+      transform: translateY(-50%);
+      color: var(--rust);
+      font-weight: 900;
+    }
+    .architecture__node span { display: block; color: var(--muted); font: 700 10px/1.3 var(--mono); }
+    .architecture__node strong { display: block; margin-top: 6px; font-size: 13px; }
+    .architecture__node small { display: block; margin-top: 7px; color: var(--muted); font-size: 10px; }
+    .architecture__node:nth-child(2) { border-top-color: var(--teal); }
+    .architecture__node:nth-child(3) { border-top-color: var(--rust); }
+    .architecture__node:nth-child(4) { border-top-color: var(--amber); }
+    .architecture__node:nth-child(5) { border-top-color: var(--blue); }
+    .architecture__node:nth-child(6) { border-top-color: var(--teal); }
+    .architecture__node:nth-child(7) { border-top-color: var(--green); }
+
+    .module-toolbar {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+    .module-toolbar input {
+      width: min(480px, 100%);
+      padding: 10px 12px;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: white;
+      color: var(--ink);
+      font: 13px var(--sans);
+    }
+    .module-list { display: grid; gap: 10px; }
+    .module { padding: 0; overflow: hidden; background: white; }
+    .module summary {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 16px 18px;
+      cursor: pointer;
+      list-style: none;
+    }
+    .module summary::-webkit-details-marker { display: none; }
+    .module summary::after { content: "+"; color: var(--green); font: 900 20px/1 var(--mono); }
+    .module[open] summary::after { content: "−"; }
+    .module summary small { display: block; margin-top: 4px; color: var(--muted); }
+    .module__body { padding: 0 18px 18px; border-top: 1px solid var(--line); }
+    .module__grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+    .module__grid > div { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); }
+    .module__grid h4 { color: var(--green); }
+    .module__grid ul { margin-bottom: 0; font-size: 12px; }
+
+    .timeline { display: grid; gap: 12px; counter-reset: phase; }
+    .step {
+      position: relative;
+      display: grid;
+      grid-template-columns: 58px minmax(0, 1fr) minmax(180px, .34fr);
+      gap: 14px;
+      padding: 16px;
+      counter-increment: phase;
+      background: white;
+    }
+    .step::before {
+      content: counter(phase, decimal-leading-zero);
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      border: 1px solid var(--green);
+      border-radius: 50%;
+      color: var(--green);
+      font: 800 12px/1 var(--mono);
+      background: var(--green-soft);
+    }
+    .step h3 { font-size: 16px; }
+    .step p { color: var(--muted); font-size: 12px; }
+    .step__gate { padding-left: 12px; border-left: 1px solid var(--line); }
+    .step__gate strong { display: block; color: var(--rust); font-size: 12px; }
+    .step__gate span { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; }
+
+    .tree { font: 12px/1.65 var(--mono); }
+    .tree span { color: var(--muted); }
+    .evidence-links { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .evidence-links a { display: block; padding: 14px; border: 1px solid var(--line); border-radius: 9px; background: white; text-decoration: none; }
+    .evidence-links strong { display: block; color: var(--ink); }
+    .evidence-links span { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; }
+    .review-box { padding: 18px; border: 1px solid var(--line-strong); border-radius: 10px; background: #18231e; color: #dcebe3; }
+    .review-box strong { color: #fff; }
+    .review-box p, .review-box li { color: #c1d0c8; }
+
+    .footer { margin: 18px 0 0; padding: 18px 6px; color: var(--muted); font-size: 11px; text-align: center; }
+    .no-match { display: none; }
+
+    @media (max-width: 1180px) {
+      .page-shell { grid-template-columns: 1fr; }
+      .sidebar { position: static; max-height: none; }
+      .sidebar nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .sidebar__actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .hero__grid, .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .architecture { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .architecture__node::after { display: none; }
+      .module__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 700px) {
+      .page-shell { width: min(100% - 16px, 1560px); margin-top: 8px; }
+      .sidebar { padding: 14px 10px; }
+      .sidebar nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .hero, .section { padding: 20px 16px; border-radius: 11px; }
+      .hero__grid, .grid-2, .grid-3, .grid-4, .architecture, .evidence-links { grid-template-columns: 1fr; }
+      .section__heading { display: block; }
+      .section__index { display: block; margin-top: 10px; }
+      .module__grid { grid-template-columns: 1fr; }
+      .step { grid-template-columns: 44px minmax(0, 1fr); }
+      .step__gate { grid-column: 2; padding: 10px 0 0; border: 0; border-top: 1px solid var(--line); }
+      .hero::after { display: none; }
+      h1 { font-size: 36px; }
+      table { min-width: 690px; }
+    }
+
+    @media print {
+      body { background: white; }
+      .page-shell { display: block; width: 100%; margin: 0; }
+      .sidebar { display: none; }
+      .hero, .section { box-shadow: none; break-inside: avoid; }
+      .section { margin-top: 10px; }
+      details.module { break-inside: avoid; }
+      details.module:not([open]) > *:not(summary) { display: block; }
+      a { color: black; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到正文</a>
+  <div class="page-shell">
+    <aside class="sidebar" aria-label="报告目录">
+      <div class="sidebar__brand">
+        <span>Plugin Hub / Review 2026.07.28</span>
+        <strong>全项目复盘与演进蓝图</strong>
+      </div>
+      <nav>
+        <a href="#summary"><b>01</b><span>执行摘要</span></a>
+        <a href="#evidence"><b>02</b><span>证据与边界</span></a>
+        <a href="#deliverables"><b>03</b><span>交付目录</span></a>
+        <a href="#strategy"><b>04</b><span>产品定位</span></a>
+        <a href="#architecture"><b>05</b><span>设计逻辑</span></a>
+        <a href="#graphify"><b>06</b><span>Graphify 分析</span></a>
+        <a href="#modules"><b>07</b><span>模块复盘</span></a>
+        <a href="#manual"><b>08</b><span>使用手册</span></a>
+        <a href="#findings"><b>09</b><span>问题与优先级</span></a>
+        <a href="#merge"><b>10</b><span>分支合并计划</span></a>
+        <a href="#roadmap"><b>11</b><span>产品路线图</span></a>
+        <a href="#execution"><b>12</b><span>执行计划</span></a>
+        <a href="#acceptance"><b>13</b><span>验收体系</span></a>
+        <a href="#review"><b>14</b><span>Codex Review</span></a>
+        <a href="#appendix"><b>15</b><span>附录</span></a>
+      </nav>
+      <div class="sidebar__actions">
+        <button type="button" id="expandModules">展开全部模块</button>
+        <button type="button" onclick="window.print()">打印 / 导出 PDF</button>
+        <a class="button" href="graphify/graphify-out/graph.html">打开代码图谱</a>
+        <a class="button" href="graphify/graphify-out/CALLFLOW.html">打开调用流</a>
+      </div>
+    </aside>
+
+    <main id="main">
+      <header class="hero" id="summary">
+        <p class="kicker">Local evidence · architecture · product · governance</p>
+        <h1>Plugin Hub 已具备“VOC 证据中台”骨架，下一阶段应从功能扩张转向可信运营闭环。</h1>
+        <p class="hero__lead">
+          当前代码已覆盖三平台扩展入口、私有 API、事务化 raw/canonical 资产、带租约栅栏的任务队列、运营工作台、确定性洞察、不可变快照、备份恢复和 CI。技术候选的本地质量较强；商业化短板集中在真实平台 E2E、证据复核工作流、洞察历史 UI、队列事件/SLO、密钥身份和跨区域恢复。
+        </p>
+        <div class="hero__meta">
+          <span class="badge badge--fact">事实：本地完整门禁通过</span>
+          <span class="badge badge--local">Graphify 0.9.28 / code-only</span>
+          <span class="badge badge--inference">判断：技术 MVP 成熟，商业闭环仍在形成</span>
+          <span class="badge badge--blocked">边界：未执行 merge / deploy / DB / provider / live capture</span>
+        </div>
+        <div class="hero__grid">
+          <div class="metric"><span>Graph nodes</span><strong>1,877</strong><small>141 文件扫描 / 4 个 zero-AST JSON</small></div>
+          <div class="metric"><span>Graph edges</span><strong>5,145</strong><small>0 dangling / duplicate / self-loop</small></div>
+          <div class="metric"><span>Local tests</span><strong>370</strong><small>219 API + 41 Web + 102 Extension + 8 version</small></div>
+          <div class="metric"><span>Current PR</span><strong>#3 Draft</strong><small>CLEAN · MERGEABLE · 0 behind / 8 ahead</small></div>
+        </div>
+      </header>
+
+      <section class="section" id="evidence">
+        <div class="section__heading">
+          <div><p class="kicker">Evidence contract</p><h2>证据等级与本轮边界</h2><p>报告先限定“能证明什么”，再给结论。历史生产验收不会被包装成 2026-07-28 的实时状态。</p></div>
+          <span class="section__index">02 / 15</span>
+        </div>
+        <div class="grid-3">
+          <article class="card">
+            <h3>本轮已验证事实</h3>
+            <ul>
+              <li>Graphify 已升级到 <code>0.9.28</code> 并完成本地 code-only 图谱。</li>
+              <li>当前分支、PR #3、提交拓扑与 GitHub checks 已只读核验。</li>
+              <li>完整测试、lint、typecheck、build、版本和三插件 package verify 已运行。</li>
+              <li>源码、测试、PRD、Loop38-42 验收与治理 runbook 已交叉检查。</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>历史证据</h3>
+            <ul>
+              <li>Loop39-41 记录了 2026-07-10 的生产加固、备份恢复、快照和源码对账。</li>
+              <li>这些记录可证明当时的动作与结果，不证明今日生产仍保持同一状态。</li>
+              <li>PR #3 的 CI 结果来自 2026-07-10；合并前仍需 fresh run。</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>本轮明确未做</h3>
+            <ul>
+              <li>未访问生产密钥、原始 payload 或用户内容。</li>
+              <li>未执行生产 GET smoke、迁移、备份、部署、Nginx 或 timer 操作。</li>
+              <li>未调用 Meta/Reddit/Amazon provider，未 live capture/upload。</li>
+              <li>已本地创建 Commit A（<code>3ba8e9c</code>）、Commit B（<code>b616235</code>）与 Graphify 边界纠偏（<code>7b1c659</code>）；未 push、转 Ready 或 merge PR。</li>
+            </ul>
+          </article>
+        </div>
+        <div class="callout callout--warning" style="margin-top:12px">
+          <strong>解释规则</strong>
+          <p><b>事实</b>来自本轮命令/源码/测试；<b>推断</b>是基于产品与架构证据的判断；<b>待验证</b>需要浏览器、平台账号或生产授权。Graphify 的 INFERRED 边只用于导航，结论已回到源码与测试复核。</p>
+        </div>
+      </section>
+
+      <section class="section" id="deliverables">
+        <div class="section__heading">
+          <div><p class="kicker">Output structure</p><h2>整体目录与内容</h2><p>主文档可离线阅读；Graphify 交互图依赖外部脚本 CDN，JSON、Markdown 报告和本主文档不依赖它。</p></div>
+          <span class="section__index">03 / 15</span>
+        </div>
+        <div class="grid-2">
+          <pre class="tree">docs/reviews/plugin-hub-project-review-20260728/
+├── index.html                         <span># 本报告：复盘、设计、手册、计划</span>
+├── STAGING_MANIFEST.md                <span># 精确暂存、排除和 owner gates</span>
+└── graphify/graphify-out/
+    ├── graph.json                     <span># 1,877 nodes / 5,145 edges</span>
+    ├── graph.html                     <span># 交互知识图谱</span>
+    ├── GRAPH_REPORT.md                <span># Graphify 架构摘要</span>
+    ├── GRAPH_TREE.html                <span># 文件/符号树</span>
+    ├── CALLFLOW.html                  <span># 17 个 Mermaid 调用流</span>
+    ├── manifest.json                  <span># 提取清单</span>
+    ├── .graphify_analysis.json        <span># 聚类与分析元数据</span>
+    ├── .graphify_labels.json          <span># Community N 确定性标签</span>
+    ├── .graphify_labels.json.sig      <span># 标签签名</span>
+    └── .graphify_root                 <span># 本地图谱根路径，不提交</span></pre>
+          <div class="card">
+            <h3>提交建议</h3>
+            <p>若要进入 PR，建议按精确 manifest 形成三个候选提交：</p>
+            <ol>
+              <li><code>feat: harden data assets, snapshots, backups, and runtime configuration</code>：本轮代码/测试，已本地提交。</li>
+              <li><code>chore(graphify): add local analysis boundary</code>：仅 <code>.graphifyignore</code>、<code>.gitignore</code>。</li>
+              <li><code>docs(review): add project retrospective and execution plan</code>：本目录可移植的非缓存文件；排除包含本机绝对路径的 <code>.graphify_root</code>。</li>
+            </ol>
+            <p>Graphify AST cache 已删除并被忽略，可按需重建；不把 <code>.kiro/</code>、<code>output/</code>、旧草稿、浏览器工具或 PEM 纳入这些提交。详见 <a href="STAGING_MANIFEST.md">STAGING_MANIFEST.md</a>。</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="strategy">
+        <div class="section__heading">
+          <div><p class="kicker">Product thesis</p><h2>产品定位：从“抓评论”到“经营证据”</h2><p>项目的护城河不是爬取速度，而是证据的来源、覆盖、结构、完整性、历史和行动映射。</p></div>
+          <span class="section__index">04 / 15</span>
+        </div>
+        <div class="grid-3">
+          <article class="card"><h3>输入</h3><p>Amazon 评论、Reddit thread/comment、授权后的 Instagram media comments。每次采集携带平台语义、对象身份、覆盖范围和停止原因。</p></article>
+          <article class="card"><h3>资产化</h3><p>raw 证据原样保存，canonical VOC 统一分析字段，platform extension 保留差异，relation/signal/brief 保留证据引用。</p></article>
+          <article class="card"><h3>输出</h3><p>把用户声音映射到产品改良、Listing、FAQ、广告、内容、客服和补采动作；低证据量只形成待验证假设。</p></article>
+        </div>
+        <div class="table-wrap" style="margin-top:14px">
+          <table>
+            <thead><tr><th>目标用户</th><th>首要任务</th><th>项目价值</th><th>当前缺口</th></tr></thead>
+            <tbody>
+              <tr><td>选品 / 产品经理</td><td>定位差评根因、功能缺口和使用场景</td><td>跨平台证据统一、原文可追溯</td><td>缺少跨 ASIN/市场的主题聚合与对比</td></tr>
+              <tr><td>Listing / 内容运营</td><td>提炼真实语言、异议、FAQ、卖点</td><td>InsightBrief 已映射行动类型</td><td>缺少编辑、审批、导出和效果回写</td></tr>
+              <tr><td>广告 / 社媒</td><td>寻找素材 hook、社区语境和购买阻力</td><td>Reddit 树结构与证据强度保留</td><td>真实平台样本、语言画像与素材实验未闭环</td></tr>
+              <tr><td>团队负责人</td><td>看采集健康、证据质量、待补采和历史</td><td>VOC Hub + run 资产表 + snapshot API</td><td>快照历史 UI、告警、团队权限仍缺失</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section" id="architecture">
+        <div class="section__heading">
+          <div><p class="kicker">Architecture & invariants</p><h2>完整设计逻辑</h2><p>主链路遵循“先保真、再统一、后推断、最终行动”的顺序，任何推断不得越过证据层。</p></div>
+          <span class="section__index">05 / 15</span>
+        </div>
+        <div class="architecture" aria-label="Plugin Hub 数据链路">
+          <div class="architecture__node"><span>01 / CONTEXT</span><strong>平台页面</strong><small>ASIN / thread / media</small></div>
+          <div class="architecture__node"><span>02 / CAPTURE</span><strong>独立扩展</strong><small>Amazon / Reddit / Instagram</small></div>
+          <div class="architecture__node"><span>03 / GATE</span><strong>API + 授权</strong><small>read/write key / allowlist / preflight</small></div>
+          <div class="architecture__node"><span>04 / ASSET</span><strong>单事务落库</strong><small>run + raw + canonical</small></div>
+          <div class="architecture__node"><span>05 / DERIVE</span><strong>关系与洞察</strong><small>signal / note / brief</small></div>
+          <div class="architecture__node"><span>06 / HISTORY</span><strong>不可变快照</strong><small>explicit migration / digest / trigger</small></div>
+          <div class="architecture__node"><span>07 / ACTION</span><strong>VOC Hub</strong><small>复核 / 诊断 / 行动</small></div>
+        </div>
+        <div class="grid-2" style="margin-top:14px">
+          <article class="card">
+            <h3>不可破坏的项目不变量</h3>
+            <ul>
+              <li>成功采集必须在一个 repository transaction 写入 <code>collection_runs</code>、<code>raw_source_items</code>、<code>canonical_voc_units</code>。</li>
+              <li>raw 是 append-only 业务证据；部署不得删除或重写它。</li>
+              <li>read-time 洞察不是历史；只有显式 <code>0001_analysis_snapshots</code> 与 snapshot API 创建的行才是历史。</li>
+              <li>本地、fixture、生产只读、授权 live side effect 是不同证据等级。</li>
+              <li>Instagram 必须同时通过凭据、live-read 开关和 task authorization，且 <code>production_write=false</code>。</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>关键设计取舍</h3>
+            <ul>
+              <li><b>SQLite</b>降低 P0 运维成本，但要求 WAL、busy timeout、备份和单写者所有权。</li>
+              <li><b>平台独立扩展包</b>隔离权限与商店版本，共享捕获、契约、UI 和后台。</li>
+              <li><b>确定性洞察优先</b>避免 provider 成本与幻觉；后续 LLM 只能润色/排序并保留 evidence refs。</li>
+              <li><b>Graph/API gate</b>把“代码存在”“fixture 通过”“可 live read”“允许生产写”拆开。</li>
+              <li><b>显式迁移</b>仅负责快照历史，避免 startup <code>create_all</code>偷建历史表。</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" id="graphify">
+        <div class="section__heading">
+          <div><p class="kicker">Graphify core analysis</p><h2>代码图谱结论</h2><p>Graphify 作为导航和复杂度雷达使用；指标是本地 AST 证据，不是业务正确性的替代物。</p></div>
+          <span class="section__index">06 / 15</span>
+        </div>
+        <div class="grid-4">
+          <div class="metric"><span>Code files</span><strong>141</strong><small>51 个非代码文件被 code-only 跳过</small></div>
+          <div class="metric"><span>Communities</span><strong>92</strong><small>本地聚类，无 LLM 命名</small></div>
+          <div class="metric"><span>Token reduction</span><strong>5.8×</strong><small>Graphify 本地 benchmark，不外推</small></div>
+          <div class="metric"><span>Zero-AST</span><strong>4</strong><small>2 registry JSON + 2 fixture JSON</small></div>
+        </div>
+        <div class="table-wrap" style="margin-top:14px">
+          <table>
+            <thead><tr><th>高连接节点</th><th>Degree</th><th>架构含义</th><th>演进建议</th></tr></thead>
+            <tbody>
+              <tr><td><code>SqlAlchemyRepository</code></td><td>120</td><td>事务、资产读模型、任务、settings 集中</td><td>拆为 CollectionWriteRepository / AssetReadRepository / TaskRepository，同时保留 transaction service</td></tr>
+              <tr><td><code>Platform</code></td><td>66</td><td>三平台共享契约的核心枚举</td><td>新增平台必须走 registry + capability + ETL + test matrix，不在 UI 里散落分支</td></tr>
+              <tr><td><code>StrictBaseModel</code></td><td>57</td><td>API 契约默认拒绝额外字段</td><td>保留；为外部版本升级增加 versioned adapters</td></tr>
+              <tr><td><code>Settings</code></td><td>43</td><td>安全、DB、worker、provider gate 汇聚</td><td>拆分配置域并加入启动时配置摘要（不含 secret）</td></tr>
+              <tr><td><code>CollectionTaskWorkerConfig</code></td><td>39</td><td>任务执行策略与平台能力耦合</td><td>抽象 handler capability descriptor；补任务事件、心跳和 SLO</td></tr>
+              <tr><td><code>CollectionTaskClaimLostError</code></td><td>37</td><td>租约 token 已贯穿 worker 与证据事务</td><td>保留 fail-closed 栅栏；增加 10-worker 压测和 claim-loss 指标</td></tr>
+              <tr><td><code>isRecord()</code> / Web API parser</td><td>27</td><td>1,575 行手写 runtime parser</td><td>从 OpenAPI/共享 schema 生成客户端或拆域 parser，减少漂移</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="evidence-links" style="margin-top:14px">
+          <a href="graphify/graphify-out/graph.html"><strong>交互代码图谱</strong><span>搜索节点、关系与社区；需要加载 vis-network CDN。</span></a>
+          <a href="graphify/graphify-out/CALLFLOW.html"><strong>架构调用流</strong><span>18 个章节、17 张 Mermaid 图；需要 Mermaid CDN。</span></a>
+          <a href="graphify/graphify-out/GRAPH_TREE.html"><strong>文件 / 符号树</strong><span>从目录下钻到符号与出边；需要 D3 CDN。</span></a>
+          <a href="graphify/graphify-out/GRAPH_REPORT.md"><strong>Graph 报告</strong><span>God nodes、社区与建议问题，本地 Markdown。</span></a>
+          <a href="graphify/graphify-out/graph.json"><strong>原始 graph.json</strong><span>可用 <code>graphify query/path/explain</code> 二次查询。</span></a>
+          <a href="graphify/graphify-out/manifest.json"><strong>提取 manifest</strong><span>文件清单与提取边界。</span></a>
+        </div>
+        <div class="callout callout--info" style="margin-top:12px">
+          <strong>Graphify 可见性限制</strong>
+          <p><code>extension-targets.json</code>、<code>extension-versions.json</code> 和两个 fixture JSON 持续产生 zero-AST，因此平台 registry、版本和 fixture 结论已用 <code>jq</code>、源码与测试单独复核；Markdown/图片未做语义提取，避免外部模型调用。</p>
+        </div>
+      </section>
+
+      <section class="section" id="modules">
+        <div class="section__heading">
+          <div><p class="kicker">Module-by-module review</p><h2>逐产品模块复盘与迭代方向</h2><p>每个模块都列出当前事实、设计逻辑、使用方式、下一迭代和验收门禁。</p></div>
+          <span class="section__index">07 / 15</span>
+        </div>
+        <div class="module-toolbar">
+          <input id="moduleSearch" type="search" placeholder="搜索模块、风险或迭代项，例如 snapshot / Reddit / queue" aria-label="搜索模块">
+        </div>
+        <div class="module-list" id="moduleList">
+          <details class="module" open data-search="amazon extension asin review marketplace capture page parser listing">
+            <summary><span><b>01 · Amazon VOC 扩展</b><small>独立 MV3 包 · DOM 多页采集 · ASIN/marketplace/rating 语义</small></span><span class="status status--partial">可用 / 需真实 E2E</span></summary>
+            <div class="module__body"><div class="module__grid">
+              <div><h4>当前事实</h4><ul><li>独立 target、host permissions、版本 0.2.1。</li><li>商品/评论页检测、next link walk、页预算、去重、stop reason、coverage。</li><li>包验证 15 entries，content script 253,895 bytes。</li></ul></div>
+              <div><h4>设计逻辑</h4><ul><li>不承诺全量，只承诺采集范围可解释。</li><li>rating/verified/helpful 作为显式强信号。</li><li>extension payload hash 由服务端重算。</li></ul></div>
+              <div><h4>使用方式</h4><ul><li>加载 <code>dist/amazon</code>。</li><li>打开支持的 Amazon 域名商品或评论页。</li><li>预览 → 检查 raw/coverage → 回传或导出。</li></ul></div>
+              <div><h4>下一迭代</h4><ul><li>P0：US/UK/DE/CA/AU/JP 真实页面矩阵与 CAPTCHA/空页分类。</li><li>P1：ASIN × market × star segment 对比。</li><li>验收：固定候选 hash、Chrome 卡片、无错误、受控上传与 run 对账。</li></ul></div>
+            </div></div>
+          </details>
+
+          <details class="module" open data-search="reddit thread json dom fallback oauth server proxy more node queue">
+            <summary><span><b>02 · Reddit VOC 扩展与服务端补采</b><small>.json?raw_json=1 · DOM fallback · thread/comment 树 · worker retry</small></span><span class="status status--partial">双路径 / 外部可达性不稳定</span></summary>
+            <div class="module__body"><div class="module__grid">
+              <div><h4>当前事实</h4><ul><li>扩展 JSON 主路径、DOM fallback、server proxy/OAuth skeleton。</li><li>保存 <code>t3_</code>/<code>t1_</code>、parent/depth、deleted/removed、more node。</li><li>content script 256,568 bytes。</li></ul></div>
+              <div><h4>设计逻辑</h4><ul><li>评论不能脱离 thread 解释。</li><li>more node 物理保留但排除洞察。</li><li>JSON/DOM 都失败时显式提交 server task。</li></ul></div>
+              <div><h4>使用方式</h4><ul><li>加载 <code>dist/reddit</code> 并打开 thread。</li><li>扩展先请求 JSON；失败后读 DOM。</li><li>无 raw 时使用“服务端补采”，查看 pending/retry/completed。</li></ul></div>
+              <div><h4>下一迭代</h4><ul><li>P0：真实登录态/匿名态/old/new Reddit E2E。</li><li>P1：在已完成 token fencing 上补 10-worker 压测、心跳、任务事件与 SLO。</li><li>P1：受控展开 more node，记录预算与覆盖差。</li></ul></div>
+            </div></div>
+          </details>
+
+          <details class="module" open data-search="instagram meta graph authorization preflight token live read gated media comment">
+            <summary><span><b>03 · Instagram / Meta 授权模块</b><small>fixture + Graph client skeleton + 三重 fail-closed gate</small></span><span class="status status--blocked">授权门控 / 非 live 完成态</span></summary>
+            <div class="module__body"><div class="module__grid">
+              <div><h4>当前事实</h4><ul><li>独立 0.2.1 包、media URL 检测、fixture ETL、Graph URL 与 token 脱敏。</li><li>凭据、live-read switch、task authorization 三道门。</li><li>当前页面捕获明确抛出授权错误，不做 DOM scraping。</li></ul></div>
+              <div><h4>设计逻辑</h4><ul><li>fixture 成功不等于 Meta 权限成功。</li><li>readiness、dry preflight、live read、production write 四层分离。</li><li>任务必须记录 authorized_by/at/environment，且 production_write=false。</li></ul></div>
+              <div><h4>使用方式</h4><ul><li>默认只查看 capability 与 preflight 状态。</li><li>token 仅放后端 runtime；不进插件、日志或仓库。</li><li>任何 live read 需单独审批并在非生产先验收。</li></ul></div>
+              <div><h4>下一迭代</h4><ul><li>P0：确认 Meta App、专业账号、权限 scope 与 media ownership。</li><li>P1：授权 live-read 合同测试与单个 media 受控读取。</li><li>生产写、商店提交继续作为独立门禁。</li></ul></div>
+            </div></div>
+          </details>
+
+          <details class="module" data-search="shared extension registry manifest package popup command bar shadow dom ui ux">
+            <summary><span><b>04 · 扩展共享内核与页面内操作台</b><small>target registry · Shadow DOM · popup settings · ContentCommandBar</small></span><span class="status status--partial">功能完整 / 文件过大</span></summary>
+            <div class="module__body"><div class="module__grid">
+              <div><h4>当前事实</h4><ul><li>一套 source 生成三套权限隔离包。</li><li>页面 URL 轮询 + Shadow DOM 挂载。</li><li>预览、回传、导出、洞察、错误恢复在 command bar 内闭环。</li></ul></div>
+              <div><h4>设计逻辑</h4><ul><li>价值发生在平台页面，popup 只做设置。</li><li>同一 pipeline：Detect → Raw → Schema → Canonical → Insight。</li><li>API key 存 chrome.storage.local，由 service worker 注入。</li></ul></div>
+              <div><h4>结构债务</h4><ul><li><code>ContentCommandBar.tsx</code> 1,150 行，CSS 954 行，Popup 500 行。</li><li>三包 popup 均约 329 KB，洞察解析逻辑重复。</li><li>缺少端到端可访问性和真实页面长期回归。</li></ul></div>
+              <div><h4>下一迭代</h4><ul><li>拆分 drawer tabs、state machine、platform adapters、API parser。</li><li>洞察与导出按需加载；设置页隐藏 key 并支持 rotation 提示。</li><li>验收：375px、键盘、焦点、页面无污染、bundle budget。</li></ul></div>
+            </div></div>
+          </details>
+
+          <details class="module" data-search="api security auth cors host allowlist source url ssrf fastapi">
+            <summary><span><b>05 · API 安全与接入层</b><small>FastAPI · read/write API key · TrustedHost · CORS · SSRF allowlist</small></span><span class="status status--done">本地强基线</span></summary>
+            <div class="module__body"><div class="module__grid">
+              <div><h4>当前事实</h4><ul><li>所有 <code>/api</code> router 统一依赖 <code>require_api_access</code>。</li><li>GET/HEAD 允许 read 或 write key，写操作只允许 write key。</li><li>production required 模式校验长度与不同 key。</li></ul></div>
+              <div><h4>设计逻辑</h4><ul><li>CORS 不是认证；API key 是服务端门。</li><li>常量时间比较，secret 使用 Pydantic SecretStr。</li><li>Reddit/Instagram 外部 URL 先 allowlist，再限制 redirect/size。</li></ul></div>
+              <div><h4>使用方式</h4><ul><li>本地可显式 disabled；生产必须 required。</li><li>通过 <code>X-Plugin-Hub-Api-Key</code> 传递。</li><li>健康检查与资产 API 分离。</li></ul></div>
+              <div><h4>下一迭代</h4><ul><li>P1：per-plugin/actor identity、key id、轮换窗口、撤销与审计。</li><li>P1：请求级 audit event 与异常速率告警。</li><li>验收：旧 key 退役、最小权限、无 secret 泄露。</li></ul></div>
+            </div></div>
+          </details>
+
+          <details class="module" open data-search="database raw canonical collection transaction etl schema sqlite append only migration">
+            <summary><span><b>06 · 数据资产、Schema 与 ETL</b><small>run/raw/canonical 单事务 · 平台保真 · SQLite WAL · hash/idempotency</small></span><span class="status status--partial">核心强 / DB 约束需深化</span></summary>
+            <div class="module__body"><div class="module__grid">
+              <div><h4>当前事实</h4><ul><li>一个事务写 run、raw、canonical，异常 rollback。</li><li>输入最多 2,000 raw，批次内应用层去重，extension hash 服务端复核。</li><li>FK、busy timeout、可选 WAL/FULL、文件 0600。</li></ul></div>
+              <div><h4>设计逻辑</h4><ul><li>raw 保真，canonical 统一，platform_extension 保差异。</li><li>跨 run 重复可以代表不同时间采样；批次内重复不应存在。</li><li>idempotency key 冲突返回 409，不静默覆盖。</li></ul></div>
+              <div><h4>当前风险</h4><ul><li>raw/canonical append-only 主要靠应用约定，DB 无 UPDATE/DELETE trigger。</li><li>核心表仍由 <code>create_all</code> 管理，只有 snapshot 是显式迁移。</li><li>缺少批次唯一 index 的数据库级最后防线。</li></ul></div>
+              <div><h4>下一迭代</h4><ul><li>P0/P1：新增 baseline migration 与 raw/canonical immutability trigger。</li><li>加 run 内唯一约束和复制库 dry-run。</li><li>规模阈值：写锁/文件大小/查询时延达到门槛后再评估 PostgreSQL。</li></ul></div>
+            </div></div>
+          </details>
+
+          <details class="module" open data-search="task queue worker claim retry stale settings audit concurrency">
+            <summary><span><b>07 · 任务队列与平台配置</b><small>handler registry · retry/stale recovery · settings + audit events</small></span><span class="status status--partial">可运行 / claim 需原子化</span></summary>
+            <div class="module__body"><div class="module__grid">
+              <div><h4>当前事实</h4><ul><li>按 <code>(platform, capture_method)</code> 分派 handler。</li><li>pending/running/retry/completed/failed，支持 claim TTL 与 stale 恢复。</li><li>平台设置写入 audit event，并在 Web 展示。</li></ul></div>
+              <div><h4>设计逻辑</h4><ul><li>失败不是裸字符串，要有 retry/terminal 语义。</li><li>API 与 CLI worker 共用 handler 和 DB 配置。</li><li>配置状态不等于 capability ready。</li></ul></div>
+              <div><h4>当前风险</h4><ul><li>claim 先 SELECT 全表、再内存判断和 UPDATE/commit；多执行者无条件更新。</li><li>顺序双 session 测试不能证明真正并发只认领一次。</li><li>缺少队列深度、耗时、失败率、stale 次数指标。</li></ul></div>
+              <div><h4>下一迭代</h4><ul><li>P0：条件 UPDATE/CAS 或受控 <code>BEGIN IMMEDIATE</code>，并发 barrier 测试。</li><li>P1：任务事件表、dead-letter/replay、SLO 与告警。</li><li>验收：N 个 worker 对 1 个 task 只有 1 个 side effect。</li></ul></div>
+            </div></div>
+          </details>
+
+          <details class="module" open data-search="insight signal strategy brief snapshot history deterministic template digest">
+            <summary><span><b>08 · 洞察、策略与不可变快照</b><small>deterministic signals · InsightBrief · explicit migration · digest/replay</small></span><span class="status status--partial">后端完整 / 产品历史入口缺失</span></summary>
+            <div class="module__body"><div class="module__grid">
+              <div><h4>当前事实</h4><ul><li>关系、信号、strategy note、InsightBrief 可读时生成。</li><li>snapshot 固定 inputs、template contract、payload/output digest。</li><li>同输入 deterministic replay；四个 trigger 禁止更新/删除。</li></ul></div>
+              <div><h4>设计逻辑</h4><ul><li>read-time 结果是当前视图，snapshot 才是历史。</li><li>Reddit more node 不进入分析。</li><li>低证据量输出 data gaps，不伪装确定结论。</li></ul></div>
+              <div><h4>当前风险</h4><ul><li><code>insights.py</code> 1,043 行，模板/评分/文案集中。</li><li>Web/Extension 无 snapshot list/detail UI。</li><li>没有人工复核、批准、发布、效果回写状态。</li></ul></div>
+              <div><h4>下一迭代</h4><ul><li>P0：Snapshot History + 版本 diff + evidence drill-down。</li><li>P1：template registry 管理、draft/review/approved/rejected。</li><li>P2：可选 LLM 只做润色/排序，记录 provider/model/input contract。</li></ul></div>
+            </div></div>
+          </details>
+
+          <details class="module" open data-search="web dashboard voc hub evidence workbench next api parser snapshot ui">
+            <summary><span><b>09 · VOC Hub 运营工作台</b><small>Next.js SSR · 健康指标 · 平台工作区 · Evidence table</small></span><span class="status status--partial">运营视图可用 / 单页过重</span></summary>
+            <div class="module__body"><div class="module__grid">
+              <div><h4>当前事实</h4><ul><li>并行加载 VOC、runs、tasks、capabilities、settings、briefs、notes。</li><li>精确聚合来自 data-assets summary，证据表加载最近 100 条。</li><li>filters、drawer、移动端布局与自动刷新已实现。</li></ul></div>
+              <div><h4>设计逻辑</h4><ul><li>首屏优先运行健康、待补采、低置信度与一致性。</li><li>read/write key 仅 server side 注入。</li><li>部分 API 失败时其他面板继续呈现。</li></ul></div>
+              <div><h4>当前风险</h4><ul><li><code>api.ts</code> 1,575 行、<code>page.tsx</code> 1,172 行、PlatformWorkspace 948 行。</li><li>无 snapshot history、跨 run 趋势、行动审批页面。</li><li>本地 Next root 误判警告尚未消除。</li></ul></div>
+              <div><h4>下一迭代</h4><ul><li>拆 route：Operations / Evidence / Insights / History / Settings。</li><li>按领域拆 parser，优先由共享 schema/OpenAPI 生成。</li><li>新增 URL 可分享的筛选、批量复核、CSV/Markdown 导出。</li></ul></div>
+            </div></div>
+          </details>
+
+          <details class="module" data-search="package version release chrome web store ci github actions branch pr">
+            <summary><span><b>10 · 版本、打包、CI 与发布治理</b><small>三插件独立版本 · package verifier · GitHub Actions · evidence grades</small></span><span class="status status--partial">本地与 CI 完整 / 商店未验收</span></summary>
+            <div class="module__body"><div class="module__grid">
+              <div><h4>当前事实</h4><ul><li>三目标版本均 0.2.1，可独立 bump。</li><li>三 ZIP 各 15 entries，manifest/host isolation/size 验证通过。</li><li>PR #3 有 API、Web/Extension、Deployment Config 三个 CI job。</li></ul></div>
+              <div><h4>设计逻辑</h4><ul><li>build ≠ Chrome 手工验收 ≠ Store upload ≠ publication。</li><li>source merge ≠ production deploy。</li><li>每个 live side effect 都有独立批准门。</li></ul></div>
+              <div><h4>当前风险</h4><ul><li>PR #3 仍 Draft，CI 为 7/10 历史 run。</li><li>商店 item ID、published version、manual Chrome acceptance 未闭环。</li><li>本轮新增 Graphify/报告尚未进 PR。</li></ul></div>
+              <div><h4>下一迭代</h4><ul><li>按本报告 merge plan 重新冻结 scope 与 fresh CI。</li><li>每个平台单独建立候选 hash → Chrome ID → Store item 证据链。</li><li>required checks / branch protection 需 owner 单独决定。</li></ul></div>
+            </div></div>
+          </details>
+
+          <details class="module" open data-search="backup restore deploy nginx systemd offhost age disaster recovery observability">
+            <summary><span><b>11 · 备份、恢复与部署</b><small>SQLite online backup · manifest/hash · age off-host · Nginx/systemd</small></span><span class="status status--partial">历史验收强 / 当前未刷新</span></summary>
+            <div class="module__body"><div class="module__grid">
+              <div><h4>历史事实</h4><ul><li>Loop39/40 记录 online backup、sidecar 修复、no-network restore。</li><li>本机 age 加密第二主机副本与 LaunchAgent。</li><li>Nginx Basic Auth、rate limit、安全头；API/worker WAL/FK/FULL。</li></ul></div>
+              <div><h4>设计逻辑</h4><ul><li>只删除重新核验为健康且超 retention 的副本。</li><li>备份发布使用 temp → verify → atomic rename。</li><li>本机副本不是跨区域/不可删除存储。</li></ul></div>
+              <div><h4>当前风险</h4><ul><li>7/10 后无本轮 fresh production/timer/archive evidence。</li><li>LaunchAgent 依赖用户会话、SSH alias、Keychain，无失败告警。</li><li>没有对象存储、跨区域或恢复时间 SLO。</li></ul></div>
+              <div><h4>下一迭代</h4><ul><li>P0：只读新鲜度/健康检查，不执行备份或部署。</li><li>P1：对象存储 immutable retention、告警、季度 restore drill。</li><li>验收：RPO/RTO、恢复 runbook、完整 digest/count/API smoke。</li></ul></div>
+            </div></div>
+          </details>
+        </div>
+      </section>
+
+      <section class="section" id="manual">
+        <div class="section__heading">
+          <div><p class="kicker">Operator & user manual</p><h2>完整使用手册</h2><p>按开发者、插件用户、VOC 运营和数据运维四类角色给出可执行路径。</p></div>
+          <span class="section__index">08 / 15</span>
+        </div>
+        <div class="grid-2">
+          <article class="card">
+            <h3>A. 本地开发</h3>
+            <pre>pnpm install
+uv --directory apps/api sync
+
+# API
+uv --directory apps/api run uvicorn plugin_hub_api.main:create_app \
+  --factory --reload --port 8000
+
+# Web
+PLUGIN_HUB_API_URL=http://localhost:8000 \
+  pnpm --filter @plugin-hub/web dev</pre>
+            <p>若启用 required auth，同时设置两个不同且至少 32 字符的 read/write key。生产 key 不得编译进前端或扩展。</p>
+          </article>
+          <article class="card">
+            <h3>B. 构建与加载扩展</h3>
+            <pre>pnpm --filter @plugin-hub/extension build
+pnpm package:extension
+pnpm verify:extension</pre>
+            <ol>
+              <li>打开 <code>chrome://extensions</code>，开启 Developer mode。</li>
+              <li>Load unpacked，选择 <code>apps/extension/dist/amazon</code>、<code>reddit</code> 或 <code>instagram</code>。</li>
+              <li>在 popup 设置 API URL 和 write key；不要截图或分享 key。</li>
+              <li>确认扩展名、版本 0.2.1、ID、enabled、0 errors，再打开目标页面。</li>
+            </ol>
+          </article>
+          <article class="card">
+            <h3>C. 运营采集</h3>
+            <ol>
+              <li>打开目标 Amazon 商品/评论页或 Reddit thread。</li>
+              <li>在页面操作台点击预览，核对 raw count、coverage、stop reason 与 flags。</li>
+              <li>有证据时回传；需要留档时导出 JSON/CSV。</li>
+              <li>Reddit 无 raw 且符合 fallback 状态时提交 server task。</li>
+              <li>到 VOC Hub 查看 run/raw/canonical 数量、占位节点、低置信度和任务状态。</li>
+            </ol>
+            <p>Instagram 默认只查看授权状态；没有明确 live-read 批准时不要创建 Graph 任务。</p>
+          </article>
+          <article class="card">
+            <h3>D. 洞察与历史</h3>
+            <ul>
+              <li><code>GET /api/insights/briefs</code>：当前 read-time 经营简报。</li>
+              <li><code>POST /api/insights/snapshots</code>：使用 write key 创建不可变当前时点快照。</li>
+              <li><code>GET /api/insights/snapshots</code>：读取历史 run。</li>
+              <li><code>GET /api/insights/snapshots/{id}</code>：读取 artifacts 与 digest。</li>
+            </ul>
+            <p>快照表缺失时返回 503；先在复制库 dry-run 并获得独立迁移批准，禁止把 startup <code>create_all</code> 当迁移。</p>
+          </article>
+          <article class="card">
+            <h3>E. Graphify 使用</h3>
+            <pre>graphify --version
+graphify extract . --code-only --force --max-workers 1 \
+  --out docs/reviews/plugin-hub-project-review-20260728/graphify
+
+graphify query "what connects auth to collection writes?" \
+  --graph docs/reviews/plugin-hub-project-review-20260728/graphify/graphify-out/graph.json
+
+graphify diagnose multigraph --json \
+  --graph docs/reviews/plugin-hub-project-review-20260728/graphify/graphify-out/graph.json</pre>
+            <p>成功必须检查节点/边非零和 zero-AST 清单；不能只看 exit code。</p>
+          </article>
+          <article class="card">
+            <h3>F. 质量门禁</h3>
+            <pre>pnpm test
+pnpm lint
+pnpm typecheck
+pnpm build
+pnpm version:extension:check
+pnpm verify:extension
+git diff --check</pre>
+            <p>本轮以上命令全部通过；Next 本地构建仍有父目录多 lockfile 导致的 workspace-root 警告。</p>
+          </article>
+        </div>
+        <div class="callout callout--risk" style="margin-top:12px">
+          <strong>生产操作必须另行批准</strong>
+          <p>数据库写入/迁移、backup 执行、timer/LaunchAgent 安装、credential rollout、Nginx reload、deployment、provider/live capture、Web Store upload/submission 均不由本手册自动授权。</p>
+        </div>
+      </section>
+
+      <section class="section" id="findings">
+        <div class="section__heading">
+          <div><p class="kicker">Findings & debt register</p><h2>完整复盘结论与优先级</h2><p>本轮未发现需要立即停止本地使用的 P0；以下为进入合并或下一产品批次前应处理的高价值项。</p></div>
+          <span class="section__index">09 / 15</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>优先级</th><th>发现</th><th>证据</th><th>影响</th><th>建议闭环</th></tr></thead>
+            <tbody>
+              <tr><td><span class="status status--done">已关闭</span></td><td>任务 claim、续写与证据提交已加租约栅栏</td><td>SQLite <code>BEGIN IMMEDIATE</code> 原子 claim；随机 token；更新/完成/失败/证据事务均校验 token、状态与过期时间；并发与过期 worker 测试通过</td><td>过期 worker 不能覆盖新 owner 或写入 run/raw/canonical</td><td>后续补 10-worker 压测、心跳、事件表与 claim-loss 指标</td></tr>
+              <tr><td><span class="status status--done">已关闭</span></td><td>快照历史列表与迁移 guard 的审查缺口</td><td><code>list_runs</code> 单 SQL 同时返回 page/total 且保留调用者事务；dry-run 检查 0002 checksum、两个 trigger 与 REPLACE 实际拒绝</td><td>并发插入不再产生元数据撕裂，迁移行与实际触发器漂移会 fail closed</td><td>生产 migration 仍需 copied DB、backup 与独立批准</td></tr>
+              <tr><td><span class="status status--blocked">P1</span></td><td>raw/canonical append-only 未由数据库强制</td><td>snapshot 有四个禁止 UPDATE/DELETE trigger；核心三表没有同类 trigger</td><td>操作员或未来代码可绕过 repository 修改高价值证据</td><td>显式 migration 增加 immutability trigger 与 break-glass runbook</td></tr>
+              <tr><td><span class="status status--blocked">P1</span></td><td>核心表仍依赖 <code>create_all</code></td><td><code>db.py:init_database</code>；只有 snapshot migration 有 checksum/version</td><td>未来 schema 变更、回滚和环境漂移难以治理</td><td>建立 baseline migration，生产复制库 dry-run 后接管核心 schema</td></tr>
+              <tr><td><span class="status status--blocked">P1</span></td><td>快照历史 API 没有产品入口</td><td>Web 与 Extension 无 snapshot client/route/component</td><td>“不可变历史”只能由 API 操作，运营无法比较版本或批准结果</td><td>Insights History 页面、diff、evidence drill-down、review state</td></tr>
+              <tr><td><span class="status status--blocked">P1</span></td><td>共享 read/write key 缺少 actor identity</td><td>Settings 只有两把全局 key</td><td>无法按插件/用户撤销、轮换或归因</td><td>key id + actor/target + scope + rotation + audit event</td></tr>
+              <tr><td><span class="status status--blocked">P1</span></td><td>灾备没有跨区域与失败告警</td><td>历史第二主机为本机 Mac，LaunchAgent 依赖用户会话/SSH/Keychain</td><td>本机离线或凭据异常可能静默拉长 RPO</td><td>immutable object storage、alert、季度 restore drill、RPO/RTO</td></tr>
+              <tr><td><span class="status status--partial">P2</span></td><td>六个高复杂度单文件</td><td>api.ts 1575、page.tsx 1172、ContentCommandBar 1150、insights.py 1043、PlatformWorkspace 948、reddit-parser 880</td><td>修改成本、review 噪声、契约漂移</td><td>按领域/平台/视图拆分并加 contract tests，避免大爆炸重构</td></tr>
+              <tr><td><span class="status status--partial">P2</span></td><td>Next 本地 workspace root 警告</td><td>父目录 <code>~/package-lock.json</code> 被自动选为 root</td><td>本地 trace 范围与复现性噪声</td><td>在 <code>next.config.ts</code> 显式设置 outputFileTracingRoot，不删除父目录用户文件</td></tr>
+              <tr><td><span class="status status--partial">P2</span></td><td>Graphify 对关键 JSON zero-AST</td><td>target/version registries 与两 fixture 为 0 nodes</td><td>图谱不能单独证明平台/版本/fixture 合同</td><td>保留 jq + contract tests 的独立 evidence lane</td></tr>
+              <tr><td><span class="status status--partial">P2</span></td><td>本地 Python 与 CI 版本不完全一致</td><td>本轮 pytest 使用 Python 3.14.4；CI 计划固定 3.12</td><td>依赖行为可能存在小幅版本差异</td><td>合并前在 CI 3.12 fresh run；本地可增加版本矩阵但不必阻塞开发</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section" id="merge">
+        <div class="section__heading">
+          <div><p class="kicker">Branch & merge plan</p><h2>分支合并优化计划</h2><p>当前 PR #3 技术上可合并，但仍是 Draft，且本轮新增交付物尚未进入 PR；因此推荐“先原子收口，再 fresh review”，不直接 merge。</p></div>
+          <span class="section__index">10 / 15</span>
+        </div>
+        <div class="grid-4">
+          <div class="metric"><span>Branch</span><strong style="font-size:18px">codex/data-asset-…</strong><small>local HEAD 7b1c659</small></div>
+          <div class="metric"><span>Topology</span><strong>0 / +11</strong><small>local behind / ahead origin/main；3 commits 未 push</small></div>
+          <div class="metric"><span>PR state</span><strong>#3 Draft</strong><small>CLEAN / MERGEABLE / 0 reviews</small></div>
+          <div class="metric"><span>Remote CI</span><strong>3 green</strong><small>历史 run，需 fresh validation</small></div>
+        </div>
+        <div class="timeline" style="margin-top:14px">
+          <article class="step"><div><h3>冻结工作树 lanes</h3><p>把现有未跟踪资产分为：本轮 Graphify/报告、既有计划/草稿/输出、敏感本地文件。只对第一 lane 做 diff。</p></div><div class="step__gate"><strong>Gate</strong><span>禁止 <code>git add .</code>；逐文件 manifest。</span></div></article>
+          <article class="step"><div><h3>提交代码与测试候选</h3><p>按 <code>STAGING_MANIFEST.md</code> 逐文件审查 API、Web、Extension、deploy config 与脚本；迁移定义进入 Git 不代表生产执行授权。</p></div><div class="step__gate"><strong>Commit A · 已完成</strong><span><code>feat: harden data assets, snapshots, backups, and runtime configuration</code></span></div></article>
+          <article class="step"><div><h3>提交 Graphify 集成边界</h3><p>提交 <code>.graphifyignore</code> 与 <code>.gitignore</code> 安全边界，并通过 <code>7b1c659</code> 补充 browser harness 排除纠偏；验证 PEM、cache、output、tmp 和本地工具均不会进入索引。</p></div><div class="step__gate"><strong>Commit B · 已完成</strong><span><code>chore(graphify): add local analysis boundary</code></span></div></article>
+          <article class="step"><div><h3>提交复盘文档与图谱附件</h3><p>提交本 HTML、staging manifest、graph/report/tree/callflow/manifest；不提交 cache、.kiro、output、旧草稿与 browser harness。</p></div><div class="step__gate"><strong>Candidate commit C</strong><span><code>docs(review): add project retrospective and execution plan</code></span></div></article>
+          <article class="step"><div><h3>Fresh local + Codex review</h3><p>重跑受影响检查、HTML validator/render、Graphify counts 和 <code>codex review --base origin/main</code>，核验每条 finding。</p></div><div class="step__gate"><strong>Stop condition</strong><span>有未解决 P0/P1 或文档事实漂移即停止。</span></div></article>
+          <article class="step"><div><h3>推送并等待 PR CI</h3><p>只有 owner 认可提交范围后才 push。确认 PR 仍 base main、head guard 不漂移，三个 job fresh green。</p></div><div class="step__gate"><strong>Approval</strong><span>push 是外部写，需显式授权。</span></div></article>
+          <article class="step"><div><h3>Draft → Ready</h3><p>提交范围、review、checks、文档链接和风险接受记录齐全后，再单独请求转 Ready；不把 Ready 当 merge。</p></div><div class="step__gate"><strong>Gate</strong><span>需要 reviewer/owner 接受 P1 延后项。</span></div></article>
+          <article class="step"><div><h3>精确 head-guard merge</h3><p>重新读取 head SHA 后使用 GitHub merge commit，保留已审阅提交序列；不 rebase 改写已审阅身份，不同时删分支。</p></div><div class="step__gate"><strong>Separate approval</strong><span>merge 明确授权；部署仍未授权。</span></div></article>
+          <article class="step"><div><h3>合并后只读对账</h3><p>证明 candidate head 是 origin/main 祖先、merge tree 与审阅结果一致、PR MERGED。生产状态仍标记 unchanged。</p></div><div class="step__gate"><strong>Next gate</strong><span>deploy / Store / branch cleanup 分别审批。</span></div></article>
+        </div>
+        <div class="callout callout--warning" style="margin-top:12px"><strong>当前建议：NO-GO for immediate merge</strong><p>原因不是本地门禁失败，而是 PR 仍 Draft、本轮代码与报告尚未进入 PR、0 reviews，且 remote checks 是 2026-07-10 的历史结果。Codex review 已清零、本 HTML 已进入最终验收；完成 owner 精确暂存、push、fresh CI 和 reviewer gate 后再评估 Ready。</p></div>
+      </section>
+
+      <section class="section" id="roadmap">
+        <div class="section__heading">
+          <div><p class="kicker">Product roadmap</p><h2>下一阶段产品优化路线图</h2><p>路线以价值链完整度排序：先保护证据和执行所有权，再做历史/复核，再扩平台和 AI。</p></div>
+          <span class="section__index">11 / 15</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>阶段</th><th>主题</th><th>主要交付</th><th>退出标准</th><th>明确不包含</th></tr></thead>
+            <tbody>
+              <tr><td><span class="status status--blocked">P0-A</span></td><td>核心资产数据库强制</td><td>baseline migration、run 内唯一约束、raw/canonical immutability、复制库测试</td><td>更新/删除被 trigger 拒绝；migration checksum 稳定；核心证据不只依赖应用约定</td><td>生产迁移与部署</td></tr>
+              <tr><td><span class="status status--blocked">P0-B</span></td><td>快照历史与人工复核</td><td>History 页面、版本 diff、证据下钻、draft/review/approved 状态</td><td>运营可从结论回到 unit/raw，并比较两个 snapshot</td><td>LLM provider</td></tr>
+              <tr><td><span class="status status--blocked">P0-C</span></td><td>真实浏览器候选</td><td>三插件 exact hash、Chrome ID、页面矩阵、错误/权限/移动验收</td><td>每个平台有包→ID→页面→run 证据链；Instagram 可保持 blocked</td><td>Store upload/publication</td></tr>
+              <tr><td><span class="status status--planned">P1-A</span></td><td>业务工作流</td><td>ASIN/thread 聚合、批量复核、行动责任人、导出、效果回写</td><td>一份 brief 能产生已分配行动并追踪结果</td><td>自动发布 Listing/广告</td></tr>
+              <tr><td><span class="status status--planned">P1-B</span></td><td>身份与团队治理</td><td>per actor key、workspace/brand、RBAC、rotation、审计导出</td><td>每个写动作可归因、撤销、最小授权</td><td>企业 SSO（可后置）</td></tr>
+              <tr><td><span class="status status--planned">P1-C</span></td><td>灾备与告警</td><td>对象存储 immutable copy、失败告警、RPO/RTO、季度恢复演练</td><td>跨主机/区域恢复与告警证据新鲜</td><td>未经批准的生产变更</td></tr>
+              <tr><td><span class="status status--planned">P2-A</span></td><td>可选 AI 增强</td><td>provider abstraction、evidence-constrained prompt、成本/模型/输入审计</td><td>断开 provider 仍可 deterministic 工作；0 unsupported claim</td><td>自治决策/自动写平台</td></tr>
+              <tr><td><span class="status status--planned">P2-B</span></td><td>平台扩张</td><td>Facebook/TikTok/Shopify adapter，沿用 registry/capability/gate</td><td>新平台不削弱权限隔离、raw 保真和 evidence grade</td><td>泛用爬虫平台</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section" id="execution">
+        <div class="section__heading">
+          <div><p class="kicker">Next execution plan</p><h2>下一步完整方案与执行计划</h2><p>以“一个批次一个可验证结果”推进；生产或外部 side effect 始终另设批准点。</p></div>
+          <span class="section__index">12 / 15</span>
+        </div>
+        <div class="timeline">
+          <article class="step"><div><h3>Batch 0 · 报告与 PR 收口</h3><p>验证 HTML、Graphify、Git lanes 和 Codex review；形成精确提交 manifest 与 fresh merge readiness 报告。</p></div><div class="step__gate"><strong>Deliverable</strong><span>本目录 + review clean/accepted ledger + staging manifest。</span></div></article>
+          <article class="step"><div><h3>Batch 1 · Queue Operations Hardening</h3><p>原子 claim 与 token fencing 已完成；下一步增加 10-worker 压测、租约心跳、任务事件、dead-letter/replay、claim-loss 指标与 SLO 告警。</p></div><div class="step__gate"><strong>Acceptance</strong><span>10 并发 worker / 1 task / 1 owner；每次 claim-loss 可观测且无额外 side effect。</span></div></article>
+          <article class="step"><div><h3>Batch 2 · Core Evidence Migration</h3><p>为核心 schema 建 baseline/version/checksum；加入 run 内唯一约束与 raw/canonical 禁改 trigger。复制生产库 dry-run。</p></div><div class="step__gate"><strong>Approval boundary</strong><span>只做本地与 copied DB；生产 up 另批。</span></div></article>
+          <article class="step"><div><h3>Batch 3 · Insight History Workbench</h3><p>新增 snapshot client、history/list/detail、diff、evidence link、review status；拆分 Web API parser 与页面路由。</p></div><div class="step__gate"><strong>Acceptance</strong><span>两个 snapshot 可比较，artifact digest 可验证，移动端无溢出。</span></div></article>
+          <article class="step"><div><h3>Batch 4 · Extension Architecture</h3><p>拆 command bar、platform adapter、insight/export chunks；建立 bundle budget、a11y 与错误恢复矩阵。</p></div><div class="step__gate"><strong>Acceptance</strong><span>功能合同不变，三目标权限隔离，包尺寸不回退。</span></div></article>
+          <article class="step"><div><h3>Batch 5 · Exact Chrome Candidate</h3><p>对三套 0.2.1 构建记录 hash、extension ID、加载错误、popup 和目标页表现；Instagram 只证明门控。</p></div><div class="step__gate"><strong>User action</strong><span><code>chrome://extensions</code> 与账号重认证需 owner 手动完成。</span></div></article>
+          <article class="step"><div><h3>Batch 6 · Production Read-only Freshness</h3><p>经批准后只读检查 release、401/200、counts、timer、latest manifest/archive age、snapshot digests；不触发 backup。</p></div><div class="step__gate"><strong>Evidence</strong><span>L3 read-only，仅支持被观察到的当前状态。</span></div></article>
+          <article class="step"><div><h3>Batch 7 · 分离式发布决策</h3><p>代码 merge、生产部署、生产 migration、Store 三项分别做 packet、backup/rollback、approval 与 post-check。</p></div><div class="step__gate"><strong>No bundling</strong><span>一个批准不能隐含其他 side effect。</span></div></article>
+        </div>
+        <div class="table-wrap" style="margin-top:14px">
+          <table>
+            <thead><tr><th>TODO</th><th>状态</th><th>执行内容</th><th>依赖 / Owner</th><th>验收证据</th></tr></thead>
+            <tbody>
+              <tr><td><code>T00-01</code></td><td><span class="status status--done">完成</span></td><td>安装 Graphify 0.9.28，建立 code-only 边界并生成 graph/report/tree/callflow</td><td>本地 Agent</td><td>非零 nodes/edges；multigraph defects = 0；cache 不入库</td></tr>
+              <tr><td><code>T00-02</code></td><td><span class="status status--done">完成</span></td><td>全项目复盘、设计逻辑、逐模块手册、路线图与合并计划</td><td>本地 Agent</td><td>本 HTML；内部锚点/本地链接/Chrome render 通过</td></tr>
+              <tr><td><code>T00-03</code></td><td><span class="status status--done">完成</span></td><td>关闭 key trim、retry idempotency、open count、language、Amazon host、Instagram ID 与 off-host metadata 等审查项</td><td>Codex finding → 本地 Agent</td><td>定向测试 + 全量测试 + lint/typecheck/build/package</td></tr>
+              <tr><td><code>T00-04</code></td><td><span class="status status--done">完成</span></td><td>关闭 live DB root、claim token/lease、<code>-O</code> assert、任务/快照读一致性与 0002 guard dry-run</td><td>Codex P1/P2 → 本地 Agent</td><td>并发、过期 owner、checksum/trigger/REPLACE、调用者事务测试通过</td></tr>
+              <tr><td><code>T00-05</code></td><td><span class="status status--done">完成</span></td><td>隔离式 final Codex review、全量回归、Graphify 刷新与 HTML 内容回填</td><td>T00-03/04</td><td><code>NO_ACTIONABLE_FINDINGS</code>；370 tests；纠偏后 1,877 nodes / 5,145 edges</td></tr>
+              <tr><td><code>T00-06</code></td><td><span class="status status--done">完成候选</span></td><td>形成精确 staging manifest 与三个候选提交；未执行暂存</td><td>Owner 范围确认</td><td>不使用 <code>git add .</code>；既有未跟踪资产在排除清单</td></tr>
+              <tr><td><code>T01-01</code></td><td><span class="status status--done">完成</span></td><td>SQLite 跨 worker 原子 claim 并发测试</td><td>本地 DB</td><td>并发 session 对单 task 只有一个 owner</td></tr>
+              <tr><td><code>T01-02</code></td><td><span class="status status--done">完成</span></td><td>实现 ownership token 与证据事务 fencing，统一 API 与 CLI worker</td><td>T01-01</td><td>过期 worker 不能覆盖新 claim 或提交证据</td></tr>
+              <tr><td><code>T01-03</code></td><td><span class="status status--planned">待执行</span></td><td>10-worker 压测、心跳、任务事件、dead-letter/replay 与 SLO</td><td>T01-02</td><td>claim-loss 可观测；1 task / 1 side effect；失败可安全重放</td></tr>
+              <tr><td><code>T02-01</code></td><td><span class="status status--planned">待执行</span></td><td>核心 schema baseline migration、checksum、unknown-version refusal</td><td>T01 完成</td><td>空库与复制库可重入；生产不执行</td></tr>
+              <tr><td><code>T02-02</code></td><td><span class="status status--planned">待执行</span></td><td>raw/canonical UPDATE/DELETE trigger 与 break-glass runbook</td><td>T02-01</td><td>证据行不可改写；授权恢复流程可审计</td></tr>
+              <tr><td><code>T03-01</code></td><td><span class="status status--planned">待执行</span></td><td>Insight snapshot history/list/detail/diff/evidence UI</td><td>T02 稳定 schema</td><td>两个 snapshot 可比较，digest 可验证，移动端无溢出</td></tr>
+              <tr><td><code>T04-01</code></td><td><span class="status status--planned">待执行</span></td><td>拆分 Web parser/page、CommandBar 与 popup bundle，建立 size budget</td><td>契约测试先行</td><td>功能不变、三目标权限隔离、包尺寸不回退</td></tr>
+              <tr><td><code>T05-01</code></td><td><span class="status status--blocked">需用户动作</span></td><td>exact 0.2.1 包加载到 Chrome，记录 ID、目标页、错误与截图</td><td>Owner 操作 <code>chrome://extensions</code></td><td>package → extension ID → page → run 证据链</td></tr>
+              <tr><td><code>T06-01</code></td><td><span class="status status--blocked">需单独批准</span></td><td>生产只读 freshness：release/auth/counts/timer/backup age/snapshot digest</td><td>生产只读授权</td><td>仅 L3 read-only evidence；不触发 backup/migration</td></tr>
+              <tr><td><code>T07-01</code></td><td><span class="status status--blocked">需单独批准</span></td><td>push、Ready、merge、deploy、production migration、Store 分离决策</td><td>Owner 分项批准</td><td>每项独立 packet、head guard、rollback 与 post-check</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section" id="acceptance">
+        <div class="section__heading">
+          <div><p class="kicker">Definition of done</p><h2>验收体系</h2><p>“完成”必须同时满足代码、数据、体验、治理和证据五个维度。</p></div>
+          <span class="section__index">13 / 15</span>
+        </div>
+        <div class="grid-3">
+          <article class="card"><h3>代码与契约</h3><ul><li>focused + full tests</li><li>lint / mypy / TS</li><li>build / package / verifier</li><li>OpenAPI/共享契约无漂移</li></ul></article>
+          <article class="card"><h3>数据完整性</h3><ul><li>run/raw/canonical 原子一致</li><li>0 orphan / mismatch</li><li>hash/digest 可重算</li><li>append-only trigger 生效</li></ul></article>
+          <article class="card"><h3>产品体验</h3><ul><li>桌面/375-390px</li><li>键盘/焦点/错误恢复</li><li>真实目标页与 exact build</li><li>结论可回到证据</li></ul></article>
+          <article class="card"><h3>发布治理</h3><ul><li>原子 commit 与 scope manifest</li><li>fresh CI + reviewed head</li><li>merge/deploy/store 分离</li><li>rollback 与保留策略</li></ul></article>
+          <article class="card"><h3>证据质量</h3><ul><li>fact / inference / unknown 分开</li><li>local / fixture / prod RO / live 分开</li><li>失败中间证据明确作废</li><li>时间戳与候选 SHA 可追溯</li></ul></article>
+          <article class="card"><h3>停止条件</h3><ul><li>secret/权限边界不清</li><li>生产写或 provider 未批准</li><li>节点/边为 0 或图谱过期</li><li>P0/P1 未接受且无 owner 决策</li></ul></article>
+        </div>
+        <div class="callout" style="margin-top:12px"><strong>本轮本地质量结果</strong><p>API 219 passed（1 个 Starlette/httpx deprecation warning）、Web 41 passed、Extension 102 passed、version 8 passed，共 370 项；ruff、ESLint、mypy（35 source files）、TypeScript、API sdist/wheel、Next build、三插件 Vite build/package/verify、zsh syntax 与 <code>git diff --check</code> 均通过。Next 仍报告父目录多 lockfile 的非阻塞 workspace-root 警告。</p></div>
+      </section>
+
+      <section class="section" id="review">
+        <div class="section__heading">
+          <div><p class="kicker">Codex review closeout</p><h2>Codex Review 收尾记录</h2><p>Review 输出是建议；每条 finding 必须回到真实代码与相邻测试确认。</p></div>
+          <span class="section__index">14 / 15</span>
+        </div>
+        <div class="review-box">
+          <strong>状态：CLEAN · NO_ACTIONABLE_FINDINGS</strong>
+          <p>运行方式：隔离式只读 <code>codex exec --ephemeral --sandbox read-only</code>。先审查整个本地 delta，再对每次修复做窄范围复审；最终一轮只复核 <code>InsightSnapshotRepository.list_runs</code> 的单语句分页/计数和调用者事务测试，并以 exit 0 输出 <code>NO_ACTIONABLE_FINDINGS</code>。</p>
+          <ul>
+            <li><b>已接受并修复：</b>key trim、retry capture 幂等、open count、语言合同、Amazon host、live DB root、Instagram 重复 ID、off-host metadata、原子 claim、lease fencing、两处 <code>assert</code> 优化绕过、任务/快照读一致性、0002 guard dry-run、调用者事务所有权。</li>
+            <li><b>复核方法：</b>每条 finding 回到源码、事务边界和相邻测试；代码变化后重跑 focused tests 和独立 review。</li>
+            <li><b>正式 rejected findings：</b>无；探索性假设未作为 finding 输出，也未据此扩大重构。</li>
+            <li><b>最终证明：</b>18 个最后定向测试、API 219、全仓 370、lint/type/build/package 均通过。</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section" id="appendix">
+        <div class="section__heading">
+          <div><p class="kicker">Appendix & provenance</p><h2>附录：来源、命令与限制</h2><p>便于后续 agent 或 reviewer 复现，不需要重读 2.2GB 工作区。</p></div>
+          <span class="section__index">15 / 15</span>
+        </div>
+        <div class="grid-2">
+          <article class="card">
+            <h3>主要源码与文档</h3>
+            <ul>
+              <li><a href="https://github.com/Graphify-Labs/graphify">Graphify 官方仓库</a> / <a href="STAGING_MANIFEST.md">精确暂存清单</a></li>
+              <li><a href="../../../README.md">README</a> / <a href="../../../AGENTS.md">AGENTS 项目规则</a></li>
+              <li><a href="../../product/product-prd-voc-browser-plugin-mvp-review.md">VOC Browser Plugin MVP PRD</a></li>
+              <li><a href="../../product/plugin-hub-insight-redesign-prd-draft-20260708.md">Insight Redesign PRD</a></li>
+              <li><a href="../../workflows/plugin-hub-loop38-data-asset-adversarial-audit-draft-20260710.md">Loop38 对抗性审计</a></li>
+              <li><a href="../../workflows/plugin-hub-loop39-production-hardening-acceptance-20260710.md">Loop39 生产加固验收</a></li>
+              <li><a href="../../workflows/plugin-hub-loop40-offhost-backup-insight-snapshot-acceptance-20260710.md">Loop40 备份/快照验收</a></li>
+              <li><a href="../../workflows/plugin-hub-loop42-pr-review-ci-acceptance-20260710.md">Loop42 PR/CI 验收</a></li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>关键命令</h3>
+            <pre>uv tool upgrade graphifyy
+graphify extract . --code-only --force --max-workers 1 --out .../graphify
+graphify cluster-only .../graphify --no-label
+graphify diagnose multigraph --json --graph .../graph.json
+graphify benchmark .../graph.json
+graphify export callflow-html .../graphify-out --output .../CALLFLOW.html
+
+uv --directory apps/api run pytest -q
+uv --directory apps/api run ruff check .
+uv --directory apps/api run mypy --no-incremental
+pnpm --filter @plugin-hub/web test
+pnpm --filter @plugin-hub/extension test
+pnpm lint &amp;&amp; pnpm typecheck &amp;&amp; pnpm build
+pnpm package:extension:amazon
+pnpm package:extension:reddit
+pnpm package:extension:instagram
+pnpm verify:extension</pre>
+          </article>
+        </div>
+        <div class="table-wrap" style="margin-top:14px">
+          <table>
+            <thead><tr><th>限制</th><th>本报告处理方式</th></tr></thead>
+            <tbody>
+              <tr><td>Graphify code-only 不处理 Markdown/图片语义</td><td>PRD/runbook 由人工读取并与源码交叉验证</td></tr>
+              <tr><td>Graphify 对 4 个 JSON zero-AST</td><td>registry/version/fixture 由 jq 与测试独立核验</td></tr>
+              <tr><td>没有 fresh production smoke</td><td>生产状态全部标注为 7/10 历史或待验证</td></tr>
+              <tr><td>没有 Chrome 内部页和 Store 账号证据</td><td>保持 blocked，不从包构建推断手工/商店验收</td></tr>
+              <tr><td>工作树含既有未跟踪资产</td><td>只新增明确命名目录与 ignore 规则，不覆盖、不阶段化其他资产</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <footer class="footer">
+        Plugin Hub Project Review · generated from local source, tests, Graphify 0.9.28 and repository evidence · Asia/Shanghai · 2026-07-28
+      </footer>
+    </main>
+  </div>
+
+  <script>
+    const modules = Array.from(document.querySelectorAll("details.module"));
+    const toggle = document.getElementById("expandModules");
+    const search = document.getElementById("moduleSearch");
+
+    toggle?.addEventListener("click", () => {
+      const shouldOpen = modules.some((module) => !module.open);
+      modules.forEach((module) => { module.open = shouldOpen; });
+      toggle.textContent = shouldOpen ? "收起全部模块" : "展开全部模块";
+    });
+
+    search?.addEventListener("input", () => {
+      const query = search.value.trim().toLowerCase();
+      modules.forEach((module) => {
+        const haystack = `${module.dataset.search || ""} ${module.textContent || ""}`.toLowerCase();
+        const matches = !query || haystack.includes(query);
+        module.classList.toggle("no-match", !matches);
+        if (query && matches) module.open = true;
+      });
+    });
+  </script>
+</body>
+</html>
