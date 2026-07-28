@@ -6,6 +6,7 @@ import {
   loadPendingCollectionUpload,
   normalizeApiBaseUrl,
   normalizeApiKey,
+  normalizeTrustedApiBaseUrl,
   retargetPendingCollectionUpload,
   resolvePendingUpload,
   savePendingCollectionUpload,
@@ -31,6 +32,27 @@ describe("extension settings", () => {
     expect(() => normalizeApiBaseUrl("file:///tmp/plugin-hub")).toThrow("api_base_url_must_be_http");
   });
 
+  it("allows only the production API and explicit loopback development origins", () => {
+    expect(normalizeTrustedApiBaseUrl("https://plugin.lute-tlz-dddd.top/")).toBe(
+      "https://plugin.lute-tlz-dddd.top"
+    );
+    expect(normalizeTrustedApiBaseUrl("http://localhost:8000///")).toBe(
+      "http://localhost:8000"
+    );
+    expect(normalizeTrustedApiBaseUrl("http://127.0.0.1:9000")).toBe(
+      "http://127.0.0.1:9000"
+    );
+    expect(() => normalizeTrustedApiBaseUrl("https://www.amazon.com")).toThrow(
+      "api_base_url_untrusted"
+    );
+    expect(() => normalizeTrustedApiBaseUrl("https://api.example.com")).toThrow(
+      "api_base_url_untrusted"
+    );
+    expect(() =>
+      normalizeTrustedApiBaseUrl("https://plugin.lute-tlz-dddd.top/proxy")
+    ).toThrow("api_base_url_untrusted");
+  });
+
   it("normalizes API keys without accepting weak non-empty values", () => {
     expect(normalizeApiKey(" ")).toBe("");
     expect(normalizeApiKey(` ${"k".repeat(32)} `)).toBe("k".repeat(32));
@@ -51,7 +73,7 @@ describe("extension settings", () => {
       }
     });
     const original = {
-      apiBaseUrl: "https://api.example.com",
+      apiBaseUrl: "http://localhost:8000",
       capture: {
         payload: { captured_at: "2026-07-28T00:00:00.000Z" },
         summary: { platform: "amazon" }
@@ -60,16 +82,16 @@ describe("extension settings", () => {
 
     await savePendingCollectionUpload(original);
     const restored = await loadPendingCollectionUpload();
-    const capture = vi.fn().mockResolvedValue({ apiBaseUrl: "https://other.example.com" });
+    const capture = vi.fn().mockResolvedValue({ apiBaseUrl: "http://localhost:9000" });
     const retried = await resolvePendingUpload(restored, capture);
     const retargeted = retargetPendingCollectionUpload(
       retried,
-      " https://corrected.example.com/// "
+      " http://127.0.0.1:9000/// "
     );
 
     expect(capture).not.toHaveBeenCalled();
     expect(retried).toEqual(original);
-    expect(retargeted.apiBaseUrl).toBe("https://corrected.example.com");
+    expect(retargeted.apiBaseUrl).toBe("http://127.0.0.1:9000");
     expect(retargeted.capture).toBe(original.capture);
     await clearPendingCollectionUpload();
     await expect(loadPendingCollectionUpload()).resolves.toBeNull();

@@ -54,11 +54,13 @@ function verifyTarget(target) {
   );
   assertArrayIncludes(manifest.permissions, "activeTab", `permission_activeTab_required:${target}`);
   assertArrayIncludes(manifest.permissions, "storage", `permission_storage_required:${target}`);
-  assertArrayIncludes(
-    manifest.host_permissions,
-    verifyConfig.requiredHost,
-    `host_permission_required:${target}`
-  );
+  for (const sourceMatch of config.contentMatches) {
+    assertArrayExcludes(
+      manifest.host_permissions,
+      sourceMatch,
+      `source_host_fetch_permission_forbidden:${target}:${sourceMatch}`
+    );
+  }
   for (const forbiddenHost of verifyConfig.forbiddenHosts) {
     assertArrayExcludes(manifest.host_permissions, forbiddenHost, `host_permission_forbidden:${target}`);
   }
@@ -124,6 +126,7 @@ function targetConfig(target) {
     !config ||
     typeof config.name !== "string" ||
     typeof config.packageSlug !== "string" ||
+    !Array.isArray(config.contentMatches) ||
     typeof config.verify?.requiredHost !== "string" ||
     !Array.isArray(config.verify?.forbiddenHosts) ||
     !Array.isArray(config.verify?.requiredApiHostPermissions)

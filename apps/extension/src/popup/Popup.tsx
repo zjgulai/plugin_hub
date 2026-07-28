@@ -13,7 +13,6 @@ import {
   loadApiKey,
   loadApiBaseUrl,
   loadPendingCollectionUpload,
-  normalizeApiBaseUrl,
   retargetPendingCollectionUpload,
   resolvePendingUpload,
   saveApiBaseUrl,
@@ -53,8 +52,9 @@ type UploadResult = {
 const TARGET_CONFIG = extensionTargetConfig(CURRENT_EXTENSION_TARGET);
 
 export function Popup() {
-  const [apiBaseUrl, setApiBaseUrl] = useState(DEFAULT_API_BASE_URL);
-  const [apiKey, setApiKey] = useState("");
+  const [apiBaseUrl, setApiBaseUrl] = useState<string | null>(null);
+  const [apiKey, setApiKey] = useState<string | null>(null);
+  const [settingsReady, setSettingsReady] = useState(false);
   const [status, setStatus] = useState<PopupStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<UploadResult | null>(null);
@@ -62,8 +62,25 @@ export function Popup() {
   const [pendingUploadReady, setPendingUploadReady] = useState(false);
 
   useEffect(() => {
-    void loadApiBaseUrl().then(setApiBaseUrl).catch(() => setApiBaseUrl(DEFAULT_API_BASE_URL));
-    void loadApiKey().then(setApiKey).catch(() => setApiKey(""));
+    void Promise.all([
+      loadApiBaseUrl().catch(() => DEFAULT_API_BASE_URL),
+      loadApiKey()
+        .then((value) => ({ ok: true as const, value }))
+        .catch((loadError: unknown) => ({ ok: false as const, loadError }))
+    ])
+      .then(([restoredApiBaseUrl, restoredApiKey]) => {
+        setApiBaseUrl(restoredApiBaseUrl);
+        if (restoredApiKey.ok) {
+          setApiKey(restoredApiKey.value);
+        } else {
+          const { loadError } = restoredApiKey;
+          setError(
+            loadError instanceof Error ? loadError.message : "extension_settings_restore_failed:unknown"
+          );
+          setStatus("error");
+        }
+        setSettingsReady(true);
+      });
     void loadPendingCollectionUpload()
       .then(setPendingUpload)
       .catch((loadError: unknown) => {
@@ -81,14 +98,16 @@ export function Popup() {
     setResult(null);
 
     try {
-      const normalizedApiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
+      if (!settingsReady || apiBaseUrl === null || apiKey === null) {
+        throw new Error("extension_settings_not_ready");
+      }
+      const normalizedApiBaseUrl = await saveApiBaseUrl(apiBaseUrl);
       setApiBaseUrl(normalizedApiBaseUrl);
-      await saveApiBaseUrl(normalizedApiBaseUrl);
       await saveApiKey(apiKey);
       const restoredPendingUpload =
         pendingUpload ?? (await loadPendingCollectionUpload());
       const resolvedUpload = await resolvePendingUpload(restoredPendingUpload, async () => {
-        const runtimeSettings = await loadCaptureRuntimeSettings(normalizedApiBaseUrl);
+        const runtimeSettings = await loadCaptureRuntimeSettings();
         setStatus("capturing");
         const tabId = await getActiveTabId();
         const response = await sendTabMessage<CaptureCurrentPageResponse>(tabId, {
@@ -108,7 +127,6 @@ export function Popup() {
       setStatus("uploading");
       const uploadResponse = await sendRuntimeMessage<UploadCollectionResponse>({
         type: UPLOAD_COLLECTION_MESSAGE_TYPE,
-        apiBaseUrl: upload.apiBaseUrl,
         payload: upload.capture.payload
       });
 
@@ -157,8 +175,9 @@ export function Popup() {
           autoComplete="off"
           spellCheck={false}
           placeholder="https://plugin.example.com…"
-          value={apiBaseUrl}
+          value={apiBaseUrl ?? ""}
           onChange={(event) => setApiBaseUrl(event.currentTarget.value)}
+          disabled={!settingsReady}
           required
         />
         <label htmlFor="api-key">
@@ -171,14 +190,28 @@ export function Popup() {
           autoComplete="new-password"
           spellCheck={false}
           placeholder="生产环境必填"
-          value={apiKey}
+          value={apiKey ?? ""}
           onChange={(event) => setApiKey(event.currentTarget.value)}
+          disabled={!settingsReady}
         />
         <button
           type="submit"
-          disabled={!pendingUploadReady || status === "capturing" || status === "uploading"}
+          disabled={
+            !settingsReady ||
+            apiBaseUrl === null ||
+            apiKey === null ||
+            !pendingUploadReady ||
+            status === "capturing" ||
+            status === "uploading"
+          }
         >
-          {buttonLabel(status, pendingUpload !== null, pendingUploadReady)}
+          {buttonLabel(
+            status,
+            pendingUpload !== null,
+            settingsReady,
+            apiKey !== null,
+            pendingUploadReady
+          )}
         </button>
       </form>
 
@@ -264,8 +297,16 @@ function StatusPanel({
 function buttonLabel(
   status: PopupStatus,
   hasPendingUpload: boolean,
+  settingsReady: boolean,
+  apiKeyReady: boolean,
   pendingUploadReady: boolean
 ): string {
+  if (!settingsReady) {
+    return "正在恢复设置…";
+  }
+  if (!apiKeyReady) {
+    return "请输入 API Key";
+  }
   if (!pendingUploadReady) {
     return "正在恢复待上传任务…";
   }
@@ -302,16 +343,13 @@ async function sendRuntimeMessage<TResponse>(
   return chrome.runtime.sendMessage(message) as Promise<TResponse>;
 }
 
-async function loadCaptureRuntimeSettings(
-  apiBaseUrl: string
-): Promise<CaptureRuntimeSettings | undefined> {
+async function loadCaptureRuntimeSettings(): Promise<CaptureRuntimeSettings | undefined> {
   if (TARGET_CONFIG.platform !== "amazon") {
     return undefined;
   }
 
   const response = await sendRuntimeMessage<GetPlatformSettingResponse>({
     type: GET_PLATFORM_SETTING_MESSAGE_TYPE,
-    apiBaseUrl,
     platform: "amazon"
   });
 

@@ -37,19 +37,16 @@ export type CaptureCurrentPageResponse = CaptureCurrentPageSuccess | { error: st
 
 export interface UploadCollectionMessage {
   type: typeof UPLOAD_COLLECTION_MESSAGE_TYPE;
-  apiBaseUrl: string;
   payload: CollectionRunPayload;
 }
 
 export interface CreateCollectionTaskMessage {
   type: typeof CREATE_COLLECTION_TASK_MESSAGE_TYPE;
-  apiBaseUrl: string;
   payload: CollectionTaskPayload;
 }
 
 export interface GetPlatformSettingMessage {
   type: typeof GET_PLATFORM_SETTING_MESSAGE_TYPE;
-  apiBaseUrl: string;
   platform: Platform;
 }
 
@@ -57,7 +54,6 @@ export type GetPlatformSettingResponse = PlatformSettingResult | { error: string
 
 export interface GetStrategyNotesMessage {
   type: typeof GET_STRATEGY_NOTES_MESSAGE_TYPE;
-  apiBaseUrl: string;
   platform: Platform;
 }
 
@@ -65,7 +61,6 @@ export type GetStrategyNotesResponse = StrategyNotesResponse | { error: string }
 
 export interface GetInsightBriefsMessage {
   type: typeof GET_INSIGHT_BRIEFS_MESSAGE_TYPE;
-  apiBaseUrl: string;
   platform: Platform;
 }
 

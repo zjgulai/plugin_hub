@@ -6,7 +6,11 @@ import {
   uploadCollectionRun,
   type CollectionRunUploadResult
 } from "../lib/upload-client";
-import { loadApiKey } from "../lib/settings";
+import {
+  CURRENT_EXTENSION_TARGET,
+  extensionTargetConfig
+} from "../lib/extension-target";
+import { loadApiBaseUrl, loadApiKey } from "../lib/settings";
 import type {
   CollectionRunPayload,
   CollectionTaskPayload,
@@ -34,75 +38,121 @@ type CreateCollectionTaskResponse = CollectionTaskResult | { error: string };
 type GetPlatformSettingResponse = PlatformSettingResult | { error: string };
 type GetStrategyNotesResponse = StrategyNotesResponse | { error: string };
 type GetInsightBriefsResponse = InsightBriefsResponse | { error: string };
+type ServiceWorkerMessage =
+  | UploadCollectionMessage
+  | CreateCollectionTaskMessage
+  | GetPlatformSettingMessage
+  | GetStrategyNotesMessage
+  | GetInsightBriefsMessage;
+type ServiceWorkerResponse =
+  | UploadCollectionResponse
+  | CreateCollectionTaskResponse
+  | GetPlatformSettingResponse
+  | GetStrategyNotesResponse
+  | GetInsightBriefsResponse;
 
-chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
-  if (isUploadCollectionMessage(message)) {
-    void loadApiKey()
-      .then((apiKey) => uploadCollectionRun(message.apiBaseUrl, message.payload, undefined, apiKey))
-      .then((result) => sendResponse(result satisfies UploadCollectionResponse))
-      .catch((error: unknown) =>
-        sendResponse({
-          error: error instanceof Error ? error.message : "collection_run_upload_failed:unknown"
-        } satisfies UploadCollectionResponse)
-      );
+const TARGET_CONFIG = extensionTargetConfig(CURRENT_EXTENSION_TARGET);
 
-    return true;
+chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
+  if (!isServiceWorkerMessage(message)) {
+    return false;
   }
 
-  if (isCreateCollectionTaskMessage(message)) {
-    void loadApiKey()
-      .then((apiKey) => createCollectionTask(message.apiBaseUrl, message.payload, undefined, apiKey))
-      .then((result) => sendResponse(result satisfies CreateCollectionTaskResponse))
-      .catch((error: unknown) =>
-        sendResponse({
-          error: error instanceof Error ? error.message : "collection_task_create_failed:unknown"
-        } satisfies CreateCollectionTaskResponse)
-      );
-
-    return true;
+  if (!isTrustedMessageSender(sender)) {
+    sendResponse({ error: "runtime_message_sender_untrusted" } satisfies ServiceWorkerResponse);
+    return false;
   }
 
-  if (isGetPlatformSettingMessage(message)) {
-    void loadApiKey()
-      .then((apiKey) => getPlatformSetting(message.apiBaseUrl, message.platform, undefined, apiKey))
-      .then((result) => sendResponse(result satisfies GetPlatformSettingResponse))
-      .catch((error: unknown) =>
-        sendResponse({
-          error: error instanceof Error ? error.message : "platform_setting_fetch_failed:unknown"
-        } satisfies GetPlatformSettingResponse)
-      );
+  void handleServiceWorkerMessage(message)
+    .then((result) => sendResponse(result))
+    .catch((error: unknown) =>
+      sendResponse({
+        error: error instanceof Error ? error.message : messageFailureCode(message)
+      } satisfies ServiceWorkerResponse)
+    );
 
-    return true;
-  }
-
-  if (isGetStrategyNotesMessage(message)) {
-    void loadApiKey()
-      .then((apiKey) => getStrategyNotes(message.apiBaseUrl, message.platform, undefined, apiKey))
-      .then((result) => sendResponse(result satisfies GetStrategyNotesResponse))
-      .catch((error: unknown) =>
-        sendResponse({
-          error: error instanceof Error ? error.message : "strategy_notes_fetch_failed:unknown"
-        } satisfies GetStrategyNotesResponse)
-      );
-
-    return true;
-  }
-
-  if (isGetInsightBriefsMessage(message)) {
-    void loadApiKey()
-      .then((apiKey) => getInsightBriefs(message.apiBaseUrl, message.platform, undefined, apiKey))
-      .then((result) => sendResponse(result satisfies GetInsightBriefsResponse))
-      .catch((error: unknown) =>
-        sendResponse({
-          error: error instanceof Error ? error.message : "insight_briefs_fetch_failed:unknown"
-        } satisfies GetInsightBriefsResponse)
-      );
-
-    return true;
-  }
-
-  return false;
+  return true;
 });
+
+async function handleServiceWorkerMessage(
+  message: ServiceWorkerMessage
+): Promise<ServiceWorkerResponse> {
+  const apiBaseUrl = await loadApiBaseUrl();
+  const apiKey = await loadApiKey();
+
+  if (isUploadCollectionMessage(message)) {
+    return uploadCollectionRun(apiBaseUrl, message.payload, undefined, apiKey);
+  }
+  if (isCreateCollectionTaskMessage(message)) {
+    return createCollectionTask(apiBaseUrl, message.payload, undefined, apiKey);
+  }
+  if (isGetPlatformSettingMessage(message)) {
+    return getPlatformSetting(apiBaseUrl, message.platform, undefined, apiKey);
+  }
+  if (isGetStrategyNotesMessage(message)) {
+    return getStrategyNotes(apiBaseUrl, message.platform, undefined, apiKey);
+  }
+  return getInsightBriefs(apiBaseUrl, message.platform, undefined, apiKey);
+}
+
+function isServiceWorkerMessage(message: unknown): message is ServiceWorkerMessage {
+  return (
+    isUploadCollectionMessage(message) ||
+    isCreateCollectionTaskMessage(message) ||
+    isGetPlatformSettingMessage(message) ||
+    isGetStrategyNotesMessage(message) ||
+    isGetInsightBriefsMessage(message)
+  );
+}
+
+function isTrustedMessageSender(sender: chrome.runtime.MessageSender): boolean {
+  if (!chrome.runtime.id || sender.id !== chrome.runtime.id) {
+    return false;
+  }
+
+  const senderUrlValue = sender.url ?? sender.tab?.url;
+  if (!senderUrlValue) {
+    return false;
+  }
+
+  let senderUrl: URL;
+  try {
+    senderUrl = new URL(senderUrlValue);
+  } catch {
+    return false;
+  }
+
+  if (senderUrl.protocol === "chrome-extension:") {
+    return senderUrl.host === chrome.runtime.id;
+  }
+
+  if (!sender.tab) {
+    return false;
+  }
+
+  return TARGET_CONFIG.contentMatches.some((matchPattern) => {
+    const allowedOrigin = matchPattern.endsWith("/*")
+      ? matchPattern.slice(0, -2)
+      : matchPattern;
+    return senderUrl.origin === allowedOrigin;
+  });
+}
+
+function messageFailureCode(message: ServiceWorkerMessage): string {
+  if (isUploadCollectionMessage(message)) {
+    return "collection_run_upload_failed:unknown";
+  }
+  if (isCreateCollectionTaskMessage(message)) {
+    return "collection_task_create_failed:unknown";
+  }
+  if (isGetPlatformSettingMessage(message)) {
+    return "platform_setting_fetch_failed:unknown";
+  }
+  if (isGetStrategyNotesMessage(message)) {
+    return "strategy_notes_fetch_failed:unknown";
+  }
+  return "insight_briefs_fetch_failed:unknown";
+}
 
 function isUploadCollectionMessage(message: unknown): message is UploadCollectionMessage {
   if (!isRecord(message)) {
@@ -111,7 +161,6 @@ function isUploadCollectionMessage(message: unknown): message is UploadCollectio
 
   return (
     message.type === UPLOAD_COLLECTION_MESSAGE_TYPE &&
-    typeof message.apiBaseUrl === "string" &&
     isCollectionRunPayloadLike(message.payload)
   );
 }
@@ -123,7 +172,6 @@ function isCreateCollectionTaskMessage(message: unknown): message is CreateColle
 
   return (
     message.type === CREATE_COLLECTION_TASK_MESSAGE_TYPE &&
-    typeof message.apiBaseUrl === "string" &&
     isCollectionTaskPayloadLike(message.payload)
   );
 }
@@ -135,7 +183,6 @@ function isGetPlatformSettingMessage(message: unknown): message is GetPlatformSe
 
   return (
     message.type === GET_PLATFORM_SETTING_MESSAGE_TYPE &&
-    typeof message.apiBaseUrl === "string" &&
     isPlatform(message.platform)
   );
 }
@@ -147,7 +194,6 @@ function isGetStrategyNotesMessage(message: unknown): message is GetStrategyNote
 
   return (
     message.type === GET_STRATEGY_NOTES_MESSAGE_TYPE &&
-    typeof message.apiBaseUrl === "string" &&
     isPlatform(message.platform)
   );
 }
@@ -159,7 +205,6 @@ function isGetInsightBriefsMessage(message: unknown): message is GetInsightBrief
 
   return (
     message.type === GET_INSIGHT_BRIEFS_MESSAGE_TYPE &&
-    typeof message.apiBaseUrl === "string" &&
     isPlatform(message.platform)
   );
 }
