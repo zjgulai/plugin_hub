@@ -8,12 +8,18 @@ import {
 import type { CaptureRuntimeSettings } from "../lib/capture-types";
 import { amazonRuntimeSettingsFromPlatformSetting } from "../lib/platform-runtime-settings";
 import {
+  clearPendingCollectionUpload,
   DEFAULT_API_BASE_URL,
   loadApiKey,
   loadApiBaseUrl,
+  loadPendingCollectionUpload,
   normalizeApiBaseUrl,
+  retargetPendingCollectionUpload,
+  resolvePendingUpload,
   saveApiBaseUrl,
-  saveApiKey
+  saveApiKey,
+  savePendingCollectionUpload,
+  type PendingCollectionUpload
 } from "../lib/settings";
 import {
   CAPTURE_CURRENT_PAGE_MESSAGE_TYPE,
@@ -52,10 +58,21 @@ export function Popup() {
   const [status, setStatus] = useState<PopupStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<UploadResult | null>(null);
+  const [pendingUpload, setPendingUpload] = useState<PendingCollectionUpload | null>(null);
+  const [pendingUploadReady, setPendingUploadReady] = useState(false);
 
   useEffect(() => {
     void loadApiBaseUrl().then(setApiBaseUrl).catch(() => setApiBaseUrl(DEFAULT_API_BASE_URL));
     void loadApiKey().then(setApiKey).catch(() => setApiKey(""));
+    void loadPendingCollectionUpload()
+      .then(setPendingUpload)
+      .catch((loadError: unknown) => {
+        setError(
+          loadError instanceof Error ? loadError.message : "pending_upload_restore_failed:unknown"
+        );
+        setStatus("error");
+      })
+      .finally(() => setPendingUploadReady(true));
   }, []);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -68,24 +85,31 @@ export function Popup() {
       setApiBaseUrl(normalizedApiBaseUrl);
       await saveApiBaseUrl(normalizedApiBaseUrl);
       await saveApiKey(apiKey);
-      const runtimeSettings = await loadCaptureRuntimeSettings(normalizedApiBaseUrl);
+      const restoredPendingUpload =
+        pendingUpload ?? (await loadPendingCollectionUpload());
+      const resolvedUpload = await resolvePendingUpload(restoredPendingUpload, async () => {
+        const runtimeSettings = await loadCaptureRuntimeSettings(normalizedApiBaseUrl);
+        setStatus("capturing");
+        const tabId = await getActiveTabId();
+        const response = await sendTabMessage<CaptureCurrentPageResponse>(tabId, {
+          type: CAPTURE_CURRENT_PAGE_MESSAGE_TYPE,
+          runtimeSettings
+        });
 
-      setStatus("capturing");
-      const tabId = await getActiveTabId();
-      const captureResponse = await sendTabMessage<CaptureCurrentPageResponse>(tabId, {
-        type: CAPTURE_CURRENT_PAGE_MESSAGE_TYPE,
-        runtimeSettings
+        if ("error" in response) {
+          throw new Error(response.error);
+        }
+        return { apiBaseUrl: normalizedApiBaseUrl, capture: response };
       });
-
-      if ("error" in captureResponse) {
-        throw new Error(captureResponse.error);
-      }
+      const upload = retargetPendingCollectionUpload(resolvedUpload, normalizedApiBaseUrl);
+      setPendingUpload(upload);
+      await savePendingCollectionUpload(upload);
 
       setStatus("uploading");
       const uploadResponse = await sendRuntimeMessage<UploadCollectionResponse>({
         type: UPLOAD_COLLECTION_MESSAGE_TYPE,
-        apiBaseUrl: normalizedApiBaseUrl,
-        payload: captureResponse.payload
+        apiBaseUrl: upload.apiBaseUrl,
+        payload: upload.capture.payload
       });
 
       if ("error" in uploadResponse) {
@@ -96,8 +120,10 @@ export function Popup() {
         collectionRunId: uploadResponse.collection_run_id,
         rawItemCount: uploadResponse.raw_item_count,
         vocUnitCount: uploadResponse.voc_unit_count,
-        captureSummary: captureResponse.summary
+        captureSummary: upload.capture.summary
       });
+      await clearPendingCollectionUpload();
+      setPendingUpload(null);
       setStatus("done");
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "capture_upload_failed:unknown");
@@ -148,8 +174,11 @@ export function Popup() {
           value={apiKey}
           onChange={(event) => setApiKey(event.currentTarget.value)}
         />
-        <button type="submit" disabled={status === "capturing" || status === "uploading"}>
-          {buttonLabel(status)}
+        <button
+          type="submit"
+          disabled={!pendingUploadReady || status === "capturing" || status === "uploading"}
+        >
+          {buttonLabel(status, pendingUpload !== null, pendingUploadReady)}
         </button>
       </form>
 
@@ -232,14 +261,21 @@ function StatusPanel({
   );
 }
 
-function buttonLabel(status: PopupStatus): string {
+function buttonLabel(
+  status: PopupStatus,
+  hasPendingUpload: boolean,
+  pendingUploadReady: boolean
+): string {
+  if (!pendingUploadReady) {
+    return "正在恢复待上传任务…";
+  }
   if (status === "capturing") {
     return "采集中…";
   }
   if (status === "uploading") {
     return "回传中…";
   }
-  return "采集并回传";
+  return hasPendingUpload ? "重试回传" : "采集并回传";
 }
 
 async function getActiveTabId(): Promise<number> {

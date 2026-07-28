@@ -78,6 +78,32 @@ def test_get_collection_tasks_lists_created_tasks(client: TestClient) -> None:
     assert items[0]["status"] == "pending"
 
 
+def test_get_collection_tasks_reports_open_total_beyond_page_limit(client: TestClient) -> None:
+    for trigger_reason in ("manual_retry_first", "manual_retry_second"):
+        response = client.post(
+            "/api/collection-tasks",
+            json={
+                "task": {
+                    "platform": "reddit",
+                    "source_url": "https://www.reddit.com/r/Coffee/comments/thread123/example/",
+                    "requested_capture_method": "server_reddit_json_proxy",
+                    "trigger_reason": trigger_reason,
+                    "context": {"thread_id": "thread123"},
+                }
+            },
+        )
+        assert response.status_code == 202
+
+    list_response = client.get("/api/collection-tasks", params={"limit": 1})
+
+    assert list_response.status_code == 200
+    body = list_response.json()
+    assert len(body["items"]) == 1
+    assert body["total"] == 2
+    assert body["open_total"] == 2
+    assert body["open_totals"] == {"amazon": 0, "reddit": 2, "instagram": 0}
+
+
 def test_collection_task_rejects_non_object_context(client: TestClient) -> None:
     response = client.post(
         "/api/collection-tasks",
@@ -807,6 +833,33 @@ def test_run_collection_task_returns_404_for_unknown_task(client: TestClient) ->
 
     assert response.status_code == 404
     assert response.json()["detail"] == "collection_task_not_found"
+
+
+def test_run_collection_task_rejects_task_with_fresh_worker_claim(client: TestClient) -> None:
+    create_response = client.post(
+        "/api/collection-tasks",
+        json={
+            "task": {
+                "platform": "reddit",
+                "source_url": "https://www.reddit.com/r/Coffee/comments/thread123/example/",
+                "requested_capture_method": "server_reddit_json_proxy",
+                "trigger_reason": "manual_retry",
+                "context": {"thread_id": "thread123"},
+            }
+        },
+    )
+    task_id = create_response.json()["collection_task_id"]
+    _set_running_task_claim_state(
+        client=client,
+        task_id=task_id,
+        worker_id="other-worker",
+        claim_expires_at=(datetime.now(tz=UTC) + timedelta(minutes=5)).isoformat(),
+    )
+
+    response = client.post(f"/api/collection-tasks/{task_id}/run")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "collection_task_not_runnable"
 
 
 def test_run_next_collection_task_processes_oldest_pending_task(client: TestClient) -> None:

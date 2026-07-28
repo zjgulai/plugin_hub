@@ -97,16 +97,22 @@ class BriefGroup:
 
 def build_voc_signal_bundle(units: list[CanonicalVocUnit]) -> VocSignalBundle:
     relation_edges = generate_relation_edges(units)
-    edges_by_source: dict[str, list[RelationEdge]] = {}
+    edges_by_source: dict[tuple[str, str], list[RelationEdge]] = {}
     for edge in relation_edges:
-        edges_by_source.setdefault(edge.source_object_id, []).append(edge)
+        edges_by_source.setdefault(
+            (edge.collection_run_id, edge.source_object_id),
+            [],
+        ).append(edge)
 
     return VocSignalBundle(
         relation_edges=relation_edges,
         enriched_voc_signals=[
             _enriched_voc_signal(
                 unit=unit,
-                relation_edges=edges_by_source.get(unit.source_object_id, []),
+                relation_edges=edges_by_source.get(
+                    (unit.collection_run_id, unit.source_object_id),
+                    [],
+                ),
             )
             for unit in units
         ],
@@ -121,6 +127,7 @@ def generate_relation_edges(units: list[CanonicalVocUnit]) -> list[RelationEdge]
         edges,
         key=lambda edge: (
             edge.source_platform.value,
+            edge.collection_run_id,
             edge.source_object_id,
             edge.relation_type,
             edge.from_id,
@@ -259,7 +266,8 @@ def _insight_brief(
         relation_edges=bundle.relation_edges,
     )
     evidence_ref_ids_by_source = {
-        ref.source_object_id: ref.evidence_ref_id for ref in evidence_refs
+        (unit.collection_run_id, unit.source_object_id): ref.evidence_ref_id
+        for unit, ref in zip(group.units[:8], evidence_refs, strict=True)
     }
     business_signals = _business_signals(
         group=group,
@@ -318,9 +326,12 @@ def _evidence_references(
     units: list[CanonicalVocUnit],
     relation_edges: list[RelationEdge],
 ) -> list[EvidenceReference]:
-    edges_by_source: dict[str, list[RelationEdge]] = {}
+    edges_by_source: dict[tuple[str, str], list[RelationEdge]] = {}
     for edge in relation_edges:
-        edges_by_source.setdefault(edge.source_object_id, []).append(edge)
+        edges_by_source.setdefault(
+            (edge.collection_run_id, edge.source_object_id),
+            [],
+        ).append(edge)
 
     return [
         EvidenceReference.model_validate(
@@ -335,7 +346,10 @@ def _evidence_references(
                 "rating": _rating(unit),
                 "relation_edge_ids": [
                     _relation_edge_ref_id(edge)
-                    for edge in edges_by_source.get(unit.source_object_id, [])
+                    for edge in edges_by_source.get(
+                        (unit.collection_run_id, unit.source_object_id),
+                        [],
+                    )
                 ],
                 "quality_flags": _quality_flags(unit),
                 "source_url": str(unit.model_dump(mode="json")["source_url"]),
@@ -349,11 +363,13 @@ def _business_signals(
     *,
     group: BriefGroup,
     signals: list[EnrichedVocSignal],
-    evidence_ref_ids_by_source: dict[str, str],
+    evidence_ref_ids_by_source: dict[tuple[str, str], str],
 ) -> list[BusinessSignal]:
     output: list[BusinessSignal] = []
     for signal in sorted(signals, key=lambda item: (-item.strategy_relevance, item.signal_id)):
-        evidence_ref_id = evidence_ref_ids_by_source.get(signal.source_object_id)
+        evidence_ref_id = evidence_ref_ids_by_source.get(
+            (signal.collection_run_id, signal.source_object_id)
+        )
         if evidence_ref_id is None:
             continue
         signal_type = _business_signal_type(group.key.platform, signal)
@@ -886,6 +902,7 @@ def _relation_edge(
             "source_platform": unit.platform,
             "source_kind": unit.source_kind,
             "source_object_id": unit.source_object_id,
+            "collection_run_id": unit.collection_run_id,
             "relation_type": relation_type,
             "from_type": from_type,
             "from_id": from_id,
@@ -995,7 +1012,7 @@ def _evidence_ref_id(unit: CanonicalVocUnit) -> str:
 
 def _relation_edge_ref_id(edge: RelationEdge) -> str:
     source = (
-        f"{edge.source_platform.value}:{edge.source_object_id}:"
+        f"{edge.source_platform.value}:{edge.collection_run_id}:{edge.source_object_id}:"
         f"{edge.relation_type}:{edge.from_id}:{edge.to_id}"
     )
     return _stable_id("edge", source)

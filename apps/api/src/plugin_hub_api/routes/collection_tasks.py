@@ -7,7 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
-from plugin_hub_api.repositories import SqlAlchemyRepository
+from plugin_hub_api.repositories import CollectionTaskClaimLostError, SqlAlchemyRepository
 from plugin_hub_api.routes.collection_runs import get_repository
 from plugin_hub_api.schemas import (
     CollectionTask,
@@ -19,6 +19,7 @@ from plugin_hub_api.schemas import (
 )
 from plugin_hub_api.services.collection_task_worker import (
     CollectionTaskNotFoundError,
+    CollectionTaskNotRunnableError,
     CollectionTaskRunResult,
     CollectionTaskWorkerConfig,
     PendingCollectionTaskNotFoundError,
@@ -29,6 +30,11 @@ from plugin_hub_api.services.instagram_graph_capture import InstagramGraphCommen
 from plugin_hub_api.services.reddit_capture import default_reddit_json_fetcher
 
 router = APIRouter()
+OPEN_COLLECTION_TASK_STATUSES = (
+    CollectionTaskStatus.PENDING,
+    CollectionTaskStatus.RUNNING,
+    CollectionTaskStatus.RETRY_SCHEDULED,
+)
 
 
 class CollectionTaskRequest(StrictBaseModel):
@@ -50,6 +56,8 @@ class CollectionTaskResponse(StrictBaseModel):
 class CollectionTasksResponse(StrictBaseModel):
     items: list[CollectionTaskResponse]
     total: int
+    open_total: int
+    open_totals: dict[Platform, int]
     limit: int
     offset: int
 
@@ -92,19 +100,36 @@ def list_collection_tasks(
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> CollectionTasksResponse:
-    return CollectionTasksResponse(
-        items=[
-            _task_response(task)
-            for task in repository.list_collection_tasks(
-                platform=platform,
-                limit=limit,
-                offset=offset,
+    repository.begin_read_snapshot()
+    try:
+        open_totals = {
+            current_platform: repository.count_collection_tasks(
+                platform=current_platform,
+                statuses=OPEN_COLLECTION_TASK_STATUSES,
             )
-        ],
-        total=repository.count_collection_tasks(platform=platform),
-        limit=limit,
-        offset=offset,
-    )
+            for current_platform in Platform
+        }
+        return CollectionTasksResponse(
+            items=[
+                _task_response(task)
+                for task in repository.list_collection_tasks(
+                    platform=platform,
+                    limit=limit,
+                    offset=offset,
+                )
+            ],
+            total=repository.count_collection_tasks(platform=platform),
+            open_total=(
+                open_totals[platform]
+                if platform is not None
+                else sum(open_totals.values())
+            ),
+            open_totals=open_totals,
+            limit=limit,
+            offset=offset,
+        )
+    finally:
+        repository.end_read_snapshot()
 
 
 @router.post(
@@ -131,6 +156,8 @@ def run_next_collection_task_endpoint(
         )
     except PendingCollectionTaskNotFoundError:
         raise HTTPException(status_code=404, detail="pending_collection_task_not_found") from None
+    except CollectionTaskClaimLostError:
+        raise HTTPException(status_code=409, detail="collection_task_claim_lost") from None
 
     return _task_run_response(result)
 
@@ -161,6 +188,10 @@ def run_collection_task_endpoint(
         )
     except CollectionTaskNotFoundError:
         raise HTTPException(status_code=404, detail="collection_task_not_found") from None
+    except CollectionTaskNotRunnableError:
+        raise HTTPException(status_code=409, detail="collection_task_not_runnable") from None
+    except CollectionTaskClaimLostError:
+        raise HTTPException(status_code=409, detail="collection_task_claim_lost") from None
 
     return _task_run_response(result)
 
@@ -183,6 +214,9 @@ def get_collection_task_worker_config(request: Request) -> CollectionTaskWorkerC
 
 
 def _task_response(task: CollectionTask) -> CollectionTaskResponse:
+    public_context = {
+        key: value for key, value in task.context.items() if key != "claim_token"
+    }
     return CollectionTaskResponse(
         collection_task_id=task.collection_task_id,
         platform=task.platform,
@@ -190,7 +224,7 @@ def _task_response(task: CollectionTask) -> CollectionTaskResponse:
         requested_capture_method=task.requested_capture_method,
         trigger_reason=task.trigger_reason,
         status=task.status,
-        context=task.context,
+        context=public_context,
         created_at=task.created_at,
         updated_at=task.updated_at,
     )

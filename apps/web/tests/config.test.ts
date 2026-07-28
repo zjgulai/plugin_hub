@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import { loadDashboardConfig } from "../src/lib/config";
@@ -40,5 +42,16 @@ describe("loadDashboardConfig", () => {
       amazonPageLimit: 3,
       lowConfidenceThreshold: 0.7
     });
+  });
+
+  it("routes production SSR API requests over the internal Docker network", () => {
+    const compose = readFileSync(
+      new URL("../../../deploy/tencent-lighthouse/docker-compose.yml", import.meta.url),
+      "utf8"
+    );
+
+    expect(compose).toContain(
+      "PLUGIN_HUB_API_URL: ${PLUGIN_HUB_API_URL:-http://plugin-hub-api:8000}"
+    );
   });
 });

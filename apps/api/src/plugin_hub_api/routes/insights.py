@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -60,7 +60,7 @@ class VocSignalsResponse(StrictBaseModel):
 
 class AnalysisSnapshotCreateRequest(StrictBaseModel):
     platform: Platform
-    language: str = "zh-CN"
+    language: Literal["zh-CN"] = "zh-CN"
 
 
 class AnalysisSnapshotCreateResponse(StrictBaseModel):
@@ -119,7 +119,7 @@ def list_insight_briefs(
     platform: Platform | None = None,
     source_object_type: str | None = None,
     source_object_id: str | None = None,
-    language: str = "zh-CN",
+    language: Literal["zh-CN"] = "zh-CN",
     template_id: str | None = None,
     limit: int = 20,
 ) -> InsightBriefsResponse:
@@ -154,7 +154,11 @@ def create_analysis_snapshot(
     ],
 ) -> AnalysisSnapshotCreateResponse:
     try:
+        # Read the schema gate first, then end that lightweight transaction
+        # before pinning the evidence snapshot. This preserves the explicit
+        # 503 contract without leaving a transaction open across BEGIN.
         snapshot_repository.require_schema_ready()
+        repository.end_read_snapshot()
         units, total = bounded_analysis_units(repository, payload.platform)
         build = build_insight_snapshot(
             units,
@@ -164,6 +168,7 @@ def create_analysis_snapshot(
             source_unit_limit=INSIGHT_SOURCE_UNIT_LIMIT,
             truncated=total > INSIGHT_SOURCE_UNIT_LIMIT,
         )
+        repository.end_read_snapshot()
         replayed = snapshot_repository.save_snapshot(
             run=build.run,
             artifacts=build.artifacts,
@@ -216,13 +221,15 @@ def bounded_analysis_units(
     repository: SqlAlchemyRepository,
     platform: Platform | None,
 ) -> tuple[list[CanonicalVocUnit], int]:
-    total = repository.count_voc_units(platform=platform)
+    repository.begin_read_snapshot()
+    total = repository.count_voc_units(
+        platform=platform,
+        exclude_quality_flag="reddit_more_node",
+    )
     newest_units = repository.list_voc_units(
         platform=platform,
         limit=INSIGHT_SOURCE_UNIT_LIMIT,
         newest_first=True,
+        exclude_quality_flag="reddit_more_node",
     )
-    units = [
-        unit for unit in reversed(newest_units) if "reddit_more_node" not in unit.quality_flags
-    ]
-    return units, total
+    return list(reversed(newest_units)), total

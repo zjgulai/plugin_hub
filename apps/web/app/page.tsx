@@ -44,6 +44,8 @@ type PageProps = {
 type DashboardData = {
   units: VocUnit[];
   tasks: CollectionTask[];
+  openTaskCount: number | null;
+  openTaskCounts: Record<VocPlatform, number> | null;
   captureCapabilities: CaptureCapability[];
   platformSettings: PlatformSetting[];
   platformSettingAuditEvents: PlatformSettingAuditEvent[];
@@ -102,6 +104,7 @@ export default async function Page({ searchParams }: PageProps) {
   const metrics = getMetrics(
     data.units,
     data.tasks,
+    data.openTaskCount,
     config.lowConfidenceThreshold,
     data.assetSummary
   );
@@ -163,6 +166,7 @@ export default async function Page({ searchParams }: PageProps) {
         units={analysisUnits}
         platformUnitCounts={data.assetSummary?.platform_counts ?? null}
         tasks={data.tasks}
+        platformOpenTaskCounts={data.openTaskCounts}
         capabilities={data.captureCapabilities}
         platformSettings={data.platformSettings}
         platformSettingAuditEvents={data.platformSettingAuditEvents}
@@ -328,6 +332,8 @@ async function loadDashboardData(
       assetSummaryResult.status === "fulfilled" ? assetSummaryResult.value : null,
     assetRuns: assetRunsResult.status === "fulfilled" ? assetRunsResult.value.items : [],
     tasks: taskResult.status === "fulfilled" ? taskResult.value.items : [],
+    openTaskCount: taskResult.status === "fulfilled" ? taskResult.value.open_total : null,
+    openTaskCounts: taskResult.status === "fulfilled" ? taskResult.value.open_totals : null,
     captureCapabilities:
       capabilityResult.status === "fulfilled" ? capabilityResult.value.items : [],
     platformSettings:
@@ -791,6 +797,7 @@ function ErrorNotice({ title, error }: { title: string; error: string }) {
 function getMetrics(
   units: VocUnit[],
   tasks: CollectionTask[],
+  openTaskCount: number | null,
   lowConfidenceThreshold: number,
   assetSummary: DataAssetSummary | null
 ): DashboardMetrics {
@@ -820,7 +827,7 @@ function getMetrics(
       .map((unit) => unit.collection_run_id)
       .filter((value): value is string => value !== null)
   ).size;
-  const pendingTasks = tasks.filter(
+  const pendingTasks = openTaskCount ?? tasks.filter(
     (task) =>
       task.status === "pending" ||
       task.status === "running" ||

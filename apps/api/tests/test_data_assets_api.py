@@ -1,9 +1,23 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi.testclient import TestClient
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+from plugin_hub_api.db import build_engine, init_database, make_session_factory
+from plugin_hub_api.payload_hashes import fnv1a64_payload_hash
+from plugin_hub_api.repositories import SqlAlchemyRepository
+from plugin_hub_api.schemas import JsonValue
 
 
 def test_data_asset_summary_reports_durable_counts_without_payloads(client: TestClient) -> None:
+    raw_payload: dict[str, JsonValue] = {
+        "review_id": "R123",
+        "body": "Durable evidence.",
+        "captured_at": "2026-06-05T00:00:00+00:00",
+    }
     response = client.post(
         "/api/collection-runs",
         json={
@@ -22,12 +36,8 @@ def test_data_asset_summary_reports_durable_counts_without_payloads(client: Test
                     "source_object_id": "R123",
                     "raw_schema_version": "amazon-review-v1",
                     "parser_version": "parser-v1",
-                    "raw_payload": {
-                        "review_id": "R123",
-                        "body": "Durable evidence.",
-                        "captured_at": "2026-06-05T00:00:00+00:00",
-                    },
-                    "raw_payload_hash": "sha256:amazon-r123",
+                    "raw_payload": raw_payload,
+                    "raw_payload_hash": fnv1a64_payload_hash(raw_payload),
                     "captured_at": "2026-06-05T00:00:00+00:00",
                 }
             ],
@@ -85,3 +95,71 @@ def test_data_asset_summary_reports_durable_counts_without_payloads(client: Test
         }
     ]
     assert "source_url" not in str(runs).lower()
+
+
+def test_data_asset_summary_uses_one_snapshot_during_concurrent_insert(tmp_path: Path) -> None:
+    database_path = tmp_path / "plugin_hub.db"
+    engine = build_engine(
+        f"sqlite+pysqlite:///{database_path}",
+        sqlite_wal_enabled=True,
+    )
+    init_database(engine)
+    session_factory = make_session_factory(engine)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO collection_runs (
+                    collection_run_id, platform, source_url, capture_method,
+                    coverage_scope, stop_reason, coverage_confidence, created_at
+                ) VALUES (
+                    'run-concurrent-summary', 'reddit',
+                    'https://www.reddit.com/r/test/comments/thread/', 'test',
+                    '{}', NULL, 1.0, '2026-07-28T00:00:00+00:00'
+                )
+                """
+            )
+        )
+
+    class ConcurrentInsertRepository(SqlAlchemyRepository):
+        def __init__(self, session: Session) -> None:
+            super().__init__(session)
+            self.inserted = False
+
+        def _text_count(self, statement: str) -> int:
+            if not self.inserted:
+                self.inserted = True
+                with engine.begin() as writer:
+                    writer.execute(
+                        text(
+                            """
+                            INSERT INTO canonical_voc_units (
+                                platform, source_kind, source_object_id,
+                                collection_run_id, source_url, captured_at, body,
+                                media_refs, quality_flags, coverage_confidence,
+                                platform_extension
+                            ) VALUES (
+                                'reddit', 'reddit_comment', 'placeholder-late',
+                                'run-concurrent-summary',
+                                'https://www.reddit.com/r/test/comments/thread/',
+                                '2026-07-28T00:00:00+00:00', '', '[]',
+                                '["reddit_more_node"]', 1.0, '{}'
+                            )
+                            """
+                        )
+                    )
+            return super()._text_count(statement)
+
+    with session_factory() as session:
+        summary = ConcurrentInsertRepository(session).get_data_asset_summary(
+            low_confidence_threshold=0.7
+        )
+
+    assert summary.canonical_voc_count == 0
+    assert summary.placeholder_voc_count == 0
+    assert summary.analysis_eligible_voc_count == 0
+    with engine.connect() as connection:
+        assert connection.execute(
+            text("SELECT COUNT(*) FROM canonical_voc_units")
+        ).scalar_one() == 1
+    engine.dispose()

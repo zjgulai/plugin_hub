@@ -13,6 +13,7 @@ type PlatformWorkspaceProps = {
   units: VocUnit[];
   platformUnitCounts: Record<VocPlatform, number> | null;
   tasks: CollectionTask[];
+  platformOpenTaskCounts: Record<VocPlatform, number> | null;
   capabilities: CaptureCapability[];
   platformSettings: PlatformSetting[];
   platformSettingAuditEvents: PlatformSettingAuditEvent[];
@@ -108,6 +109,7 @@ export function PlatformWorkspace({
   units,
   platformUnitCounts,
   tasks,
+  platformOpenTaskCounts,
   capabilities,
   platformSettings,
   platformSettingAuditEvents,
@@ -126,6 +128,7 @@ export function PlatformWorkspace({
       units,
       platformUnitCounts,
       tasks,
+      platformOpenTaskCounts,
       capabilities,
       settingsByPlatform.get(definition.platform),
       platformSettingAuditEvents.filter((event) => event.platform === definition.platform),
@@ -321,6 +324,7 @@ function buildPlatformCard(
   units: VocUnit[],
   platformUnitCounts: Record<VocPlatform, number> | null,
   tasks: CollectionTask[],
+  platformOpenTaskCounts: Record<VocPlatform, number> | null,
   capabilities: CaptureCapability[],
   setting: PlatformSetting | undefined,
   auditEvents: PlatformSettingAuditEvent[],
@@ -328,6 +332,7 @@ function buildPlatformCard(
 ) {
   const platformUnits = units.filter((unit) => unit.platform === definition.platform);
   const platformTasks = tasks.filter((task) => task.platform === definition.platform);
+  const openTaskCount = platformOpenTaskCounts?.[definition.platform] ?? countOpenTasks(platformTasks);
   const lowConfidenceCount = platformUnits.filter(
     (unit) => unit.coverage_confidence < config.lowConfidenceThreshold
   ).length;
@@ -349,8 +354,8 @@ function buildPlatformCard(
     stageLabel: stageLabel(stage),
     unitCount: platformUnitCounts?.[definition.platform] ?? platformUnits.length,
     unitDetail: uniqueObjectDetail(definition.platform, platformUnits),
-    queueCount: platformTasks.filter((task) => task.status !== "completed").length,
-    queueDetail: queueDetail(platformTasks),
+    queueCount: openTaskCount,
+    queueDetail: queueDetail(platformTasks, openTaskCount),
     qualityCount: lowConfidenceCount + flaggedCount,
     qualityDetail:
       lowConfidenceCount + flaggedCount === 0
@@ -866,15 +871,18 @@ function recentObjectLabel(platform: VocPlatform, units: VocUnit[]): string {
   return extensionString(latest.platform_extension.media_id) ?? latest.source_object_id;
 }
 
-function queueDetail(tasks: CollectionTask[]): string {
-  const pending = tasks.filter(
+function countOpenTasks(tasks: CollectionTask[]): number {
+  return tasks.filter(
     (task) =>
       task.status === "pending" ||
       task.status === "running" ||
       task.status === "retry_scheduled"
   ).length;
+}
+
+function queueDetail(tasks: CollectionTask[], openTaskCount: number): string {
   const completed = tasks.filter((task) => task.status === "completed").length;
-  return `${pending} open / ${completed} done`;
+  return `${openTaskCount} open / ${completed} recent done`;
 }
 
 function taskObjectLabel(task: CollectionTask): string {

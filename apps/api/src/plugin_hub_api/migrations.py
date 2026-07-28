@@ -8,6 +8,9 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection, Engine
 
 ANALYSIS_SNAPSHOT_MIGRATION_VERSION = "0001_analysis_snapshots"
+ANALYSIS_SNAPSHOT_INSERT_GUARDS_MIGRATION_VERSION = (
+    "0002_analysis_snapshot_insert_guards"
+)
 
 
 class MigrationError(RuntimeError):
@@ -137,13 +140,63 @@ ANALYSIS_SNAPSHOT_MIGRATION = Migration(
     ),
 )
 
-MIGRATIONS: tuple[Migration, ...] = (ANALYSIS_SNAPSHOT_MIGRATION,)
+ANALYSIS_SNAPSHOT_INSERT_GUARDS_MIGRATION = Migration(
+    version=ANALYSIS_SNAPSHOT_INSERT_GUARDS_MIGRATION_VERSION,
+    up_statements=(
+        """
+        CREATE TRIGGER analysis_runs_no_replace
+        BEFORE INSERT ON analysis_runs
+        WHEN EXISTS (
+            SELECT 1 FROM analysis_runs
+            WHERE analysis_run_id = NEW.analysis_run_id
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'analysis_runs_append_only');
+        END
+        """,
+        """
+        CREATE TRIGGER analysis_artifacts_no_replace
+        BEFORE INSERT ON analysis_artifact_snapshots
+        WHEN EXISTS (
+            SELECT 1 FROM analysis_artifact_snapshots
+            WHERE analysis_snapshot_id = NEW.analysis_snapshot_id
+               OR (
+                    analysis_run_id = NEW.analysis_run_id
+                    AND artifact_type = NEW.artifact_type
+                    AND artifact_key = NEW.artifact_key
+               )
+        )
+        OR (
+            SELECT COUNT(*)
+            FROM analysis_artifact_snapshots
+            WHERE analysis_run_id = NEW.analysis_run_id
+        ) >= (
+            SELECT artifact_count
+            FROM analysis_runs
+            WHERE analysis_run_id = NEW.analysis_run_id
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'analysis_artifacts_append_only');
+        END
+        """,
+    ),
+    down_statements=(
+        "DROP TRIGGER IF EXISTS analysis_artifacts_no_replace",
+        "DROP TRIGGER IF EXISTS analysis_runs_no_replace",
+    ),
+)
+
+MIGRATIONS: tuple[Migration, ...] = (
+    ANALYSIS_SNAPSHOT_MIGRATION,
+    ANALYSIS_SNAPSHOT_INSERT_GUARDS_MIGRATION,
+)
 MIGRATIONS_BY_VERSION = {migration.version: migration for migration in MIGRATIONS}
 
 
 def apply_pending_migrations(engine: Engine) -> list[str]:
     applied_now: list[str] = []
     with engine.begin() as connection:
+        _begin_sqlite_ddl_transaction(connection)
         connection.exec_driver_sql(MIGRATION_TABLE_SQL)
         applied = _applied_migration_checksums(connection)
         _validate_known_migrations(applied)
@@ -179,12 +232,12 @@ def applied_migration_versions(engine: Engine) -> list[str]:
         if not _table_exists(connection, "schema_migrations"):
             return []
         applied = _applied_migration_checksums(connection)
-        _validate_known_migrations(applied)
-        return [migration.version for migration in MIGRATIONS if migration.version in applied]
+        return migration_versions_from_applied_checksums(applied)
 
 
 def rollback_latest_migration(engine: Engine) -> str | None:
     with engine.begin() as connection:
+        _begin_sqlite_ddl_transaction(connection)
         if not _table_exists(connection, "schema_migrations"):
             return None
         applied = _applied_migration_checksums(connection)
@@ -194,7 +247,10 @@ def rollback_latest_migration(engine: Engine) -> str | None:
             return None
         version = versions[-1]
         migration = MIGRATIONS_BY_VERSION[version]
-        if version == ANALYSIS_SNAPSHOT_MIGRATION_VERSION and (
+        if version in {
+            ANALYSIS_SNAPSHOT_MIGRATION_VERSION,
+            ANALYSIS_SNAPSHOT_INSERT_GUARDS_MIGRATION_VERSION,
+        } and (
             _table_count(connection, "analysis_runs") > 0
             or _table_count(connection, "analysis_artifact_snapshots") > 0
         ):
@@ -219,6 +275,21 @@ def _validate_known_migrations(applied: dict[str, str]) -> None:
     unknown = sorted(set(applied) - set(MIGRATIONS_BY_VERSION))
     if unknown:
         raise MigrationError(f"unknown_migration_versions:{','.join(unknown)}")
+    for version, checksum in applied.items():
+        if checksum != MIGRATIONS_BY_VERSION[version].checksum:
+            raise MigrationChecksumMismatch(f"migration_checksum_mismatch:{version}")
+
+
+def migration_versions_from_applied_checksums(applied: dict[str, str]) -> list[str]:
+    _validate_known_migrations(applied)
+    return [migration.version for migration in MIGRATIONS if migration.version in applied]
+
+
+def _begin_sqlite_ddl_transaction(connection: Connection) -> None:
+    if connection.dialect.name == "sqlite":
+        # Python's sqlite3 legacy transaction mode does not begin a transaction
+        # for DDL. An explicit BEGIN makes the entire migration rollback-safe.
+        connection.exec_driver_sql("BEGIN IMMEDIATE")
 
 
 def _table_exists(connection: Connection, table_name: str) -> bool:

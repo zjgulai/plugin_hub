@@ -19,25 +19,7 @@ def test_post_collection_run_with_amazon_item_returns_counts(client: TestClient)
         "/api/collection-runs",
         json={
             "run": _collection_run(platform="amazon"),
-            "raw_items": [
-                {
-                    "platform": "amazon",
-                    "source_kind": "amazon_review",
-                    "source_object_id": "R123",
-                    "raw_schema_version": "amazon-review-v1",
-                    "parser_version": "parser-v1",
-                    "raw_payload": {
-                        "review_id": "R123",
-                        "rating": 2,
-                        "title": "Useful but breaks fast",
-                        "body": "The product worked for two weeks.",
-                        "asin": "B000000001",
-                        "captured_at": "2026-06-05T00:00:00+00:00",
-                    },
-                    "raw_payload_hash": "sha256:amazon-r123",
-                    "captured_at": "2026-06-05T00:00:00+00:00",
-                }
-            ],
+            "raw_items": [_amazon_review_item()],
         },
     )
 
@@ -68,6 +50,65 @@ def test_post_reddit_thread_then_get_voc_units_by_platform(client: TestClient) -
     items = voc_response.json()["items"]
     assert len(items) == 1
     assert items[0]["thread_id"] == "t3_thread123"
+
+
+def test_voc_pagination_excludes_rows_committed_after_snapshot_boundary(
+    client: TestClient,
+) -> None:
+    for review_id in ("R1", "R2"):
+        item = _amazon_review_item()
+        item["source_object_id"] = review_id
+        cast(dict[str, object], item["raw_payload"])["review_id"] = review_id
+        _refresh_payload_hash(item)
+        response = client.post(
+            "/api/collection-runs",
+            json={"run": _collection_run(), "raw_items": [item]},
+        )
+        assert response.status_code == 201
+
+    first_page = client.get("/api/voc-units", params={"limit": 1, "offset": 0})
+    first_body = first_page.json()
+    assert first_page.status_code == 200
+    assert first_body["total"] == 2
+    assert first_body["snapshot_max_id"] is not None
+
+    newest = _amazon_review_item()
+    newest["source_object_id"] = "R3"
+    cast(dict[str, object], newest["raw_payload"])["review_id"] = "R3"
+    _refresh_payload_hash(newest)
+    inserted = client.post(
+        "/api/collection-runs",
+        json={"run": _collection_run(), "raw_items": [newest]},
+    )
+    assert inserted.status_code == 201
+
+    second_page = client.get(
+        "/api/voc-units",
+        params={
+            "limit": 1,
+            "offset": 1,
+            "snapshot_max_id": first_body["snapshot_max_id"],
+        },
+    )
+    second_body = second_page.json()
+
+    assert second_page.status_code == 200
+    assert second_body["total"] == 2
+    assert second_body["snapshot_max_id"] == first_body["snapshot_max_id"]
+    assert second_body["items"][0]["source_object_id"] == "R1"
+
+
+def test_empty_voc_page_returns_zero_snapshot_boundary(client: TestClient) -> None:
+    response = client.get("/api/voc-units")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "items": [],
+        "total": 0,
+        "limit": 100,
+        "offset": 0,
+        "snapshot_max_id": 0,
+    }
 
 
 def test_invalid_collection_run_url_returns_422(client: TestClient) -> None:
@@ -150,6 +191,7 @@ def test_extension_collection_run_rejects_tampered_payload_hash(client: TestClie
     run = _collection_run()
     run["capture_method"] = "extension_dom_next_link_walk"
     raw_item = _amazon_review_item()
+    raw_item["raw_payload_hash"] = "fnv1a64:0000000000000000"
 
     response = client.post(
         "/api/collection-runs",
@@ -159,14 +201,28 @@ def test_extension_collection_run_rejects_tampered_payload_hash(client: TestClie
     assert response.status_code == 422
 
 
+def test_capture_method_cannot_bypass_direct_upload_hash_verification(
+    client: TestClient,
+) -> None:
+    run = _collection_run()
+    run["capture_method"] = "manual_import"
+    raw_item = _amazon_review_item()
+    raw_item["raw_payload_hash"] = "sha256:caller-controlled"
+
+    response = client.post(
+        "/api/collection-runs",
+        json={"run": run, "raw_items": [raw_item]},
+    )
+
+    assert response.status_code == 422
+    assert "raw_payload_hash_mismatch" in response.text
+
+
 def test_extension_collection_run_accepts_verified_payload_hash(client: TestClient) -> None:
     run = _collection_run()
     run["capture_method"] = "extension_dom_next_link_walk"
     raw_item = _amazon_review_item()
-    raw_payload = cast(dict[str, object], raw_item["raw_payload"])
-    raw_item["raw_payload_hash"] = fnv1a64_payload_hash(
-        cast(dict[str, JsonValue], raw_payload)
-    )
+    _refresh_payload_hash(raw_item)
 
     response = client.post(
         "/api/collection-runs",
@@ -186,6 +242,7 @@ def test_collection_run_rejects_more_than_two_thousand_raw_items(client: TestCli
 
 
 def test_reddit_comment_maps_thread_parent_and_reply_role(client: TestClient) -> None:
+    raw_item = _reddit_comment_item()
     response = client.post(
         "/api/collection-runs",
         json={
@@ -193,25 +250,7 @@ def test_reddit_comment_maps_thread_parent_and_reply_role(client: TestClient) ->
                 platform="reddit",
                 source_url="https://www.reddit.com/r/Coffee/comments/thread123/example/comment456/",
             ),
-            "raw_items": [
-                {
-                    "platform": "reddit",
-                    "source_kind": "reddit_comment",
-                    "source_object_id": "t1_comment456",
-                    "raw_schema_version": "reddit-comment-v1",
-                    "parser_version": "parser-v1",
-                    "raw_payload": {
-                        "name": "t1_comment456",
-                        "body": "The motor noise is the real issue.",
-                        "parent_id": "t1_parent999",
-                        "link_id": "t3_thread123",
-                        "depth": 2,
-                        "created_utc": 1780602800.0,
-                    },
-                    "raw_payload_hash": "sha256:reddit-comment456",
-                    "captured_at": "2026-06-05T00:00:00+00:00",
-                }
-            ],
+            "raw_items": [raw_item],
         },
     )
 
@@ -254,6 +293,7 @@ def test_reddit_comment_without_thread_linkage_returns_422(client: TestClient) -
     raw_item = _reddit_comment_item()
     raw_payload = cast(dict[str, object], raw_item["raw_payload"])
     raw_payload.pop("link_id")
+    _refresh_payload_hash(raw_item)
 
     response = client.post(
         "/api/collection-runs",
@@ -276,6 +316,7 @@ def test_reddit_comment_invalid_link_id_returns_422_without_persistence(
     raw_item = _reddit_comment_item()
     raw_payload = cast(dict[str, object], raw_item["raw_payload"])
     raw_payload["link_id"] = "not-a-thread"
+    _refresh_payload_hash(raw_item)
 
     response = client.post(
         "/api/collection-runs",
@@ -300,6 +341,7 @@ def test_reddit_comment_mismatched_thread_ids_returns_422_without_persistence(
     raw_payload = cast(dict[str, object], raw_item["raw_payload"])
     raw_payload["link_id"] = "t3_thread123"
     raw_payload["thread_id"] = "t3_other"
+    _refresh_payload_hash(raw_item)
 
     response = client.post(
         "/api/collection-runs",
@@ -337,9 +379,9 @@ def test_get_voc_units_is_bounded_and_reports_total(client: TestClient) -> None:
     first_item = _amazon_review_item()
     second_item = deepcopy(first_item)
     second_item["source_object_id"] = "R124"
-    second_item["raw_payload_hash"] = "sha256:amazon-r124"
     second_payload = cast(dict[str, object], second_item["raw_payload"])
     second_payload["review_id"] = "R124"
+    _refresh_payload_hash(second_item)
 
     for item in (first_item, second_item):
         response = client.post(
@@ -377,6 +419,23 @@ def test_collection_run_idempotency_replays_without_duplicate_assets(client: Tes
     assert summary["canonical_voc_count"] == 1
 
 
+def test_collection_run_idempotency_replays_non_utc_offset_timestamp(
+    client: TestClient,
+) -> None:
+    item = deepcopy(_amazon_review_item())
+    item["captured_at"] = "2026-06-05T08:00:00+08:00"
+    payload = {"run": _collection_run(), "raw_items": [item]}
+    headers = {"Idempotency-Key": f"capture-{'z' * 32}"}
+
+    first = client.post("/api/collection-runs", json=payload, headers=headers)
+    second = client.post("/api/collection-runs", json=payload, headers=headers)
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert first.json()["collection_run_id"] == second.json()["collection_run_id"]
+    assert second.json()["replayed"] is True
+
+
 def test_collection_run_idempotency_rejects_key_reuse_with_different_payload(
     client: TestClient,
 ) -> None:
@@ -384,9 +443,9 @@ def test_collection_run_idempotency_rejects_key_reuse_with_different_payload(
     first_payload = {"run": _collection_run(), "raw_items": [_amazon_review_item()]}
     changed_item = deepcopy(_amazon_review_item())
     changed_item["source_object_id"] = "R999"
-    changed_item["raw_payload_hash"] = "sha256:amazon-r999"
     changed_raw_payload = cast(dict[str, object], changed_item["raw_payload"])
     changed_raw_payload["review_id"] = "R999"
+    _refresh_payload_hash(changed_item)
 
     first = client.post("/api/collection-runs", json=first_payload, headers=headers)
     second = client.post(
@@ -435,7 +494,7 @@ def _collection_run(
 
 
 def _amazon_review_item() -> dict[str, object]:
-    return {
+    item: dict[str, object] = {
         "platform": "amazon",
         "source_kind": "amazon_review",
         "source_object_id": "R123",
@@ -447,13 +506,15 @@ def _amazon_review_item() -> dict[str, object]:
             "body": "The product worked for two weeks.",
             "captured_at": "2026-06-05T00:00:00+00:00",
         },
-        "raw_payload_hash": "sha256:amazon-r123",
+        "raw_payload_hash": "",
         "captured_at": "2026-06-05T00:00:00+00:00",
     }
+    _refresh_payload_hash(item)
+    return item
 
 
 def _reddit_thread_item() -> dict[str, object]:
-    return {
+    item: dict[str, object] = {
         "platform": "reddit",
         "source_kind": "reddit_thread",
         "source_object_id": "t3_thread123",
@@ -468,13 +529,15 @@ def _reddit_thread_item() -> dict[str, object]:
             "created_utc": 1780602718.0,
             "score": 42,
         },
-        "raw_payload_hash": "sha256:reddit-thread123",
+        "raw_payload_hash": "",
         "captured_at": "2026-06-05T00:00:00+00:00",
     }
+    _refresh_payload_hash(item)
+    return item
 
 
 def _reddit_comment_item() -> dict[str, object]:
-    return {
+    item: dict[str, object] = {
         "platform": "reddit",
         "source_kind": "reddit_comment",
         "source_object_id": "t1_comment456",
@@ -488,13 +551,15 @@ def _reddit_comment_item() -> dict[str, object]:
             "depth": 2,
             "created_utc": 1780602800.0,
         },
-        "raw_payload_hash": "sha256:reddit-comment456",
+        "raw_payload_hash": "",
         "captured_at": "2026-06-05T00:00:00+00:00",
     }
+    _refresh_payload_hash(item)
+    return item
 
 
 def _instagram_comment_item() -> dict[str, object]:
-    return {
+    item: dict[str, object] = {
         "platform": "instagram",
         "source_kind": "instagram_comment",
         "source_object_id": "18000000000000001",
@@ -509,9 +574,16 @@ def _instagram_comment_item() -> dict[str, object]:
             "like_count": 4,
             "captured_at": "2026-06-05T10:00:00+00:00",
         },
-        "raw_payload_hash": "sha256:instagram-comment1",
+        "raw_payload_hash": "",
         "captured_at": "2026-06-05T10:00:00+00:00",
     }
+    _refresh_payload_hash(item)
+    return item
+
+
+def _refresh_payload_hash(item: dict[str, object]) -> None:
+    raw_payload = cast(dict[str, JsonValue], item["raw_payload"])
+    item["raw_payload_hash"] = fnv1a64_payload_hash(raw_payload)
 
 
 def _collection_run_model() -> CollectionRun:

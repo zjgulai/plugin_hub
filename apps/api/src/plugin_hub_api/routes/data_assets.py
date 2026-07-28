@@ -34,6 +34,7 @@ def list_data_asset_runs(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> DataAssetRunsResponse:
+    repository.begin_read_snapshot()
     return DataAssetRunsResponse(
         items=repository.list_data_asset_runs(limit=limit, offset=offset),
         total=repository.count_collection_runs(),

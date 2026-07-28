@@ -79,18 +79,22 @@ def parse_instagram_media_comments_payload(
         return [], 0, "missing_comments"
 
     captured_at_iso = captured_at.astimezone(UTC).isoformat()
-    raw_items = [
-        _build_comment_raw_source_item(
+    raw_items: list[RawSourceItem] = []
+    seen_source_object_ids: set[str] = set()
+    for comment in comments:
+        raw_item = _build_comment_raw_source_item(
             comment=comment,
             source_url=source_url,
             captured_at=captured_at_iso,
             media_id=media_id,
             permalink=permalink,
         )
-        for comment in comments
-    ]
+        if raw_item.source_object_id in seen_source_object_ids:
+            continue
+        seen_source_object_ids.add(raw_item.source_object_id)
+        raw_items.append(raw_item)
     stop_reason = "paging_next_not_fetched" if _has_next_page(comments_payload) else None
-    return raw_items, len(comments), stop_reason
+    return raw_items, len(raw_items), stop_reason
 
 
 def _parse_payload(payload: object) -> dict[str, JsonValue] | None:

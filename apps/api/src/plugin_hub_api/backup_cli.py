@@ -14,6 +14,7 @@ from pathlib import Path
 @dataclass(frozen=True)
 class BackupVerification:
     quick_check_ok: bool
+    foreign_key_issues: int
     table_counts: dict[str, int]
 
 
@@ -54,6 +55,8 @@ def create_verified_backup(
             verification = verify_sqlite_backup(temporary_path)
             if not verification.quick_check_ok:
                 raise RuntimeError("backup_quick_check_failed")
+            if verification.foreign_key_issues:
+                raise RuntimeError("backup_foreign_key_check_failed")
             os.chmod(temporary_path, 0o600)
             digest = _sha256(temporary_path)
             bytes_written = temporary_path.stat().st_size
@@ -87,6 +90,7 @@ def verify_sqlite_backup(path: Path) -> BackupVerification:
     try:
         connection.execute("PRAGMA query_only=ON")
         quick_check = connection.execute("PRAGMA quick_check").fetchall()
+        foreign_key_issues = len(connection.execute("PRAGMA foreign_key_check").fetchall())
         tables = [
             str(row[0])
             for row in connection.execute(
@@ -106,6 +110,7 @@ def verify_sqlite_backup(path: Path) -> BackupVerification:
         }
         return BackupVerification(
             quick_check_ok=quick_check == [("ok",)],
+            foreign_key_issues=foreign_key_issues,
             table_counts=table_counts,
         )
     finally:
@@ -144,6 +149,7 @@ def _write_manifest(
         "sha256": sha256,
         "bytes": bytes_written,
         "quick_check_ok": verification.quick_check_ok,
+        "foreign_key_issues": verification.foreign_key_issues,
         "table_counts": verification.table_counts,
     }
     temporary_manifest.write_text(
@@ -185,6 +191,8 @@ def _manifest_matches_backup(backup_path: Path, manifest_path: Path) -> bool:
         return (
             manifest.get("quick_check_ok") is True
             and verification.quick_check_ok
+            and manifest.get("foreign_key_issues") == 0
+            and verification.foreign_key_issues == 0
             and manifest.get("table_counts") == verification.table_counts
         )
     except (OSError, ValueError, sqlite3.Error):

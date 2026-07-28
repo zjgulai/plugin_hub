@@ -34,10 +34,15 @@ umask 077
 mkdir -p "$destination_dir"
 chmod 0700 "$destination_dir"
 
-lock_dir="$destination_dir/.pull.lock"
-if ! mkdir "$lock_dir" 2>/dev/null; then
-  print -- "offhost_backup_status=already_running"
-  exit 0
+lock_file="$destination_dir/.pull.lock"
+if [[ -d "$lock_file" ]]; then
+  print -u2 -- "offhost_backup_error=legacy_lock_directory_detected path=$lock_file"
+  exit 75
+fi
+exec 9>"$lock_file"
+if ! /usr/bin/lockf -s -t 0 9; then
+  print -u2 -- "offhost_backup_error=already_running"
+  exit 75
 fi
 
 temporary_dir=""
@@ -54,7 +59,6 @@ cleanup() {
   if [[ -n "$temporary_metadata" ]]; then
     rm -f "$temporary_metadata"
   fi
-  rmdir "$lock_dir" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
@@ -117,6 +121,12 @@ import sqlite3
 import sys
 from pathlib import Path
 
+
+def require(condition: bool, code: str) -> None:
+    if not condition:
+        raise RuntimeError(code)
+
+
 database_path = Path(sys.argv[1])
 manifest_path = Path(sys.argv[2])
 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -136,14 +146,15 @@ try:
 finally:
     connection.close()
 
-assert manifest["backup_file"] == database_path.name
-assert manifest["sha256"] == digest
-assert manifest["bytes"] == database_path.stat().st_size
-assert manifest["quick_check_ok"] is True
-assert quick_check == "ok"
-assert foreign_key_issues == 0
+require(manifest["backup_file"] == database_path.name, "manifest_backup_file_mismatch")
+require(manifest["sha256"] == digest, "manifest_sha256_mismatch")
+require(manifest["bytes"] == database_path.stat().st_size, "manifest_bytes_mismatch")
+require(manifest["quick_check_ok"] is True, "manifest_quick_check_not_ok")
+require(manifest["foreign_key_issues"] == 0, "manifest_foreign_key_issues")
+require(quick_check == "ok", "restored_database_quick_check_failed")
+require(foreign_key_issues == 0, "restored_database_foreign_key_issues")
 for table, count in counts.items():
-    assert manifest["table_counts"][table] == count
+    require(manifest["table_counts"][table] == count, f"manifest_count_mismatch:{table}")
 print(
     "offhost_restore_verification=pass "
     f"file={database_path.name} "
@@ -156,8 +167,68 @@ PY
   temporary_dir=""
 }
 
+verify_metadata() {
+  local archive_path=$1
+  local metadata_path=$2
+
+  "$python_bin" - "$archive_path" "$metadata_path" "$archive_file" \
+    "$database_file" "$remote_host" <<'PY_METADATA'
+import hashlib
+import json
+import sys
+from datetime import datetime
+from pathlib import Path
+
+
+def require(condition: bool, code: str) -> None:
+    if not condition:
+        raise RuntimeError(code)
+
+
+archive_path = Path(sys.argv[1])
+metadata_path = Path(sys.argv[2])
+expected_archive_file = sys.argv[3]
+expected_database_file = sys.argv[4]
+expected_remote_host = sys.argv[5]
+verification_contract = "decrypt_manifest_hash_quick_check_counts_fk"
+
+payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+require(isinstance(payload, dict), "metadata_object_required")
+require(payload["archive_file"] == expected_archive_file, "metadata_archive_file_mismatch")
+require(
+    payload["source_backup_file"] == expected_database_file,
+    "metadata_source_backup_file_mismatch",
+)
+require(payload["remote_host"] == expected_remote_host, "metadata_remote_host_mismatch")
+require(payload["verification"] == verification_contract, "metadata_verification_mismatch")
+require(
+    isinstance(payload["encrypted_bytes"], int)
+    and not isinstance(payload["encrypted_bytes"], bool),
+    "metadata_encrypted_bytes_invalid",
+)
+require(
+    payload["encrypted_bytes"] == archive_path.stat().st_size,
+    "metadata_encrypted_bytes_mismatch",
+)
+encrypted_sha256 = payload["encrypted_sha256"]
+require(
+    isinstance(encrypted_sha256, str) and len(encrypted_sha256) == 64,
+    "metadata_encrypted_sha256_invalid",
+)
+require(
+    hashlib.sha256(archive_path.read_bytes()).hexdigest() == encrypted_sha256,
+    "metadata_encrypted_sha256_mismatch",
+)
+fetched_at = payload["fetched_at"]
+require(isinstance(fetched_at, str), "metadata_fetched_at_invalid")
+datetime.fromisoformat(fetched_at.replace("Z", "+00:00"))
+print(f"offhost_metadata_verification=pass archive={expected_archive_file}")
+PY_METADATA
+}
+
 if [[ -f "$final_archive" && -f "$final_metadata" ]]; then
   verify_archive "$final_archive"
+  verify_metadata "$final_archive" "$final_metadata"
   print -- "offhost_backup_status=already_present archive=$archive_file"
   exit 0
 fi
@@ -183,6 +254,12 @@ import sqlite3
 import sys
 from pathlib import Path
 
+
+def require(condition: bool, code: str) -> None:
+    if not condition:
+        raise RuntimeError(code)
+
+
 database_path = Path(sys.argv[1])
 manifest_path = Path(sys.argv[2])
 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -194,6 +271,7 @@ connection = sqlite3.connect(
 try:
     connection.execute("PRAGMA query_only=ON")
     quick_check = connection.execute("PRAGMA quick_check").fetchone()[0]
+    foreign_key_issues = len(connection.execute("PRAGMA foreign_key_check").fetchall())
     table_counts = {
         table: connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
         for table in manifest["table_counts"]
@@ -201,12 +279,14 @@ try:
 finally:
     connection.close()
 
-assert manifest["backup_file"] == database_path.name
-assert manifest["sha256"] == digest
-assert manifest["bytes"] == database_path.stat().st_size
-assert manifest["quick_check_ok"] is True
-assert quick_check == "ok"
-assert manifest["table_counts"] == table_counts
+require(manifest["backup_file"] == database_path.name, "manifest_backup_file_mismatch")
+require(manifest["sha256"] == digest, "manifest_sha256_mismatch")
+require(manifest["bytes"] == database_path.stat().st_size, "manifest_bytes_mismatch")
+require(manifest["quick_check_ok"] is True, "manifest_quick_check_not_ok")
+require(manifest["foreign_key_issues"] == 0, "manifest_foreign_key_issues")
+require(quick_check == "ok", "remote_database_quick_check_failed")
+require(foreign_key_issues == 0, "remote_database_foreign_key_issues")
+require(manifest["table_counts"] == table_counts, "manifest_table_counts_mismatch")
 print(f"remote_backup_verification=pass file={database_path.name}", file=sys.stderr)
 PY
 
@@ -239,16 +319,69 @@ payload = {
 output.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
 PY
 chmod 0600 "$temporary_metadata"
+verify_metadata "$temporary_archive" "$temporary_metadata"
 mv "$temporary_archive" "$final_archive"
 temporary_archive=""
 mv "$temporary_metadata" "$final_metadata"
 temporary_metadata=""
 
-find "$destination_dir" -maxdepth 1 -type f -name 'plugin_hub_*.tar.age' -print | \
-  sort -r | tail -n "+$((retention_count + 1))" | while IFS= read -r expired_archive; do
-    [[ -n "$expired_archive" ]] || continue
-    expired_base="${expired_archive%.tar.age}"
-    rm -f "$expired_archive" "$expired_base.offhost.json"
-  done
+expired_verified_archives="$("$python_bin" - "$destination_dir" "$retention_count" <<'PY_RETENTION'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+destination = Path(sys.argv[1])
+retention_count = int(sys.argv[2])
+verification_contract = "decrypt_manifest_hash_quick_check_counts_fk"
+verified: list[Path] = []
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file_handle:
+        for chunk in iter(lambda: file_handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+for archive in sorted(destination.glob("plugin_hub_*.tar.age"), reverse=True):
+    metadata = archive.with_name(f"{archive.name.removesuffix('.tar.age')}.offhost.json")
+    try:
+        payload = json.loads(metadata.read_text())
+        if not isinstance(payload, dict):
+            raise ValueError("metadata_object_required")
+        encrypted_bytes = payload.get("encrypted_bytes")
+        encrypted_sha256 = payload.get("encrypted_sha256")
+        if (
+            payload.get("archive_file") != archive.name
+            or isinstance(encrypted_bytes, bool)
+            or not isinstance(encrypted_bytes, int)
+            or encrypted_bytes != archive.stat().st_size
+            or not isinstance(encrypted_sha256, str)
+            or len(encrypted_sha256) != 64
+            or sha256_file(archive) != encrypted_sha256
+            or payload.get("verification") != verification_contract
+        ):
+            raise ValueError("metadata_or_archive_verification_failed")
+    except (KeyError, OSError, ValueError, json.JSONDecodeError) as exc:
+        print(
+            f"offhost_backup_warning=unverified_archive_retained archive={archive.name} "
+            f"reason={type(exc).__name__}",
+            file=sys.stderr,
+        )
+        continue
+    verified.append(archive)
+
+for archive in verified[retention_count:]:
+    print(archive.name)
+PY_RETENTION
+)"
+
+while IFS= read -r expired_archive_name; do
+  [[ -n "$expired_archive_name" ]] || continue
+  expired_archive="$destination_dir/$expired_archive_name"
+  expired_metadata="$destination_dir/${expired_archive_name%.tar.age}.offhost.json"
+  rm -f "$expired_archive" "$expired_metadata"
+done <<< "$expired_verified_archives"
 
 print -- "offhost_backup_status=created archive=$archive_file encrypted_bytes=$encrypted_bytes retention=$retention_count"

@@ -52,7 +52,9 @@ services:
     container_name: plugin-hub-web
     restart: unless-stopped
     environment:
-      PLUGIN_HUB_API_URL: ${PLUGIN_HUB_API_URL:-https://plugin.lute-tlz-dddd.top}
+      # Server Components and actions use the internal Docker route, avoiding
+      # the public per-IP Nginx bucket used by browser-extension clients.
+      PLUGIN_HUB_API_URL: ${PLUGIN_HUB_API_URL:-http://plugin-hub-api:8000}
       PLUGIN_HUB_API_READ_KEY: ${PLUGIN_HUB_API_READ_KEY:?PLUGIN_HUB_API_READ_KEY is required}
       PLUGIN_HUB_API_WRITE_KEY: ${PLUGIN_HUB_API_WRITE_KEY:?PLUGIN_HUB_API_WRITE_KEY is required}
       PLUGIN_HUB_SITE_ENV: production

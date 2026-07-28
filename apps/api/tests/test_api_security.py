@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from plugin_hub_api.config import Settings
 from plugin_hub_api.main import create_app
+from plugin_hub_api.security import _matches
 
 READ_KEY = "r" * 32
 WRITE_KEY = "w" * 32
@@ -83,6 +84,35 @@ def test_required_auth_configuration_rejects_missing_keys() -> None:
 
     with pytest.raises(ValueError, match="api_auth_keys_required"):
         create_app(database_url="sqlite+pysqlite:///:memory:", settings=settings)
+
+
+def test_required_auth_normalizes_surrounding_whitespace_in_configured_keys() -> None:
+    settings = Settings(
+        api_auth_mode="required",
+        api_read_key=f"  {READ_KEY}\n",
+        api_write_key=f"\t{WRITE_KEY}  ",
+    )
+
+    with TestClient(
+        create_app(database_url="sqlite+pysqlite:///:memory:", settings=settings)
+    ) as client:
+        read_response = client.get(
+            "/api/voc-units",
+            headers={API_KEY_HEADER: READ_KEY},
+        )
+        write_response = client.post(
+            "/api/collection-runs",
+            headers={API_KEY_HEADER: WRITE_KEY},
+            json={},
+        )
+
+    assert read_response.status_code == 200
+    assert write_response.status_code == 422
+
+
+def test_api_key_comparison_rejects_non_ascii_input_without_raising() -> None:
+    assert _matches("密钥", READ_KEY) is False
+    assert _matches(READ_KEY, READ_KEY) is True
 
 
 def test_api_responses_set_non_cacheable_security_headers(protected_client: TestClient) -> None:

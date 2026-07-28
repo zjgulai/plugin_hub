@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select, text
+from sqlalchemy import Select, func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -37,6 +38,10 @@ class CollectionReplayState:
     matches_payload: bool
     raw_item_count: int
     voc_unit_count: int
+
+
+class CollectionTaskClaimLostError(RuntimeError):
+    """Raised when a worker tries to write with an expired or replaced lease."""
 
 
 class SqlAlchemyRepository:
@@ -84,22 +89,81 @@ class SqlAlchemyRepository:
         limit: int | None = None,
         offset: int = 0,
         newest_first: bool = False,
+        snapshot_max_id: int | None = None,
+        exclude_quality_flag: str | None = None,
     ) -> list[CanonicalVocUnit]:
         order = CanonicalVocUnitRow.id.desc() if newest_first else CanonicalVocUnitRow.id
         statement = select(CanonicalVocUnitRow).order_by(order)
         if platform is not None:
             statement = statement.where(CanonicalVocUnitRow.platform == platform.value)
+        if snapshot_max_id is not None:
+            statement = statement.where(CanonicalVocUnitRow.id <= snapshot_max_id)
+        if exclude_quality_flag is not None:
+            statement = statement.where(
+                text(
+                    """
+                    NOT EXISTS (
+                        SELECT 1
+                        FROM json_each(canonical_voc_units.quality_flags) AS flag
+                        WHERE flag.value = :excluded_quality_flag
+                    )
+                    """
+                )
+            ).params(excluded_quality_flag=exclude_quality_flag)
         if limit is not None:
             statement = statement.limit(limit).offset(offset)
 
         rows = self._session.scalars(statement).all()
         return [self._voc_unit_from_row(row) for row in rows]
 
-    def count_voc_units(self, *, platform: Platform | None = None) -> int:
+    def count_voc_units(
+        self,
+        *,
+        platform: Platform | None = None,
+        snapshot_max_id: int | None = None,
+        exclude_quality_flag: str | None = None,
+    ) -> int:
         statement = select(func.count()).select_from(CanonicalVocUnitRow)
         if platform is not None:
             statement = statement.where(CanonicalVocUnitRow.platform == platform.value)
+        if snapshot_max_id is not None:
+            statement = statement.where(CanonicalVocUnitRow.id <= snapshot_max_id)
+        if exclude_quality_flag is not None:
+            statement = statement.where(
+                text(
+                    """
+                    NOT EXISTS (
+                        SELECT 1
+                        FROM json_each(canonical_voc_units.quality_flags) AS flag
+                        WHERE flag.value = :excluded_quality_flag
+                    )
+                    """
+                )
+            ).params(excluded_quality_flag=exclude_quality_flag)
         return int(self._session.scalar(statement) or 0)
+
+    def max_voc_unit_id(self, *, platform: Platform | None = None) -> int:
+        statement = select(func.max(CanonicalVocUnitRow.id))
+        if platform is not None:
+            statement = statement.where(CanonicalVocUnitRow.platform == platform.value)
+        value = self._session.scalar(statement)
+        # Zero is a real empty-snapshot cursor. Returning None would disable
+        # the boundary predicate if a writer commits after this query.
+        return int(value) if value is not None else 0
+
+    def begin_read_snapshot(self) -> None:
+        connection = self._session.connection()
+        if connection.dialect.name == "sqlite":
+            # SQLAlchemy's logical autobegin does not make sqlite3 start a read
+            # transaction. An explicit BEGIN pins count and evidence queries to
+            # one SQLite snapshot until the request commits or rolls back.
+            connection.exec_driver_sql("BEGIN")
+
+    def end_read_snapshot(self) -> None:
+        # Read snapshots never contain application writes. Rollback ends the
+        # pinned SQLite transaction so a subsequent snapshot INSERT uses a
+        # fresh writer transaction instead of upgrading a stale WAL reader.
+        self._session.rollback()
 
     def get_collection_replay_state(
         self,
@@ -146,6 +210,7 @@ class SqlAlchemyRepository:
         )
 
     def get_data_asset_summary(self, *, low_confidence_threshold: float) -> DataAssetSummary:
+        self.begin_read_snapshot()
         collection_run_count = int(
             self._session.scalar(select(func.count()).select_from(CollectionRunRow)) or 0
         )
@@ -376,10 +441,19 @@ class SqlAlchemyRepository:
         rows = self._session.scalars(statement).all()
         return [self._collection_task_from_row(row) for row in rows]
 
-    def count_collection_tasks(self, *, platform: Platform | None = None) -> int:
+    def count_collection_tasks(
+        self,
+        *,
+        platform: Platform | None = None,
+        statuses: tuple[CollectionTaskStatus, ...] | None = None,
+    ) -> int:
         statement = select(func.count()).select_from(CollectionTaskRow)
         if platform is not None:
             statement = statement.where(CollectionTaskRow.platform == platform.value)
+        if statuses is not None:
+            statement = statement.where(
+                CollectionTaskRow.status.in_(tuple(status.value for status in statuses))
+            )
         return int(self._session.scalar(statement) or 0)
 
     def get_collection_task(self, collection_task_id: str) -> CollectionTask | None:
@@ -420,46 +494,118 @@ class SqlAlchemyRepository:
         now: datetime | None = None,
     ) -> CollectionTask | None:
         reference_time = now if now is not None else datetime.now(tz=UTC)
-        claim_expires_at = reference_time + timedelta(seconds=max(claim_ttl_seconds, 0))
-        rows = self._session.scalars(
-            select(CollectionTaskRow).order_by(CollectionTaskRow.created_at)
-        ).all()
         try:
+            statement = select(CollectionTaskRow).order_by(CollectionTaskRow.created_at)
+            statement = self._begin_collection_task_claim(statement)
+            rows = self._session.scalars(statement).all()
             for row in rows:
                 task = self._collection_task_from_row(row)
                 if not _collection_task_is_claimable(task, reference_time):
                     continue
 
-                claimed_task = task.model_copy(
-                    update={
-                        "status": CollectionTaskStatus.RUNNING,
-                        "updated_at": reference_time,
-                        "context": {
-                            **task.context,
-                            "claimed_by": worker_id,
-                            "claimed_at": reference_time.isoformat(),
-                            "claim_expires_at": claim_expires_at.isoformat(),
-                        },
-                    }
+                claimed_task = _claimed_collection_task(
+                    task,
+                    worker_id=worker_id,
+                    claim_ttl_seconds=claim_ttl_seconds,
+                    reference_time=reference_time,
                 )
                 _update_collection_task_row(row, claimed_task)
                 self._session.commit()
                 return claimed_task
+            self._session.rollback()
             return None
         except SQLAlchemyError:
             self._session.rollback()
             raise
 
-    def update_collection_task(self, task: CollectionTask) -> None:
+    def claim_collection_task(
+        self,
+        *,
+        collection_task_id: str,
+        worker_id: str,
+        claim_ttl_seconds: int,
+        now: datetime | None = None,
+    ) -> CollectionTask | None:
+        reference_time = now if now is not None else datetime.now(tz=UTC)
         try:
-            row = self._session.get(CollectionTaskRow, task.collection_task_id)
+            statement = select(CollectionTaskRow).where(
+                CollectionTaskRow.collection_task_id == collection_task_id
+            )
+            statement = self._begin_collection_task_claim(statement)
+            row = self._session.scalar(statement)
+            if row is None:
+                self._session.rollback()
+                return None
+
+            task = self._collection_task_from_row(row)
+            if not _collection_task_is_claimable(task, reference_time):
+                self._session.rollback()
+                return None
+
+            claimed_task = _claimed_collection_task(
+                task,
+                worker_id=worker_id,
+                claim_ttl_seconds=claim_ttl_seconds,
+                reference_time=reference_time,
+            )
+            _update_collection_task_row(row, claimed_task)
+            self._session.commit()
+            return claimed_task
+        except SQLAlchemyError:
+            self._session.rollback()
+            raise
+
+    def _begin_collection_task_claim(
+        self,
+        statement: Select[tuple[CollectionTaskRow]],
+    ) -> Select[tuple[CollectionTaskRow]]:
+        # Claim selection and state transition must share one writer transaction.
+        # SQLite ignores SELECT FOR UPDATE, so BEGIN IMMEDIATE serializes claimers
+        # before they inspect task state. Other databases use row-level locking.
+        if self._session.in_transaction():
+            self._session.rollback()
+        connection = self._session.connection()
+        if connection.dialect.name == "sqlite":
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+            return statement
+        return statement.with_for_update(skip_locked=True)
+
+    def update_collection_task(
+        self,
+        task: CollectionTask,
+        *,
+        expected_claim_token: str | None = None,
+        now: datetime | None = None,
+    ) -> None:
+        try:
+            if expected_claim_token is None:
+                row = self._session.get(CollectionTaskRow, task.collection_task_id)
+            else:
+                row = self._locked_collection_task_row(task.collection_task_id)
+                row = _require_active_collection_task_claim(
+                    row,
+                    expected_claim_token=expected_claim_token,
+                    reference_time=now if now is not None else datetime.now(tz=UTC),
+                )
             if row is None:
                 return
             _update_collection_task_row(row, task)
             self._session.commit()
+        except CollectionTaskClaimLostError:
+            self._session.rollback()
+            raise
         except SQLAlchemyError:
             self._session.rollback()
             raise
+
+    def _locked_collection_task_row(
+        self,
+        collection_task_id: str,
+    ) -> CollectionTaskRow | None:
+        statement = select(CollectionTaskRow).where(
+            CollectionTaskRow.collection_task_id == collection_task_id
+        )
+        return self._session.scalar(self._begin_collection_task_claim(statement))
 
     def list_platform_settings(self) -> list[PlatformSetting]:
         rows = self._session.scalars(select(PlatformSettingRow)).all()
@@ -521,8 +667,17 @@ class SqlAlchemyRepository:
         raw_items: list[RawSourceItem],
         voc_units: list[CanonicalVocUnit],
         task: CollectionTask,
+        expected_claim_token: str,
+        now: datetime | None = None,
     ) -> None:
         try:
+            row = self._locked_collection_task_row(task.collection_task_id)
+            row = _require_active_collection_task_claim(
+                row,
+                expected_claim_token=expected_claim_token,
+                reference_time=now if now is not None else datetime.now(tz=UTC),
+            )
+
             self._session.add(_collection_run_row(run))
             self._session.flush()
 
@@ -544,11 +699,12 @@ class SqlAlchemyRepository:
             for voc_unit in voc_units:
                 self._session.add(_canonical_voc_unit_row(voc_unit))
 
-            row = self._session.get(CollectionTaskRow, task.collection_task_id)
-            if row is not None:
-                _update_collection_task_row(row, task)
+            _update_collection_task_row(row, task)
 
             self._session.commit()
+        except CollectionTaskClaimLostError:
+            self._session.rollback()
+            raise
         except SQLAlchemyError:
             self._session.rollback()
             raise
@@ -713,6 +869,53 @@ def _collection_task_is_claimable(task: CollectionTask, reference_time: datetime
     if task.status == CollectionTaskStatus.RUNNING:
         return _is_running_task_stale(task, reference_time)
     return _collection_task_is_runnable(task, reference_time)
+
+
+def _claimed_collection_task(
+    task: CollectionTask,
+    *,
+    worker_id: str,
+    claim_ttl_seconds: int,
+    reference_time: datetime,
+) -> CollectionTask:
+    claim_expires_at = reference_time + timedelta(seconds=max(claim_ttl_seconds, 0))
+    return task.model_copy(
+        update={
+            "status": CollectionTaskStatus.RUNNING,
+            "updated_at": reference_time,
+            "context": {
+                **task.context,
+                "claimed_by": worker_id,
+                "claimed_at": reference_time.isoformat(),
+                "claim_expires_at": claim_expires_at.isoformat(),
+                "claim_token": secrets.token_urlsafe(24),
+            },
+        }
+    )
+
+
+def _require_active_collection_task_claim(
+    row: CollectionTaskRow | None,
+    *,
+    expected_claim_token: str,
+    reference_time: datetime,
+) -> CollectionTaskRow:
+    if row is None or row.status != CollectionTaskStatus.RUNNING.value:
+        raise CollectionTaskClaimLostError("collection_task_claim_lost")
+    stored_claim_token = row.context.get("claim_token")
+    if stored_claim_token != expected_claim_token:
+        raise CollectionTaskClaimLostError("collection_task_claim_lost")
+    claim_expires_at = row.context.get("claim_expires_at")
+    if not isinstance(claim_expires_at, str):
+        raise CollectionTaskClaimLostError("collection_task_claim_lost")
+    parsed_claim_expires_at = _parse_iso_datetime(claim_expires_at)
+    if parsed_claim_expires_at is None:
+        raise CollectionTaskClaimLostError("collection_task_claim_lost")
+    if parsed_claim_expires_at.tzinfo is None:
+        parsed_claim_expires_at = parsed_claim_expires_at.replace(tzinfo=UTC)
+    if parsed_claim_expires_at <= reference_time:
+        raise CollectionTaskClaimLostError("collection_task_claim_lost")
+    return row
 
 
 def _is_running_task_stale(task: CollectionTask, reference_time: datetime) -> bool:

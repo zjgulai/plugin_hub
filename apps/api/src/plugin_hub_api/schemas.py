@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
 from typing import Literal
@@ -234,6 +234,13 @@ class RawSourceItem(StrictBaseModel):
     def validate_raw_payload(cls, value: object) -> dict[str, JsonValue]:
         return ensure_json_object(value)
 
+    @field_validator("captured_at")
+    @classmethod
+    def normalize_captured_at(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+
     @model_validator(mode="after")
     def validate_source_kind_platform(self) -> RawSourceItem:
         expected_platform = {
@@ -286,6 +293,7 @@ class RelationEdge(StrictBaseModel):
     source_platform: Platform
     source_kind: SourceKind
     source_object_id: str
+    collection_run_id: str
     relation_type: str = Field(min_length=1, max_length=128)
     from_type: str = Field(min_length=1, max_length=128)
     from_id: str = Field(min_length=1, max_length=512)

@@ -7,7 +7,7 @@ from sqlalchemy.engine import RowMapping
 from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from plugin_hub_api.migrations import ANALYSIS_SNAPSHOT_MIGRATION_VERSION
+from plugin_hub_api.migrations import ANALYSIS_SNAPSHOT_INSERT_GUARDS_MIGRATION_VERSION
 from plugin_hub_api.schemas import (
     AnalysisArtifactSnapshot,
     AnalysisRunSnapshot,
@@ -118,28 +118,42 @@ class InsightSnapshotRepository:
         if platform is not None:
             filters = "WHERE platform = :platform"
             parameters["platform"] = platform.value
+        # Page rows and total come from one statement, so SQLite evaluates
+        # both against the same snapshot without taking ownership of the
+        # caller's transaction. The LEFT JOIN retains total for empty pages.
         rows = (
             self._session.execute(
                 text(
                     f"""
-                SELECT * FROM analysis_runs
-                {filters}
-                ORDER BY created_at DESC, analysis_run_id DESC
-                LIMIT :limit OFFSET :offset
-                """
+                    WITH filtered_runs AS (
+                        SELECT * FROM analysis_runs
+                        {filters}
+                    ),
+                    paged_runs AS (
+                        SELECT * FROM filtered_runs
+                        ORDER BY created_at DESC, analysis_run_id DESC
+                        LIMIT :limit OFFSET :offset
+                    ),
+                    run_total AS (
+                        SELECT COUNT(*) AS page_total FROM filtered_runs
+                    )
+                    SELECT paged_runs.*, run_total.page_total
+                    FROM run_total
+                    LEFT JOIN paged_runs ON 1 = 1
+                    ORDER BY paged_runs.created_at DESC, paged_runs.analysis_run_id DESC
+                    """
                 ),
                 parameters,
             )
             .mappings()
             .all()
         )
-        total = int(
-            self._session.execute(
-                text(f"SELECT COUNT(*) FROM analysis_runs {filters}"),
-                {key: value for key, value in parameters.items() if key == "platform"},
-            ).scalar_one()
-        )
-        return [_run_from_row(row) for row in rows], total
+        total = int(rows[0]["page_total"])
+        return [
+            _run_from_row(row)
+            for row in rows
+            if row["analysis_run_id"] is not None
+        ], total
 
     def get_detail(self, analysis_run_id: str) -> AnalysisSnapshotDetail | None:
         run = self.get_run(analysis_run_id)
@@ -173,7 +187,7 @@ class InsightSnapshotRepository:
                     WHERE version = :version
                     """
                 ),
-                {"version": ANALYSIS_SNAPSHOT_MIGRATION_VERSION},
+                {"version": ANALYSIS_SNAPSHOT_INSERT_GUARDS_MIGRATION_VERSION},
             ).scalar_one_or_none()
         except OperationalError as error:
             self._session.rollback()

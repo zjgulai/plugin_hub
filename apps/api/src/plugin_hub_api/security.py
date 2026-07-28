@@ -42,11 +42,15 @@ def _settings(request: Request) -> Settings:
 
 
 def _secret_value(value: SecretStr | None) -> str:
-    return value.get_secret_value() if value is not None else ""
+    return value.get_secret_value().strip() if value is not None else ""
 
 
 def _matches(provided: str, expected: str) -> bool:
-    return bool(provided and expected and hmac.compare_digest(provided, expected))
+    return bool(
+        provided
+        and expected
+        and hmac.compare_digest(provided.encode("utf-8"), expected.encode("utf-8"))
+    )
 
 
 def _unauthorized(detail: str) -> HTTPException:

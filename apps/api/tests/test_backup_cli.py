@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import shutil
 import sqlite3
+import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+import pytest
 
 from plugin_hub_api.backup_cli import create_verified_backup, verify_sqlite_backup
 
@@ -36,9 +43,11 @@ def test_create_verified_backup_is_consistent_and_prunes_only_after_success(
     assert backups == [results[1].backup_path, results[2].backup_path]
     verification = verify_sqlite_backup(results[2].backup_path)
     assert verification.quick_check_ok is True
+    assert verification.foreign_key_issues == 0
     assert verification.table_counts == {"collection_runs": 2}
     manifest = json.loads(results[2].manifest_path.read_text())
     assert manifest["quick_check_ok"] is True
+    assert manifest["foreign_key_issues"] == 0
     assert manifest["table_counts"] == {"collection_runs": 2}
     assert len(manifest["sha256"]) == 64
     assert results[0].backup_path.exists() is False
@@ -50,6 +59,38 @@ def test_create_verified_backup_is_consistent_and_prunes_only_after_success(
         path.name.endswith(("-wal", "-shm")) or ".tmp" in path.name
         for path in destination.iterdir()
     )
+
+
+def test_backup_rejects_foreign_key_violations_before_publication(tmp_path: Path) -> None:
+    source = tmp_path / "plugin_hub.db"
+    destination = tmp_path / "backups"
+    with sqlite3.connect(source) as connection:
+        connection.executescript(
+            """
+            PRAGMA foreign_keys=OFF;
+            CREATE TABLE collection_runs (id TEXT PRIMARY KEY);
+            CREATE TABLE raw_source_items (
+                id INTEGER PRIMARY KEY,
+                collection_run_id TEXT REFERENCES collection_runs(id)
+            );
+            INSERT INTO raw_source_items (collection_run_id) VALUES ('missing-run');
+            """
+        )
+
+    verification = verify_sqlite_backup(source)
+    assert verification.quick_check_ok is True
+    assert verification.foreign_key_issues == 1
+
+    with pytest.raises(RuntimeError, match="backup_foreign_key_check_failed"):
+        create_verified_backup(
+            source=source,
+            destination_dir=destination,
+            retention_count=2,
+            now=datetime(2026, 7, 10, 3, 15, tzinfo=UTC),
+        )
+
+    assert list(destination.glob("plugin_hub_*.db")) == []
+    assert list(destination.glob("plugin_hub_*.manifest.json")) == []
 
 
 def test_retention_does_not_count_tampered_backup_as_verified(tmp_path: Path) -> None:
@@ -97,3 +138,162 @@ def test_retention_does_not_count_tampered_backup_as_verified(tmp_path: Path) ->
     assert tampered.backup_path.exists() is True
     assert newest.backup_path.exists() is True
     assert next_backup.backup_path.exists() is True
+
+
+def test_offhost_pull_reports_legacy_lock_and_ignores_unlocked_lock_file(tmp_path: Path) -> None:
+    zsh = shutil.which("zsh")
+    if zsh is None or not Path("/usr/bin/lockf").exists():
+        pytest.skip("offhost pull locking is a macOS zsh workflow")
+
+    script = Path(__file__).parents[3] / "scripts" / "pull-offhost-backup.zsh"
+    tools_dir = tmp_path / "tools"
+    tools_dir.mkdir()
+    no_output_tool = tools_dir / "no-output"
+    no_output_tool.write_text("#!/bin/sh\nexit 0\n")
+    no_output_tool.chmod(0o700)
+    recipient_file = tmp_path / "recipient.txt"
+    recipient_file.write_text("age1testrecipient\n")
+    destination_dir = tmp_path / "backups"
+    destination_dir.mkdir()
+    environment = {
+        **os.environ,
+        "PLUGIN_HUB_BACKUP_DESTINATION_DIR": str(destination_dir),
+        "PLUGIN_HUB_BACKUP_RECIPIENT_FILE": str(recipient_file),
+        "PLUGIN_HUB_AGE_BIN": str(no_output_tool),
+        "PLUGIN_HUB_SSH_BIN": str(no_output_tool),
+        "PLUGIN_HUB_SECURITY_BIN": str(no_output_tool),
+    }
+
+    lock_path = destination_dir / ".pull.lock"
+    lock_path.mkdir()
+    legacy_result = subprocess.run(
+        [zsh, str(script)],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert legacy_result.returncode == 75
+    assert "offhost_backup_error=legacy_lock_directory_detected" in legacy_result.stderr
+
+    lock_path.rmdir()
+    lock_path.write_text("stale-content\n")
+    stale_file_result = subprocess.run(
+        [zsh, str(script)],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert stale_file_result.returncode == 1
+    assert "offhost_backup_error=invalid_remote_manifest_name" in stale_file_result.stderr
+    assert "already_running" not in stale_file_result.stderr
+
+
+def test_offhost_retention_counts_only_verified_archives(tmp_path: Path) -> None:
+    script = Path(__file__).parents[3] / "scripts" / "pull-offhost-backup.zsh"
+    script_text = script.read_text()
+    retention_code = script_text.split("<<'PY_RETENTION'\n", maxsplit=1)[1].split(
+        "\nPY_RETENTION", maxsplit=1
+    )[0]
+    destination = tmp_path / "offhost"
+    destination.mkdir()
+
+    def write_archive(timestamp: str, content: bytes, *, valid_metadata: bool = True) -> str:
+        archive_name = f"plugin_hub_{timestamp}.tar.age"
+        archive = destination / archive_name
+        archive.write_bytes(content)
+        if valid_metadata:
+            metadata = destination / f"plugin_hub_{timestamp}.offhost.json"
+            metadata.write_text(
+                json.dumps(
+                    {
+                        "archive_file": archive_name,
+                        "encrypted_bytes": len(content),
+                        "encrypted_sha256": hashlib.sha256(content).hexdigest(),
+                        "verification": "decrypt_manifest_hash_quick_check_counts_fk",
+                    }
+                )
+            )
+        return archive_name
+
+    missing_metadata = write_archive("20260714T000000Z", b"unverified", valid_metadata=False)
+    newest = write_archive("20260713T000000Z", b"verified-newest")
+    middle = write_archive("20260712T000000Z", b"verified-middle")
+    oldest = write_archive("20260711T000000Z", b"verified-oldest")
+
+    result = subprocess.run(
+        [sys.executable, "-", str(destination), "2"],
+        input=retention_code,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout.splitlines() == [oldest]
+    assert missing_metadata in result.stderr
+    assert newest not in result.stdout
+    assert middle not in result.stdout
+
+
+def test_offhost_metadata_verification_rejects_mismatched_sidecar(tmp_path: Path) -> None:
+    script = Path(__file__).parents[3] / "scripts" / "pull-offhost-backup.zsh"
+    script_text = script.read_text()
+    verification_code = script_text.split("<<'PY_METADATA'\n", maxsplit=1)[1].split(
+        "\nPY_METADATA", maxsplit=1
+    )[0]
+    archive = tmp_path / "plugin_hub_20260728T000000Z.tar.age"
+    archive.write_bytes(b"encrypted-backup")
+    archive_name = archive.name
+    database_name = "plugin_hub_20260728T000000Z.db"
+    remote_host = "backup-host"
+    metadata = tmp_path / "plugin_hub_20260728T000000Z.offhost.json"
+    payload = {
+        "archive_file": archive_name,
+        "encrypted_bytes": archive.stat().st_size,
+        "encrypted_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+        "fetched_at": "2026-07-28T00:00:00Z",
+        "remote_host": remote_host,
+        "source_backup_file": database_name,
+        "verification": "decrypt_manifest_hash_quick_check_counts_fk",
+    }
+    metadata.write_text(json.dumps(payload))
+
+    valid_result = subprocess.run(
+        [
+            sys.executable,
+            "-",
+            str(archive),
+            str(metadata),
+            archive_name,
+            database_name,
+            remote_host,
+        ],
+        input=verification_code,
+        env={**os.environ, "PYTHONOPTIMIZE": "1"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert valid_result.returncode == 0
+
+    payload["encrypted_sha256"] = "0" * 64
+    metadata.write_text(json.dumps(payload))
+    mismatched_result = subprocess.run(
+        [
+            sys.executable,
+            "-",
+            str(archive),
+            str(metadata),
+            archive_name,
+            database_name,
+            remote_host,
+        ],
+        input=verification_code,
+        env={**os.environ, "PYTHONOPTIMIZE": "1"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert mismatched_result.returncode != 0

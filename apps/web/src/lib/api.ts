@@ -34,6 +34,7 @@ export type VocUnitsResponse = {
   total?: number;
   limit?: number;
   offset?: number;
+  snapshot_max_id?: number | null;
 };
 
 export type CollectionTaskStatus =
@@ -57,6 +58,8 @@ export type CollectionTask = {
 
 export type CollectionTasksResponse = {
   items: CollectionTask[];
+  open_total: number;
+  open_totals: Record<VocPlatform, number>;
   total?: number;
   limit?: number;
   offset?: number;
@@ -329,7 +332,74 @@ export async function fetchVocUnits(
   platform: VocPlatformFilter,
   fetcher: VocUnitsFetcher = async (url) => fetch(url)
 ): Promise<VocUnitsResponse> {
-  const response = await fetcher(buildVocUnitsUrl(apiBaseUrl, platform));
+  const pageSize = 500;
+  const firstPage = await fetchVocUnitsPage(apiBaseUrl, platform, pageSize, 0, fetcher);
+  const total = firstPage.total;
+  if (total === undefined || firstPage.items.length >= total) {
+    return firstPage;
+  }
+  const snapshotMaxId = firstPage.snapshot_max_id;
+  if (snapshotMaxId === undefined || snapshotMaxId === null) {
+    throw new Error("voc_units_invalid_response:snapshot_boundary_required");
+  }
+
+  const items = [...firstPage.items];
+  const itemKeys = new Set(items.map(vocUnitIdentity));
+  let offset = (firstPage.offset ?? 0) + firstPage.items.length;
+  while (items.length < total) {
+    const page = await fetchVocUnitsPage(
+      apiBaseUrl,
+      platform,
+      pageSize,
+      offset,
+      fetcher,
+      snapshotMaxId
+    );
+    if (page.snapshot_max_id !== snapshotMaxId) {
+      throw new Error("voc_units_invalid_response:snapshot_boundary_changed");
+    }
+    if (page.items.length === 0) {
+      throw new Error("voc_units_invalid_response:pagination_stalled");
+    }
+    for (const item of page.items) {
+      const itemKey = vocUnitIdentity(item);
+      if (!itemKeys.has(itemKey)) {
+        itemKeys.add(itemKey);
+        items.push(item);
+      }
+    }
+    offset += page.items.length;
+  }
+
+  return {
+    items,
+    total,
+    limit: pageSize,
+    offset: 0,
+    snapshot_max_id: snapshotMaxId
+  };
+}
+
+function vocUnitIdentity(unit: VocUnit): string {
+  return [
+    unit.platform,
+    unit.source_kind,
+    unit.collection_run_id ?? `${unit.captured_at}\u0000${unit.source_url}`,
+    unit.source_object_id
+  ].join("\u0000");
+}
+
+async function fetchVocUnitsPage(
+  apiBaseUrl: string,
+  platform: VocPlatformFilter,
+  limit: number,
+  offset: number,
+  fetcher: VocUnitsFetcher,
+  snapshotMaxId?: number
+): Promise<VocUnitsResponse> {
+  const response = await fetcher(
+    buildVocUnitsUrl(apiBaseUrl, platform, limit, offset, snapshotMaxId)
+  );
   if (!response.ok) {
     throw new Error(`voc_units_fetch_failed:${response.status}`);
   }
@@ -536,14 +606,26 @@ export async function captureRedditThreadByUrl(
   return parseRedditThreadCaptureResponse(payload);
 }
 
-function buildVocUnitsUrl(apiBaseUrl: string, platform: VocPlatformFilter): string {
+function buildVocUnitsUrl(
+  apiBaseUrl: string,
+  platform: VocPlatformFilter,
+  limit: number,
+  offset: number,
+  snapshotMaxId?: number
+): string {
   const normalizedBaseUrl = apiBaseUrl.trim().replace(/\/+$/, "");
   const endpoint = `${normalizedBaseUrl}/api/voc-units`;
-  if (platform === "all") {
-    return endpoint;
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset)
+  });
+  if (platform !== "all") {
+    params.set("platform", platform);
   }
-
-  return `${endpoint}?platform=${platform}`;
+  if (snapshotMaxId !== undefined) {
+    params.set("snapshot_max_id", String(snapshotMaxId));
+  }
+  return `${endpoint}?${params.toString()}`;
 }
 
 function buildDataAssetSummaryUrl(
@@ -653,8 +735,22 @@ function parseVocUnitsResponse(payload: unknown): VocUnitsResponse {
 
   return {
     items: payload.items.map(parseVocUnit),
-    ...optionalPagination(payload)
+    ...optionalPagination(payload),
+    snapshot_max_id: optionalSnapshotMaxId(payload.snapshot_max_id)
   };
+}
+
+function optionalSnapshotMaxId(value: unknown): number | null | undefined {
+  if (value === null) {
+    return null;
+  }
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Number.isSafeInteger(value) || Number(value) < 0) {
+    throw new Error("voc_units_invalid_response:snapshot_max_id_required");
+  }
+  return Number(value);
 }
 
 function parseCollectionTasksResponse(payload: unknown): CollectionTasksResponse {
@@ -664,7 +760,32 @@ function parseCollectionTasksResponse(payload: unknown): CollectionTasksResponse
 
   return {
     items: payload.items.map(parseCollectionTask),
+    open_total: requiredFiniteIntegerFor(
+      payload.open_total,
+      "open_total",
+      "collection_tasks_invalid_response"
+    ),
+    open_totals: parsePlatformCounts(
+      payload.open_totals,
+      "collection_tasks_invalid_response",
+      "open_totals"
+    ),
     ...optionalPagination(payload)
+  };
+}
+
+function parsePlatformCounts(
+  value: unknown,
+  errorPrefix: string,
+  fieldPrefix: string
+): Record<VocPlatform, number> {
+  if (!isRecord(value)) {
+    throw new Error(`${errorPrefix}:${fieldPrefix}_object_required`);
+  }
+  return {
+    amazon: requiredFiniteIntegerFor(value.amazon, `${fieldPrefix}.amazon`, errorPrefix),
+    reddit: requiredFiniteIntegerFor(value.reddit, `${fieldPrefix}.reddit`, errorPrefix),
+    instagram: requiredFiniteIntegerFor(value.instagram, `${fieldPrefix}.instagram`, errorPrefix)
   };
 }
 

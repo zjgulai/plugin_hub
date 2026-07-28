@@ -33,6 +33,20 @@ def test_collection_run_create_preserves_amazon_pagination_context() -> None:
     assert payload.stop_reason == "duplicate_page_hash"
 
 
+def test_collection_run_create_accepts_extension_supported_smile_amazon_host() -> None:
+    payload = CollectionRunCreate.model_validate(
+        {
+            "platform": Platform.AMAZON,
+            "source_url": "https://smile.amazon.com/product-reviews/B000000001",
+            "capture_method": "extension_dom",
+            "coverage_scope": {"segment": "all_reviews", "max_pages": 1},
+            "coverage_confidence": 0.9,
+        }
+    )
+
+    assert str(payload.source_url).startswith("https://smile.amazon.com/")
+
+
 def test_raw_source_item_keeps_platform_schema_version() -> None:
     item = RawSourceItem(
         platform=Platform.REDDIT,
@@ -76,6 +90,7 @@ def test_relation_edge_and_enriched_signal_keep_explainable_context() -> None:
             "source_platform": Platform.AMAZON,
             "source_kind": SourceKind.AMAZON_REVIEW,
             "source_object_id": "R123",
+            "collection_run_id": "run_001",
             "relation_type": "voc_unit_mentions_asin",
             "from_type": "voc_unit",
             "from_id": "R123",
@@ -263,6 +278,7 @@ def test_relation_edge_rejects_non_json_metadata_value() -> None:
                 "source_platform": Platform.AMAZON,
                 "source_kind": SourceKind.AMAZON_REVIEW,
                 "source_object_id": "R123",
+                "collection_run_id": "run_001",
                 "relation_type": "voc_unit_mentions_asin",
                 "from_type": "voc_unit",
                 "from_id": "R123",

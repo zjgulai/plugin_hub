@@ -5,7 +5,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from plugin_hub_api.repositories import SqlAlchemyRepository
+from plugin_hub_api.repositories import CollectionTaskClaimLostError, SqlAlchemyRepository
 from plugin_hub_api.schemas import (
     CollectionRun,
     CollectionTask,
@@ -40,6 +40,10 @@ type CollectionTaskHandler = Callable[[CollectionTask, datetime], CollectionTask
 
 
 class CollectionTaskNotFoundError(Exception):
+    pass
+
+
+class CollectionTaskNotRunnableError(Exception):
     pass
 
 
@@ -105,6 +109,7 @@ def run_collection_task(
     instagram_graph_comments_fetcher: InstagramGraphCommentsFetcher | None = None,
     capture_handlers: Mapping[CollectionTaskHandlerKey, CollectionTaskHandler] | None = None,
     config: CollectionTaskWorkerConfig | None = None,
+    _claimed_task: CollectionTask | None = None,
 ) -> CollectionTaskRunResult:
     resolved_config = config if config is not None else CollectionTaskWorkerConfig()
     resolved_handlers = (
@@ -116,9 +121,19 @@ def run_collection_task(
             instagram_graph_live_read_enabled=(resolved_config.instagram_graph_live_read_enabled),
         )
     )
-    task = repository.get_collection_task(collection_task_id)
+    task = _claimed_task
     if task is None:
-        raise CollectionTaskNotFoundError(collection_task_id)
+        task = repository.claim_collection_task(
+            collection_task_id=collection_task_id,
+            worker_id=resolved_config.worker_id,
+            claim_ttl_seconds=resolved_config.claim_ttl_seconds,
+            now=datetime.now(tz=UTC),
+        )
+    if task is None:
+        if repository.get_collection_task(collection_task_id) is None:
+            raise CollectionTaskNotFoundError(collection_task_id)
+        raise CollectionTaskNotRunnableError(collection_task_id)
+    claim_token = _collection_task_claim_token(task)
 
     started_at = datetime.now(tz=UTC)
     attempt_count = _next_attempt_count(task)
@@ -143,7 +158,10 @@ def run_collection_task(
             "next_run_at": None,
         },
     )
-    repository.update_collection_task(running_task)
+    repository.update_collection_task(
+        running_task,
+        expected_claim_token=claim_token,
+    )
 
     if not platform_runtime_settings.enabled:
         return _mark_failed_or_retry(
@@ -157,6 +175,7 @@ def run_collection_task(
             config=resolved_config,
             attempt_count=attempt_count,
             context_updates={},
+            claim_token=claim_token,
         )
 
     try:
@@ -181,6 +200,7 @@ def run_collection_task(
                     "stop_reason": capture.stop_reason or "unknown",
                     "raw_item_count": 0,
                 },
+                claim_token=claim_token,
             )
 
         run = CollectionRun.model_validate(
@@ -220,6 +240,7 @@ def run_collection_task(
                 "claimed_by": None,
                 "claimed_at": None,
                 "claim_expires_at": None,
+                "claim_token": None,
             },
         )
         repository.save_collection_and_update_task(
@@ -227,6 +248,7 @@ def run_collection_task(
             raw_items=capture.raw_items,
             voc_units=voc_units,
             task=completed_task,
+            expected_claim_token=claim_token,
         )
         return CollectionTaskRunResult(
             task=completed_task,
@@ -234,6 +256,8 @@ def run_collection_task(
             raw_item_count=len(capture.raw_items),
             voc_unit_count=len(voc_units),
         )
+    except CollectionTaskClaimLostError:
+        raise
     except Exception as error:
         return _mark_failed_or_retry(
             repository=repository,
@@ -242,6 +266,7 @@ def run_collection_task(
             config=resolved_config,
             attempt_count=attempt_count,
             context_updates={},
+            claim_token=claim_token,
         )
 
 
@@ -269,6 +294,7 @@ def run_next_collection_task(
         instagram_graph_comments_fetcher=instagram_graph_comments_fetcher,
         capture_handlers=capture_handlers,
         config=resolved_config,
+        _claimed_task=task,
     )
 
 
@@ -488,6 +514,7 @@ def _mark_failed_or_retry(
     config: CollectionTaskWorkerConfig,
     attempt_count: int,
     context_updates: dict[str, JsonValue],
+    claim_token: str,
 ) -> CollectionTaskRunResult:
     failed_at = datetime.now(tz=UTC)
     should_retry = failure.retryable and attempt_count < config.max_attempts
@@ -515,9 +542,13 @@ def _mark_failed_or_retry(
             "claimed_by": None,
             "claimed_at": None,
             "claim_expires_at": None,
+            "claim_token": None,
         },
     )
-    repository.update_collection_task(failed_task)
+    repository.update_collection_task(
+        failed_task,
+        expected_claim_token=claim_token,
+    )
     return CollectionTaskRunResult(
         task=failed_task,
         collection_run_id=None,
@@ -531,6 +562,13 @@ def _next_attempt_count(task: CollectionTask) -> int:
     if isinstance(attempt_count, int) and attempt_count >= 0:
         return attempt_count + 1
     return 1
+
+
+def _collection_task_claim_token(task: CollectionTask) -> str:
+    claim_token = task.context.get("claim_token")
+    if not isinstance(claim_token, str) or not claim_token:
+        raise CollectionTaskClaimLostError("collection_task_claim_lost")
+    return claim_token
 
 
 def _classify_failure(error: Exception) -> CollectionTaskFailure:

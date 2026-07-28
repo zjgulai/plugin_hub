@@ -40,9 +40,10 @@ class CollectionRunRequest(StrictBaseModel):
             if identity in source_objects:
                 raise ValueError("duplicate_source_object_in_collection_run")
             source_objects.add(identity)
-            if self.run.capture_method.startswith("extension_") and not (
-                extension_payload_hash_matches(item.raw_payload, item.raw_payload_hash)
-            ):
+            # This endpoint accepts caller-supplied raw evidence regardless of
+            # the descriptive capture_method. Always verify the client hash so
+            # renaming the method cannot bypass evidence-integrity checks.
+            if not extension_payload_hash_matches(item.raw_payload, item.raw_payload_hash):
                 raise ValueError("raw_payload_hash_mismatch")
         return self
 
@@ -59,6 +60,7 @@ class VocUnitsResponse(StrictBaseModel):
     total: int
     limit: int
     offset: int
+    snapshot_max_id: int
 
 
 def get_session(request: Request) -> Generator[Session]:
@@ -157,7 +159,13 @@ def list_voc_units(
     platform: Platform | None = None,
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    snapshot_max_id: int | None = Query(default=None, ge=0),
 ) -> VocUnitsResponse:
+    stable_max_id = (
+        snapshot_max_id
+        if snapshot_max_id is not None
+        else repository.max_voc_unit_id(platform=platform)
+    )
     items = [
         unit.model_dump(mode="json")
         for unit in repository.list_voc_units(
@@ -165,11 +173,16 @@ def list_voc_units(
             limit=limit,
             offset=offset,
             newest_first=True,
+            snapshot_max_id=stable_max_id,
         )
     ]
     return VocUnitsResponse(
         items=items,
-        total=repository.count_voc_units(platform=platform),
+        total=repository.count_voc_units(
+            platform=platform,
+            snapshot_max_id=stable_max_id,
+        ),
         limit=limit,
         offset=offset,
+        snapshot_max_id=stable_max_id,
     )

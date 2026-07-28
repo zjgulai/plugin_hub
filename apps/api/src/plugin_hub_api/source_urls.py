@@ -43,7 +43,7 @@ AMAZON_SOURCE_HOSTS = frozenset(
     host
     for suffix in AMAZON_MARKETPLACE_SUFFIXES
     for host in (f"amazon.{suffix}", f"www.amazon.{suffix}")
-)
+) | frozenset({"smile.amazon.com"})
 
 
 def validate_platform_source_url(platform: str, source_url: str) -> None:
