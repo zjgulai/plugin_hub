@@ -5,6 +5,7 @@ output/
 tmp/
 graphify-out/
 docs/reviews/plugin-hub-project-review-20260728/graphify/
+scripts/browser-harness/
 
 # Dependency and generated output directories.
 node_modules/
