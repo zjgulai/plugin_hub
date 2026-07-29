@@ -3,11 +3,12 @@ from __future__ import annotations
 from collections.abc import Generator
 
 import pytest
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from plugin_hub_api.config import Settings
 from plugin_hub_api.main import create_app
-from plugin_hub_api.security import _matches
+from plugin_hub_api.security import _matches, require_api_access
 
 READ_KEY = "r" * 32
 WRITE_KEY = "w" * 32
@@ -84,6 +85,25 @@ def test_required_auth_configuration_rejects_missing_keys() -> None:
 
     with pytest.raises(ValueError, match="api_auth_keys_required"):
         create_app(database_url="sqlite+pysqlite:///:memory:", settings=settings)
+
+
+@pytest.mark.parametrize("runtime_settings", [None, object()])
+def test_api_security_fails_closed_without_valid_runtime_settings(
+    runtime_settings: object | None,
+) -> None:
+    app = FastAPI()
+    if runtime_settings is not None:
+        app.state.settings = runtime_settings
+
+    @app.get("/api/protected", dependencies=[Depends(require_api_access)])
+    def protected_route() -> dict[str, bool]:
+        return {"ok": True}
+
+    with TestClient(app) as client:
+        response = client.get("/api/protected")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "api_runtime_settings_unavailable"
 
 
 def test_required_auth_normalizes_surrounding_whitespace_in_configured_keys() -> None:

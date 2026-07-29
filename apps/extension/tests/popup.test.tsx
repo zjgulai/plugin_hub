@@ -20,8 +20,10 @@ describe("Popup settings readiness", () => {
   let root: Root;
   let resolveApiKey: (value: Record<string, string>) => void;
   let rejectApiKey: (reason?: unknown) => void;
+  let storedPendingUpload: unknown;
 
   beforeEach(() => {
+    storedPendingUpload = undefined;
     const apiKeyPromise = new Promise<Record<string, string>>((resolve, reject) => {
       resolveApiKey = resolve;
       rejectApiKey = reject;
@@ -44,7 +46,9 @@ describe("Popup settings readiness", () => {
           set: vi.fn(async () => undefined)
         },
         session: {
-          get: vi.fn(async () => ({ [PENDING_UPLOAD_STORAGE_KEY]: undefined })),
+          get: vi.fn(async () => ({
+            [PENDING_UPLOAD_STORAGE_KEY]: storedPendingUpload
+          })),
           set: vi.fn(async () => undefined),
           remove: vi.fn(async () => undefined)
         }
@@ -126,5 +130,96 @@ describe("Popup settings readiness", () => {
 
     expect(apiKeyInput?.value).toBe("m".repeat(32));
     expect(submitButton?.disabled).toBe(false);
+  });
+
+  it("rejects an empty or whitespace-only API key before persisting or capturing", async () => {
+    await act(async () => {
+      root.render(<Popup />);
+    });
+
+    await act(async () => {
+      resolveApiKey({});
+      await Promise.resolve();
+    });
+
+    const form = rootElement.querySelector<HTMLFormElement>("form");
+    const submitButton = rootElement.querySelector<HTMLButtonElement>("button[type='submit']");
+    const apiKeyInput = rootElement.querySelector<HTMLInputElement>("#api-key");
+
+    expect(apiKeyInput?.value).toBe("");
+    expect(submitButton?.disabled).toBe(true);
+    expect(submitButton?.textContent).toBe("请输入 API Key");
+
+    await act(async () => {
+      if (apiKeyInput) {
+        const setNativeValue = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value"
+        )?.set;
+        setNativeValue?.call(apiKeyInput, "   ");
+        apiKeyInput.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    });
+
+    expect(submitButton?.disabled).toBe(true);
+
+    await act(async () => {
+      form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+
+    expect(chrome.storage.local.set).not.toHaveBeenCalled();
+    expect(chrome.tabs.query).not.toHaveBeenCalled();
+    expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("allows only one in-flight submission before React renders a busy state", async () => {
+    let releaseFirstSave: () => void = () => undefined;
+    const firstSave = new Promise<void>((resolve) => {
+      releaseFirstSave = resolve;
+    });
+    const pendingUpload = {
+      apiBaseUrl: "https://plugin.lute-tlz-dddd.top",
+      capture: {
+        payload: { platform: "amazon", items: [] },
+        summary: { stop_reason: "completed" }
+      }
+    };
+
+    vi.mocked(chrome.storage.local.set).mockImplementationOnce(() => firstSave);
+    storedPendingUpload = pendingUpload;
+    vi.mocked(chrome.runtime.sendMessage).mockResolvedValue({
+      collection_run_id: "run-1",
+      raw_item_count: 0,
+      voc_unit_count: 0
+    });
+
+    await act(async () => {
+      root.render(<Popup />);
+    });
+    await act(async () => {
+      resolveApiKey({ [API_KEY_STORAGE_KEY]: "k".repeat(32) });
+      await Promise.resolve();
+    });
+
+    const form = rootElement.querySelector<HTMLFormElement>("form");
+
+    await act(async () => {
+      form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+
+    expect(chrome.storage.local.set).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      releaseFirstSave();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
   });
 });

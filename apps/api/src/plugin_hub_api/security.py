@@ -38,7 +38,9 @@ def require_api_access(
 
 def _settings(request: Request) -> Settings:
     settings = getattr(request.app.state, "settings", None)
-    return settings if isinstance(settings, Settings) else Settings()
+    if not isinstance(settings, Settings):
+        raise HTTPException(status_code=503, detail="api_runtime_settings_unavailable")
+    return settings
 
 
 def _secret_value(value: SecretStr | None) -> str:

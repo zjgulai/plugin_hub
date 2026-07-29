@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import {
@@ -60,6 +60,7 @@ export function Popup() {
   const [result, setResult] = useState<UploadResult | null>(null);
   const [pendingUpload, setPendingUpload] = useState<PendingCollectionUpload | null>(null);
   const [pendingUploadReady, setPendingUploadReady] = useState(false);
+  const submissionInFlight = useRef(false);
 
   useEffect(() => {
     void Promise.all([
@@ -94,6 +95,10 @@ export function Popup() {
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submissionInFlight.current) {
+      return;
+    }
+    submissionInFlight.current = true;
     setError(null);
     setResult(null);
 
@@ -101,9 +106,13 @@ export function Popup() {
       if (!settingsReady || apiBaseUrl === null || apiKey === null) {
         throw new Error("extension_settings_not_ready");
       }
+      const normalizedApiKey = apiKey.trim();
+      if (!normalizedApiKey) {
+        throw new Error("api_key_required");
+      }
       const normalizedApiBaseUrl = await saveApiBaseUrl(apiBaseUrl);
       setApiBaseUrl(normalizedApiBaseUrl);
-      await saveApiKey(apiKey);
+      await saveApiKey(normalizedApiKey);
       const restoredPendingUpload =
         pendingUpload ?? (await loadPendingCollectionUpload());
       const resolvedUpload = await resolvePendingUpload(restoredPendingUpload, async () => {
@@ -146,8 +155,12 @@ export function Popup() {
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "capture_upload_failed:unknown");
       setStatus("error");
+    } finally {
+      submissionInFlight.current = false;
     }
   }
+
+  const apiKeyReady = apiKey !== null && apiKey.trim().length > 0;
 
   return (
     <>
@@ -193,13 +206,15 @@ export function Popup() {
           value={apiKey ?? ""}
           onChange={(event) => setApiKey(event.currentTarget.value)}
           disabled={!settingsReady}
+          required
+          minLength={32}
         />
         <button
           type="submit"
           disabled={
             !settingsReady ||
             apiBaseUrl === null ||
-            apiKey === null ||
+            !apiKeyReady ||
             !pendingUploadReady ||
             status === "capturing" ||
             status === "uploading"
@@ -209,7 +224,7 @@ export function Popup() {
             status,
             pendingUpload !== null,
             settingsReady,
-            apiKey !== null,
+            apiKeyReady,
             pendingUploadReady
           )}
         </button>
