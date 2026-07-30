@@ -190,6 +190,137 @@ def test_offhost_pull_reports_legacy_lock_and_ignores_unlocked_lock_file(tmp_pat
     assert "already_running" not in stale_file_result.stderr
 
 
+def test_offhost_pull_rejects_missing_python_before_remote_access(tmp_path: Path) -> None:
+    zsh = shutil.which("zsh")
+    if zsh is None:
+        pytest.skip("offhost pull is a macOS zsh workflow")
+
+    script = Path(__file__).parents[3] / "scripts" / "pull-offhost-backup.zsh"
+    tools_dir = tmp_path / "tools"
+    tools_dir.mkdir()
+    no_output_tool = tools_dir / "no-output"
+    no_output_tool.write_text("#!/bin/sh\nexit 0\n")
+    no_output_tool.chmod(0o700)
+    ssh_probe = tmp_path / "ssh-invoked"
+    ssh_tool = tools_dir / "ssh-probe"
+    ssh_tool.write_text('#!/bin/sh\n: > "$PLUGIN_HUB_SSH_PROBE"\nexit 0\n')
+    ssh_tool.chmod(0o700)
+    recipient_file = tmp_path / "recipient.txt"
+    recipient_file.write_text("age1testrecipient\n")
+
+    result = subprocess.run(
+        [zsh, str(script)],
+        env={
+            **os.environ,
+            "PLUGIN_HUB_BACKUP_DESTINATION_DIR": str(tmp_path / "backups"),
+            "PLUGIN_HUB_BACKUP_RECIPIENT_FILE": str(recipient_file),
+            "PLUGIN_HUB_AGE_BIN": str(no_output_tool),
+            "PLUGIN_HUB_SSH_BIN": str(ssh_tool),
+            "PLUGIN_HUB_SECURITY_BIN": str(no_output_tool),
+            "PLUGIN_HUB_PYTHON_BIN": str(tools_dir / "missing-python"),
+            "PLUGIN_HUB_SSH_PROBE": str(ssh_probe),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "offhost_backup_error=required_tool_missing" in result.stderr
+    assert ssh_probe.exists() is False
+
+
+def test_offhost_restore_verification_checks_every_manifest_table(tmp_path: Path) -> None:
+    script = Path(__file__).parents[3] / "scripts" / "pull-offhost-backup.zsh"
+    script_text = script.read_text()
+    verification_code = script_text.split("<<'PY'\n", maxsplit=1)[1].split("\nPY", maxsplit=1)[0]
+    database = tmp_path / "plugin_hub_20260730T000000Z.db"
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE collection_runs (id INTEGER PRIMARY KEY);
+            CREATE TABLE raw_source_items (id INTEGER PRIMARY KEY);
+            CREATE TABLE canonical_voc_units (id INTEGER PRIMARY KEY);
+            CREATE TABLE analysis_snapshots (id INTEGER PRIMARY KEY);
+            INSERT INTO analysis_snapshots DEFAULT VALUES;
+            """
+        )
+    manifest = tmp_path / "plugin_hub_20260730T000000Z.manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "backup_file": database.name,
+                "bytes": database.stat().st_size,
+                "foreign_key_issues": 0,
+                "quick_check_ok": True,
+                "sha256": hashlib.sha256(database.read_bytes()).hexdigest(),
+                "table_counts": {
+                    "analysis_snapshots": 0,
+                    "canonical_voc_units": 0,
+                    "collection_runs": 0,
+                    "raw_source_items": 0,
+                },
+            }
+        )
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-", str(database), str(manifest)],
+        input=verification_code,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "manifest_table_counts_mismatch" in result.stderr
+
+
+def test_offhost_restore_verification_quotes_manifest_table_names(tmp_path: Path) -> None:
+    script = Path(__file__).parents[3] / "scripts" / "pull-offhost-backup.zsh"
+    script_text = script.read_text()
+    verification_code = script_text.split("<<'PY'\n", maxsplit=1)[1].split("\nPY", maxsplit=1)[0]
+    database = tmp_path / "plugin_hub_20260730T000001Z.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute('CREATE TABLE "analysis""snapshots" (id INTEGER PRIMARY KEY)')
+        connection.execute('INSERT INTO "analysis""snapshots" DEFAULT VALUES')
+    manifest = tmp_path / "plugin_hub_20260730T000001Z.manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "backup_file": database.name,
+                "bytes": database.stat().st_size,
+                "foreign_key_issues": 0,
+                "quick_check_ok": True,
+                "sha256": hashlib.sha256(database.read_bytes()).hexdigest(),
+                "table_counts": {'analysis"snapshots': 1},
+            }
+        )
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-", str(database), str(manifest)],
+        input=verification_code,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_offhost_publication_commits_metadata_before_archive() -> None:
+    script = Path(__file__).parents[3] / "scripts" / "pull-offhost-backup.zsh"
+    script_text = script.read_text()
+
+    metadata_move = script_text.index('mv "$temporary_metadata" "$final_metadata"')
+    metadata_release = script_text.index('temporary_metadata=""', metadata_move)
+    archive_move = script_text.index('mv "$temporary_archive" "$final_archive"')
+    archive_release = script_text.index('temporary_archive=""', archive_move)
+
+    assert metadata_move < metadata_release < archive_move < archive_release
+
+
 def test_offhost_retention_counts_only_verified_archives(tmp_path: Path) -> None:
     script = Path(__file__).parents[3] / "scripts" / "pull-offhost-backup.zsh"
     script_text = script.read_text()

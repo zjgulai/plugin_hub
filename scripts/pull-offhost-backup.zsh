@@ -15,13 +15,13 @@ retention_count="${PLUGIN_HUB_BACKUP_RETENTION_COUNT:-30}"
 age_bin="${PLUGIN_HUB_AGE_BIN:-/opt/homebrew/bin/age}"
 ssh_bin="${PLUGIN_HUB_SSH_BIN:-/usr/bin/ssh}"
 security_bin="${PLUGIN_HUB_SECURITY_BIN:-/usr/bin/security}"
-python_bin="${PLUGIN_HUB_PYTHON_BIN:-$(command -v python3)}"
+python_bin="${PLUGIN_HUB_PYTHON_BIN:-$(command -v python3 || true)}"
 
 if [[ ! "$retention_count" =~ '^[0-9]+$' ]] || (( retention_count < 2 )); then
   print -u2 -- "offhost_backup_error=invalid_retention_count"
   exit 2
 fi
-if [[ ! -x "$age_bin" || ! -x "$ssh_bin" || ! -x "$security_bin" ]]; then
+if [[ ! -x "$age_bin" || ! -x "$ssh_bin" || ! -x "$security_bin" || ! -x "$python_bin" ]]; then
   print -u2 -- "offhost_backup_error=required_tool_missing"
   exit 2
 fi
@@ -127,10 +127,28 @@ def require(condition: bool, code: str) -> None:
         raise RuntimeError(code)
 
 
+def quote_identifier(value: str) -> str:
+    return '"' + value.replace('"', '""') + '"'
+
+
+def validated_table_counts(value: object):
+    require(isinstance(value, dict), "manifest_table_counts_invalid")
+    counts = {}
+    for table, count in value.items():
+        require(isinstance(table, str) and bool(table), "manifest_table_name_invalid")
+        require(
+            isinstance(count, int) and not isinstance(count, bool) and count >= 0,
+            f"manifest_table_count_invalid:{table}",
+        )
+        counts[table] = count
+    return counts
+
+
 database_path = Path(sys.argv[1])
 manifest_path = Path(sys.argv[2])
 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 digest = hashlib.sha256(database_path.read_bytes()).hexdigest()
+expected_counts = validated_table_counts(manifest.get("table_counts"))
 connection = sqlite3.connect(
     f"{database_path.resolve().as_uri()}?mode=ro&immutable=1",
     uri=True,
@@ -140,8 +158,10 @@ try:
     quick_check = connection.execute("PRAGMA quick_check").fetchone()[0]
     foreign_key_issues = len(connection.execute("PRAGMA foreign_key_check").fetchall())
     counts = {
-        table: connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
-        for table in ("collection_runs", "raw_source_items", "canonical_voc_units")
+        table: connection.execute(
+            f"SELECT COUNT(*) FROM {quote_identifier(table)}"
+        ).fetchone()[0]
+        for table in expected_counts
     }
 finally:
     connection.close()
@@ -153,12 +173,13 @@ require(manifest["quick_check_ok"] is True, "manifest_quick_check_not_ok")
 require(manifest["foreign_key_issues"] == 0, "manifest_foreign_key_issues")
 require(quick_check == "ok", "restored_database_quick_check_failed")
 require(foreign_key_issues == 0, "restored_database_foreign_key_issues")
-for table, count in counts.items():
-    require(manifest["table_counts"][table] == count, f"manifest_count_mismatch:{table}")
+require(expected_counts == counts, "manifest_table_counts_mismatch")
 print(
     "offhost_restore_verification=pass "
     f"file={database_path.name} "
-    f"counts={counts['collection_runs']}/{counts['raw_source_items']}/{counts['canonical_voc_units']} "
+    f"counts={counts.get('collection_runs', 'missing')}/"
+    f"{counts.get('raw_source_items', 'missing')}/"
+    f"{counts.get('canonical_voc_units', 'missing')} "
     "quick_check=ok foreign_key_issues=0"
 )
 PY
@@ -260,10 +281,28 @@ def require(condition: bool, code: str) -> None:
         raise RuntimeError(code)
 
 
+def quote_identifier(value: str) -> str:
+    return '"' + value.replace('"', '""') + '"'
+
+
+def validated_table_counts(value: object):
+    require(isinstance(value, dict), "manifest_table_counts_invalid")
+    counts = {}
+    for table, count in value.items():
+        require(isinstance(table, str) and bool(table), "manifest_table_name_invalid")
+        require(
+            isinstance(count, int) and not isinstance(count, bool) and count >= 0,
+            f"manifest_table_count_invalid:{table}",
+        )
+        counts[table] = count
+    return counts
+
+
 database_path = Path(sys.argv[1])
 manifest_path = Path(sys.argv[2])
 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 digest = hashlib.sha256(database_path.read_bytes()).hexdigest()
+expected_counts = validated_table_counts(manifest.get("table_counts"))
 connection = sqlite3.connect(
     f"{database_path.resolve().as_uri()}?mode=ro&immutable=1",
     uri=True,
@@ -273,8 +312,10 @@ try:
     quick_check = connection.execute("PRAGMA quick_check").fetchone()[0]
     foreign_key_issues = len(connection.execute("PRAGMA foreign_key_check").fetchall())
     table_counts = {
-        table: connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
-        for table in manifest["table_counts"]
+        table: connection.execute(
+            f"SELECT COUNT(*) FROM {quote_identifier(table)}"
+        ).fetchone()[0]
+        for table in expected_counts
     }
 finally:
     connection.close()
@@ -286,7 +327,7 @@ require(manifest["quick_check_ok"] is True, "manifest_quick_check_not_ok")
 require(manifest["foreign_key_issues"] == 0, "manifest_foreign_key_issues")
 require(quick_check == "ok", "remote_database_quick_check_failed")
 require(foreign_key_issues == 0, "remote_database_foreign_key_issues")
-require(manifest["table_counts"] == table_counts, "manifest_table_counts_mismatch")
+require(expected_counts == table_counts, "manifest_table_counts_mismatch")
 print(f"remote_backup_verification=pass file={database_path.name}", file=sys.stderr)
 PY
 
@@ -320,10 +361,10 @@ output.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "
 PY
 chmod 0600 "$temporary_metadata"
 verify_metadata "$temporary_archive" "$temporary_metadata"
-mv "$temporary_archive" "$final_archive"
-temporary_archive=""
 mv "$temporary_metadata" "$final_metadata"
 temporary_metadata=""
+mv "$temporary_archive" "$final_archive"
+temporary_archive=""
 
 expired_verified_archives="$("$python_bin" - "$destination_dir" "$retention_count" <<'PY_RETENTION'
 import hashlib
