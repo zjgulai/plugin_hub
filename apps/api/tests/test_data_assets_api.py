@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -9,7 +10,8 @@ from sqlalchemy.orm import Session
 from plugin_hub_api.db import build_engine, init_database, make_session_factory
 from plugin_hub_api.payload_hashes import fnv1a64_payload_hash
 from plugin_hub_api.repositories import SqlAlchemyRepository
-from plugin_hub_api.schemas import JsonValue
+from plugin_hub_api.routes.data_assets import list_data_asset_runs
+from plugin_hub_api.schemas import DataAssetRun, JsonValue
 
 
 def test_data_asset_summary_reports_durable_counts_without_payloads(client: TestClient) -> None:
@@ -97,6 +99,101 @@ def test_data_asset_summary_reports_durable_counts_without_payloads(client: Test
     assert "source_url" not in str(runs).lower()
 
 
+def test_begin_read_snapshot_refuses_existing_transaction_without_rollback(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "plugin_hub.db"
+    engine = build_engine(f"sqlite+pysqlite:///{database_path}")
+    init_database(engine)
+    session_factory = make_session_factory(engine)
+
+    with session_factory() as session:
+        session.execute(
+            text(
+                """
+                INSERT INTO collection_runs (
+                    collection_run_id, platform, source_url, capture_method,
+                    coverage_scope, stop_reason, coverage_confidence, created_at
+                ) VALUES (
+                    'run-existing-transaction', 'amazon',
+                    'https://www.amazon.com/product-reviews/B000000001', 'test',
+                    '{}', NULL, 1.0, '2026-07-30T00:00:00+00:00'
+                )
+                """
+            )
+        )
+        repository = SqlAlchemyRepository(session)
+
+        with pytest.raises(RuntimeError, match="read_snapshot_requires_clean_session"):
+            repository.begin_read_snapshot()
+
+        assert session.in_transaction()
+        assert session.scalar(text("SELECT COUNT(*) FROM collection_runs")) == 1
+
+    engine.dispose()
+
+
+def test_data_asset_runs_route_ends_read_snapshot(tmp_path: Path) -> None:
+    database_path = tmp_path / "plugin_hub.db"
+    engine = build_engine(f"sqlite+pysqlite:///{database_path}")
+    init_database(engine)
+    session_factory = make_session_factory(engine)
+
+    with session_factory() as session:
+        response = list_data_asset_runs(
+            SqlAlchemyRepository(session),
+            limit=50,
+            offset=0,
+        )
+
+        assert response.total == 0
+        assert not session.in_transaction()
+
+    engine.dispose()
+
+
+def test_data_asset_summary_ends_read_snapshot_after_error(tmp_path: Path) -> None:
+    database_path = tmp_path / "plugin_hub.db"
+    engine = build_engine(f"sqlite+pysqlite:///{database_path}")
+    init_database(engine)
+    session_factory = make_session_factory(engine)
+
+    class FailingSummaryRepository(SqlAlchemyRepository):
+        def _text_count(self, statement: str) -> int:
+            raise RuntimeError("summary_probe_failed")
+
+    with session_factory() as session:
+        repository = FailingSummaryRepository(session)
+
+        with pytest.raises(RuntimeError, match="summary_probe_failed"):
+            repository.get_data_asset_summary(low_confidence_threshold=0.7)
+
+        assert not session.in_transaction()
+
+    engine.dispose()
+
+
+def test_data_asset_runs_route_ends_read_snapshot_after_error(tmp_path: Path) -> None:
+    database_path = tmp_path / "plugin_hub.db"
+    engine = build_engine(f"sqlite+pysqlite:///{database_path}")
+    init_database(engine)
+    session_factory = make_session_factory(engine)
+
+    class FailingRunsRepository(SqlAlchemyRepository):
+        def list_data_asset_runs(self, *, limit: int, offset: int) -> list[DataAssetRun]:
+            raise RuntimeError("runs_probe_failed")
+
+    with session_factory() as session:
+        repository = FailingRunsRepository(session)
+
+        with pytest.raises(RuntimeError, match="runs_probe_failed"):
+            list_data_asset_runs(repository, limit=50, offset=0)
+
+        assert not session.in_transaction()
+
+    engine.dispose()
+
+
 def test_data_asset_summary_uses_one_snapshot_during_concurrent_insert(tmp_path: Path) -> None:
     database_path = tmp_path / "plugin_hub.db"
     engine = build_engine(
@@ -154,12 +251,13 @@ def test_data_asset_summary_uses_one_snapshot_during_concurrent_insert(tmp_path:
         summary = ConcurrentInsertRepository(session).get_data_asset_summary(
             low_confidence_threshold=0.7
         )
+        assert not session.in_transaction()
 
     assert summary.canonical_voc_count == 0
     assert summary.placeholder_voc_count == 0
     assert summary.analysis_eligible_voc_count == 0
     with engine.connect() as connection:
-        assert connection.execute(
-            text("SELECT COUNT(*) FROM canonical_voc_units")
-        ).scalar_one() == 1
+        assert (
+            connection.execute(text("SELECT COUNT(*) FROM canonical_voc_units")).scalar_one() == 1
+        )
     engine.dispose()

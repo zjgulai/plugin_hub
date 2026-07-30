@@ -152,6 +152,11 @@ class SqlAlchemyRepository:
         return int(value) if value is not None else 0
 
     def begin_read_snapshot(self) -> None:
+        if self._session.in_transaction():
+            # Snapshot ownership must be explicit. Rolling back here could
+            # silently discard work started by the caller, while issuing a
+            # second BEGIN fails on SQLite with a nested transaction error.
+            raise RuntimeError("read_snapshot_requires_clean_session")
         connection = self._session.connection()
         if connection.dialect.name == "sqlite":
             # SQLAlchemy's logical autobegin does not make sqlite3 start a read
@@ -176,9 +181,7 @@ class SqlAlchemyRepository:
         if run_row is None:
             return None
         raw_rows = self._session.scalars(
-            select(RawSourceItemRow).where(
-                RawSourceItemRow.collection_run_id == collection_run_id
-            )
+            select(RawSourceItemRow).where(RawSourceItemRow.collection_run_id == collection_run_id)
         ).all()
         voc_count = int(
             self._session.scalar(
@@ -211,6 +214,18 @@ class SqlAlchemyRepository:
 
     def get_data_asset_summary(self, *, low_confidence_threshold: float) -> DataAssetSummary:
         self.begin_read_snapshot()
+        try:
+            return self._get_data_asset_summary(
+                low_confidence_threshold=low_confidence_threshold,
+            )
+        finally:
+            self.end_read_snapshot()
+
+    def _get_data_asset_summary(
+        self,
+        *,
+        low_confidence_threshold: float,
+    ) -> DataAssetSummary:
         collection_run_count = int(
             self._session.scalar(select(func.count()).select_from(CollectionRunRow)) or 0
         )
