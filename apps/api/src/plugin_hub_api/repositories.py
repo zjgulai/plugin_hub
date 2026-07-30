@@ -5,7 +5,7 @@ import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import Select, func, select, text
+from sqlalchemy import Select, and_, func, or_, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -31,6 +31,8 @@ from plugin_hub_api.schemas import (
     PlatformSettingSource,
     RawSourceItem,
 )
+
+COLLECTION_TASK_CLAIM_SCAN_LIMIT = 100
 
 
 @dataclass(frozen=True)
@@ -510,9 +512,67 @@ class SqlAlchemyRepository:
     ) -> CollectionTask | None:
         reference_time = now if now is not None else datetime.now(tz=UTC)
         try:
-            statement = select(CollectionTaskRow).order_by(CollectionTaskRow.created_at)
+            statement = (
+                select(CollectionTaskRow)
+                .where(
+                    CollectionTaskRow.status.in_(
+                        (
+                            CollectionTaskStatus.PENDING.value,
+                            CollectionTaskStatus.RETRY_SCHEDULED.value,
+                            CollectionTaskStatus.RUNNING.value,
+                        )
+                    )
+                )
+                .order_by(CollectionTaskRow.created_at)
+            )
+            is_sqlite = self._session.get_bind().dialect.name == "sqlite"
+            if is_sqlite:
+                next_run_at = func.json_extract(CollectionTaskRow.context, "$.next_run_at")
+                next_run_at_type = func.json_type(
+                    CollectionTaskRow.context,
+                    "$.next_run_at",
+                )
+                claim_expires_at = func.json_extract(
+                    CollectionTaskRow.context,
+                    "$.claim_expires_at",
+                )
+                claim_expires_at_type = func.json_type(
+                    CollectionTaskRow.context,
+                    "$.claim_expires_at",
+                )
+                reference_time_iso = reference_time.astimezone(UTC).isoformat()
+                statement = statement.where(
+                    or_(
+                        CollectionTaskRow.status == CollectionTaskStatus.PENDING.value,
+                        and_(
+                            CollectionTaskRow.status == CollectionTaskStatus.RETRY_SCHEDULED.value,
+                            or_(
+                                next_run_at_type.is_(None),
+                                next_run_at_type != "text",
+                                func.julianday(next_run_at).is_(None),
+                                func.julianday(next_run_at) <= func.julianday(reference_time_iso),
+                            ),
+                        ),
+                        and_(
+                            CollectionTaskRow.status == CollectionTaskStatus.RUNNING.value,
+                            or_(
+                                claim_expires_at_type.is_(None),
+                                claim_expires_at_type != "text",
+                                func.julianday(claim_expires_at).is_(None),
+                                func.julianday(claim_expires_at)
+                                <= func.julianday(reference_time_iso),
+                            ),
+                        ),
+                    )
+                )
+                # SQLite's exact predicate makes this a safe hard cap while
+                # BEGIN IMMEDIATE holds the database write lock.
+                statement = statement.limit(COLLECTION_TASK_CLAIM_SCAN_LIMIT)
             statement = self._begin_collection_task_claim(statement)
-            rows = self._session.scalars(statement).all()
+            # Other databases retain full claimability semantics under
+            # SKIP LOCKED, while yield_per avoids materializing all active rows.
+            # Python remains the final guard for malformed legacy context.
+            rows = self._session.scalars(statement).yield_per(COLLECTION_TASK_CLAIM_SCAN_LIMIT)
             for row in rows:
                 task = self._collection_task_from_row(row)
                 if not _collection_task_is_claimable(task, reference_time):

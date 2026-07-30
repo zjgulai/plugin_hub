@@ -5,9 +5,11 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 
+from plugin_hub_api.models import CollectionTaskRow
 from plugin_hub_api.repositories import SqlAlchemyRepository
-from plugin_hub_api.schemas import CollectionTaskStatus
+from plugin_hub_api.schemas import CollectionTaskStatus, JsonValue
 from plugin_hub_api.services.collection_task_worker import CollectionTaskWorkerConfig
 from plugin_hub_api.services.instagram_graph_capture import InstagramGraphFetchResult
 from plugin_hub_api.services.reddit_capture import RedditUpstreamAccessError
@@ -1042,6 +1044,127 @@ def test_claim_next_collection_task_can_recover_stale_worker_claim(
     assert first_claim.collection_task_id == task_id
 
 
+def test_claim_next_collection_task_materializes_only_claimable_candidate(
+    client: TestClient,
+) -> None:
+    reference_time = datetime(2026, 7, 30, 8, 0, tzinfo=UTC)
+    terminal_rows = [
+        _collection_task_row(
+            task_id=f"task_terminal_{index:03d}",
+            status=CollectionTaskStatus.COMPLETED,
+            created_at=reference_time - timedelta(hours=8, seconds=250 - index),
+        )
+        for index in range(250)
+    ]
+    rows = [
+        *terminal_rows,
+        _collection_task_row(
+            task_id="task_future_retry",
+            status=CollectionTaskStatus.RETRY_SCHEDULED,
+            created_at=reference_time - timedelta(hours=3),
+            context={"next_run_at": (reference_time + timedelta(hours=1)).isoformat()},
+        ),
+        _collection_task_row(
+            task_id="task_fresh_running",
+            status=CollectionTaskStatus.RUNNING,
+            created_at=reference_time - timedelta(hours=2),
+            context={
+                "claim_expires_at": (reference_time + timedelta(hours=1)).isoformat(),
+            },
+        ),
+        _collection_task_row(
+            task_id="task_claimable_pending",
+            status=CollectionTaskStatus.PENDING,
+            created_at=reference_time - timedelta(hours=1),
+        ),
+    ]
+    with client.app.state.session_factory() as session:
+        session.add_all(rows)
+        session.commit()
+
+    loaded_task_ids: list[str] = []
+
+    def record_task_load(task: CollectionTaskRow, _context: object) -> None:
+        loaded_task_ids.append(task.collection_task_id)
+
+    event.listen(CollectionTaskRow, "load", record_task_load)
+    try:
+        with client.app.state.session_factory() as session:
+            claimed = SqlAlchemyRepository(session).claim_next_runnable_collection_task(
+                worker_id="bounded-scan-worker",
+                claim_ttl_seconds=600,
+                now=reference_time,
+            )
+    finally:
+        event.remove(CollectionTaskRow, "load", record_task_load)
+
+    assert claimed is not None
+    assert claimed.collection_task_id == "task_claimable_pending"
+    assert loaded_task_ids == ["task_claimable_pending"]
+
+
+def test_claim_next_collection_task_preserves_dynamic_claimability_semantics(
+    client: TestClient,
+) -> None:
+    reference_time = datetime(2026, 7, 30, 8, 0, tzinfo=UTC)
+    rows = [
+        _collection_task_row(
+            task_id="task_future_retry",
+            status=CollectionTaskStatus.RETRY_SCHEDULED,
+            created_at=reference_time - timedelta(hours=4),
+            context={"next_run_at": (reference_time + timedelta(hours=1)).isoformat()},
+        ),
+        _collection_task_row(
+            task_id="task_fresh_running",
+            status=CollectionTaskStatus.RUNNING,
+            created_at=reference_time - timedelta(hours=3),
+            context={
+                "claim_expires_at": (reference_time + timedelta(hours=1)).isoformat(),
+            },
+        ),
+        _collection_task_row(
+            task_id="task_due_retry",
+            status=CollectionTaskStatus.RETRY_SCHEDULED,
+            created_at=reference_time - timedelta(hours=2),
+            context={"next_run_at": (reference_time - timedelta(minutes=1)).isoformat()},
+        ),
+        _collection_task_row(
+            task_id="task_stale_running",
+            status=CollectionTaskStatus.RUNNING,
+            created_at=reference_time - timedelta(hours=1),
+            context={
+                "claim_expires_at": (reference_time - timedelta(minutes=1)).isoformat(),
+            },
+        ),
+        _collection_task_row(
+            task_id="task_non_string_retry_time",
+            status=CollectionTaskStatus.RETRY_SCHEDULED,
+            created_at=reference_time - timedelta(minutes=30),
+            context={"next_run_at": 2_465_000},
+        ),
+    ]
+    with client.app.state.session_factory() as session:
+        session.add_all(rows)
+        session.commit()
+
+    claimed_ids: list[str] = []
+    for worker_id in ("first-worker", "second-worker", "third-worker"):
+        with client.app.state.session_factory() as session:
+            claimed = SqlAlchemyRepository(session).claim_next_runnable_collection_task(
+                worker_id=worker_id,
+                claim_ttl_seconds=600,
+                now=reference_time,
+            )
+        assert claimed is not None
+        claimed_ids.append(claimed.collection_task_id)
+
+    assert claimed_ids == [
+        "task_due_retry",
+        "task_stale_running",
+        "task_non_string_retry_time",
+    ]
+
+
 def test_run_next_collection_task_recovers_stale_running_task_when_claim_expires_missing(
     client: TestClient,
 ) -> None:
@@ -1085,6 +1208,26 @@ def test_run_next_collection_task_returns_404_when_queue_is_empty(client: TestCl
 
     assert response.status_code == 404
     assert response.json()["detail"] == "pending_collection_task_not_found"
+
+
+def _collection_task_row(
+    *,
+    task_id: str,
+    status: CollectionTaskStatus,
+    created_at: datetime,
+    context: dict[str, JsonValue] | None = None,
+) -> CollectionTaskRow:
+    return CollectionTaskRow(
+        collection_task_id=task_id,
+        platform="reddit",
+        source_url="https://www.reddit.com/r/Coffee/comments/thread123/example/",
+        requested_capture_method="server_reddit_json_proxy",
+        trigger_reason="bounded_claim_scan_test",
+        status=status.value,
+        context={} if context is None else context,
+        created_at=created_at,
+        updated_at=created_at,
+    )
 
 
 def _set_running_task_claim_state(
