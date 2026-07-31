@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import base64
 import hashlib
+import io
 import json
 import os
 import shutil
 import sqlite3
 import subprocess
 import sys
+import tarfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -230,10 +233,123 @@ def test_offhost_pull_rejects_missing_python_before_remote_access(tmp_path: Path
     assert ssh_probe.exists() is False
 
 
-def test_offhost_restore_verification_checks_every_manifest_table(tmp_path: Path) -> None:
+def test_offhost_pull_rejects_missing_validator_before_remote_access(tmp_path: Path) -> None:
+    zsh = shutil.which("zsh")
+    if zsh is None:
+        pytest.skip("offhost pull is a macOS zsh workflow")
+
+    script = Path(__file__).parents[3] / "scripts" / "pull-offhost-backup.zsh"
+    tools_dir = tmp_path / "tools"
+    tools_dir.mkdir()
+    no_output_tool = tools_dir / "no-output"
+    no_output_tool.write_text("#!/bin/sh\nexit 0\n")
+    no_output_tool.chmod(0o700)
+    ssh_probe = tmp_path / "ssh-invoked"
+    ssh_tool = tools_dir / "ssh-probe"
+    ssh_tool.write_text('#!/bin/sh\n: > "$PLUGIN_HUB_SSH_PROBE"\nexit 0\n')
+    ssh_tool.chmod(0o700)
+    recipient_file = tmp_path / "recipient.txt"
+    recipient_file.write_text("age1testrecipient\n")
+
+    result = subprocess.run(
+        [zsh, str(script)],
+        env={
+            **os.environ,
+            "PLUGIN_HUB_BACKUP_DESTINATION_DIR": str(tmp_path / "backups"),
+            "PLUGIN_HUB_BACKUP_RECIPIENT_FILE": str(recipient_file),
+            "PLUGIN_HUB_AGE_BIN": str(no_output_tool),
+            "PLUGIN_HUB_SSH_BIN": str(ssh_tool),
+            "PLUGIN_HUB_SECURITY_BIN": str(no_output_tool),
+            "PLUGIN_HUB_BACKUP_VALIDATOR_SCRIPT": str(tools_dir / "missing-validator.py"),
+            "PLUGIN_HUB_SSH_PROBE": str(ssh_probe),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "offhost_backup_error=validator_script_missing" in result.stderr
+    assert ssh_probe.exists() is False
+
+
+def test_offhost_pull_uses_shared_validator_for_local_and_remote_paths() -> None:
     script = Path(__file__).parents[3] / "scripts" / "pull-offhost-backup.zsh"
     script_text = script.read_text()
-    verification_code = script_text.split("<<'PY'\n", maxsplit=1)[1].split("\nPY", maxsplit=1)[0]
+
+    assert "verify-offhost-backup.py" in script_text
+    assert script_text.count("--context restore") == 1
+    assert script_text.count("--context remote") == 1
+    assert "def validated_table_counts" not in script_text
+
+
+def test_offhost_remote_flow_executes_shared_validator_before_tar(tmp_path: Path) -> None:
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("remote backup wrapper requires bash")
+
+    repository_root = Path(__file__).parents[3]
+    script = repository_root / "scripts" / "pull-offhost-backup.zsh"
+    validator = repository_root / "scripts" / "verify-offhost-backup.py"
+    remote_section = script.read_text().split("<<'REMOTE'", maxsplit=2)[2]
+    remote_code = remote_section.split("\n", maxsplit=1)[1].split("\nREMOTE", maxsplit=1)[0]
+    database = tmp_path / "plugin_hub_20260730T000002Z.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE collection_runs (id INTEGER PRIMARY KEY)")
+        connection.execute("INSERT INTO collection_runs DEFAULT VALUES")
+    manifest = tmp_path / "plugin_hub_20260730T000002Z.manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "backup_file": database.name,
+                "bytes": database.stat().st_size,
+                "foreign_key_issues": 0,
+                "quick_check_ok": True,
+                "sha256": hashlib.sha256(database.read_bytes()).hexdigest(),
+                "table_counts": {"collection_runs": 1},
+            }
+        )
+    )
+    tools_dir = tmp_path / "tools"
+    tools_dir.mkdir()
+    sudo_tool = tools_dir / "sudo"
+    sudo_tool.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = "-n" ]; then shift; fi\n'
+        'if [ "$1" = "python3" ]; then shift; exec "$TEST_PYTHON" "$@"; fi\n'
+        'exec "$@"\n'
+    )
+    sudo_tool.chmod(0o700)
+    validator_payload = base64.b64encode(validator.read_bytes()).decode()
+
+    result = subprocess.run(
+        [
+            bash,
+            "-s",
+            "--",
+            str(tmp_path),
+            database.name,
+            manifest.name,
+            validator_payload,
+        ],
+        input=remote_code.encode(),
+        env={
+            **os.environ,
+            "PATH": f"{tools_dir}:{os.environ['PATH']}",
+            "TEST_PYTHON": sys.executable,
+        },
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr.decode()
+    assert "remote_backup_verification=pass" in result.stderr.decode()
+    with tarfile.open(fileobj=io.BytesIO(result.stdout), mode="r:") as archive:
+        assert {database.name, manifest.name} <= set(archive.getnames())
+
+
+def test_offhost_restore_verification_checks_every_manifest_table(tmp_path: Path) -> None:
+    validator = Path(__file__).parents[3] / "scripts" / "verify-offhost-backup.py"
     database = tmp_path / "plugin_hub_20260730T000000Z.db"
     with sqlite3.connect(database) as connection:
         connection.executescript(
@@ -265,8 +381,14 @@ def test_offhost_restore_verification_checks_every_manifest_table(tmp_path: Path
     )
 
     result = subprocess.run(
-        [sys.executable, "-", str(database), str(manifest)],
-        input=verification_code,
+        [
+            sys.executable,
+            str(validator),
+            "--context",
+            "restore",
+            str(database),
+            str(manifest),
+        ],
         capture_output=True,
         text=True,
         check=False,
@@ -277,9 +399,7 @@ def test_offhost_restore_verification_checks_every_manifest_table(tmp_path: Path
 
 
 def test_offhost_restore_verification_quotes_manifest_table_names(tmp_path: Path) -> None:
-    script = Path(__file__).parents[3] / "scripts" / "pull-offhost-backup.zsh"
-    script_text = script.read_text()
-    verification_code = script_text.split("<<'PY'\n", maxsplit=1)[1].split("\nPY", maxsplit=1)[0]
+    validator = Path(__file__).parents[3] / "scripts" / "verify-offhost-backup.py"
     database = tmp_path / "plugin_hub_20260730T000001Z.db"
     with sqlite3.connect(database) as connection:
         connection.execute('CREATE TABLE "analysis""snapshots" (id INTEGER PRIMARY KEY)')
@@ -298,15 +418,26 @@ def test_offhost_restore_verification_quotes_manifest_table_names(tmp_path: Path
         )
     )
 
-    result = subprocess.run(
-        [sys.executable, "-", str(database), str(manifest)],
-        input=verification_code,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    for context, expected_output in (
+        ("restore", "offhost_restore_verification=pass"),
+        ("remote", "remote_backup_verification=pass"),
+    ):
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(validator),
+                "--context",
+                context,
+                str(database),
+                str(manifest),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
 
-    assert result.returncode == 0, result.stderr
+        assert result.returncode == 0, result.stderr
+        assert expected_output in result.stdout + result.stderr
 
 
 def test_offhost_publication_commits_metadata_before_archive() -> None:

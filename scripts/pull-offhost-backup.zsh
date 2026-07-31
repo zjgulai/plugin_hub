@@ -11,22 +11,35 @@ recipient_file="${PLUGIN_HUB_BACKUP_RECIPIENT_FILE:-$HOME/.config/plugin-hub/off
 keychain_service="${PLUGIN_HUB_BACKUP_KEYCHAIN_SERVICE:-plugin-hub-offhost-backup-age-identity}"
 keychain_account="${PLUGIN_HUB_BACKUP_KEYCHAIN_ACCOUNT:-plugin-hub}"
 retention_count="${PLUGIN_HUB_BACKUP_RETENTION_COUNT:-30}"
+script_dir="${0:A:h}"
 
 age_bin="${PLUGIN_HUB_AGE_BIN:-/opt/homebrew/bin/age}"
 ssh_bin="${PLUGIN_HUB_SSH_BIN:-/usr/bin/ssh}"
 security_bin="${PLUGIN_HUB_SECURITY_BIN:-/usr/bin/security}"
 python_bin="${PLUGIN_HUB_PYTHON_BIN:-$(command -v python3 || true)}"
+base64_bin="${PLUGIN_HUB_BASE64_BIN:-/usr/bin/base64}"
+validator_script="${PLUGIN_HUB_BACKUP_VALIDATOR_SCRIPT:-$script_dir/verify-offhost-backup.py}"
 
 if [[ ! "$retention_count" =~ '^[0-9]+$' ]] || (( retention_count < 2 )); then
   print -u2 -- "offhost_backup_error=invalid_retention_count"
   exit 2
 fi
-if [[ ! -x "$age_bin" || ! -x "$ssh_bin" || ! -x "$security_bin" || ! -x "$python_bin" ]]; then
+if [[ ! -x "$age_bin" || ! -x "$ssh_bin" || ! -x "$security_bin" || ! -x "$python_bin" || ! -x "$base64_bin" ]]; then
   print -u2 -- "offhost_backup_error=required_tool_missing"
+  exit 2
+fi
+if [[ ! -f "$validator_script" || ! -r "$validator_script" ]]; then
+  print -u2 -- "offhost_backup_error=validator_script_missing"
   exit 2
 fi
 if [[ ! -s "$recipient_file" ]]; then
   print -u2 -- "offhost_backup_error=recipient_file_missing"
+  exit 2
+fi
+
+validator_payload="$("$base64_bin" < "$validator_script" | /usr/bin/tr -d '\n')"
+if [[ -z "$validator_payload" ]]; then
+  print -u2 -- "offhost_backup_error=validator_script_empty"
   exit 2
 fi
 
@@ -114,75 +127,8 @@ verify_archive() {
   "$age_bin" --decrypt -i "$identity_file" "$archive_path" | \
     /usr/bin/tar -xf - -C "$restore_dir"
 
-  "$python_bin" - "$restore_dir/$database_file" "$restore_dir/$latest_manifest" <<'PY'
-import hashlib
-import json
-import sqlite3
-import sys
-from pathlib import Path
-
-
-def require(condition: bool, code: str) -> None:
-    if not condition:
-        raise RuntimeError(code)
-
-
-def quote_identifier(value: str) -> str:
-    return '"' + value.replace('"', '""') + '"'
-
-
-def validated_table_counts(value: object):
-    require(isinstance(value, dict), "manifest_table_counts_invalid")
-    counts = {}
-    for table, count in value.items():
-        require(isinstance(table, str) and bool(table), "manifest_table_name_invalid")
-        require(
-            isinstance(count, int) and not isinstance(count, bool) and count >= 0,
-            f"manifest_table_count_invalid:{table}",
-        )
-        counts[table] = count
-    return counts
-
-
-database_path = Path(sys.argv[1])
-manifest_path = Path(sys.argv[2])
-manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-digest = hashlib.sha256(database_path.read_bytes()).hexdigest()
-expected_counts = validated_table_counts(manifest.get("table_counts"))
-connection = sqlite3.connect(
-    f"{database_path.resolve().as_uri()}?mode=ro&immutable=1",
-    uri=True,
-)
-try:
-    connection.execute("PRAGMA query_only=ON")
-    quick_check = connection.execute("PRAGMA quick_check").fetchone()[0]
-    foreign_key_issues = len(connection.execute("PRAGMA foreign_key_check").fetchall())
-    counts = {
-        table: connection.execute(
-            f"SELECT COUNT(*) FROM {quote_identifier(table)}"
-        ).fetchone()[0]
-        for table in expected_counts
-    }
-finally:
-    connection.close()
-
-require(manifest["backup_file"] == database_path.name, "manifest_backup_file_mismatch")
-require(manifest["sha256"] == digest, "manifest_sha256_mismatch")
-require(manifest["bytes"] == database_path.stat().st_size, "manifest_bytes_mismatch")
-require(manifest["quick_check_ok"] is True, "manifest_quick_check_not_ok")
-require(manifest["foreign_key_issues"] == 0, "manifest_foreign_key_issues")
-require(quick_check == "ok", "restored_database_quick_check_failed")
-require(foreign_key_issues == 0, "restored_database_foreign_key_issues")
-require(expected_counts == counts, "manifest_table_counts_mismatch")
-print(
-    "offhost_restore_verification=pass "
-    f"file={database_path.name} "
-    f"counts={counts.get('collection_runs', 'missing')}/"
-    f"{counts.get('raw_source_items', 'missing')}/"
-    f"{counts.get('canonical_voc_units', 'missing')} "
-    "quick_check=ok foreign_key_issues=0"
-)
-PY
+  "$python_bin" "$validator_script" --context restore \
+    "$restore_dir/$database_file" "$restore_dir/$latest_manifest"
 
   rm -rf "$temporary_dir"
   temporary_dir=""
@@ -257,79 +203,29 @@ fi
 temporary_archive="$destination_dir/.$archive_file.tmp"
 temporary_metadata="$destination_dir/.$metadata_file.tmp"
 
-$ssh_bin "$remote_host" /bin/bash -s -- "$remote_dir" "$database_file" "$latest_manifest" <<'REMOTE' | \
+$ssh_bin "$remote_host" /bin/bash -s -- "$remote_dir" "$database_file" "$latest_manifest" \
+  "$validator_payload" <<'REMOTE' | \
   "$age_bin" --recipient "$recipient" --output "$temporary_archive"
 set -euo pipefail
 backup_dir=$1
 database_file=$2
 manifest_file=$3
+validator_payload=$4
 
 if [[ "$database_file" == */* || "$manifest_file" == */* ]]; then
   exit 2
 fi
 
-sudo -n python3 - "$backup_dir/$database_file" "$backup_dir/$manifest_file" <<'PY'
-import hashlib
-import json
-import sqlite3
-import sys
-from pathlib import Path
+temporary_validator="$(mktemp)"
+cleanup_remote() {
+  rm -f "$temporary_validator"
+}
+trap cleanup_remote EXIT INT TERM
+printf '%s' "$validator_payload" | base64 --decode > "$temporary_validator"
+chmod 0600 "$temporary_validator"
 
-
-def require(condition: bool, code: str) -> None:
-    if not condition:
-        raise RuntimeError(code)
-
-
-def quote_identifier(value: str) -> str:
-    return '"' + value.replace('"', '""') + '"'
-
-
-def validated_table_counts(value: object):
-    require(isinstance(value, dict), "manifest_table_counts_invalid")
-    counts = {}
-    for table, count in value.items():
-        require(isinstance(table, str) and bool(table), "manifest_table_name_invalid")
-        require(
-            isinstance(count, int) and not isinstance(count, bool) and count >= 0,
-            f"manifest_table_count_invalid:{table}",
-        )
-        counts[table] = count
-    return counts
-
-
-database_path = Path(sys.argv[1])
-manifest_path = Path(sys.argv[2])
-manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-digest = hashlib.sha256(database_path.read_bytes()).hexdigest()
-expected_counts = validated_table_counts(manifest.get("table_counts"))
-connection = sqlite3.connect(
-    f"{database_path.resolve().as_uri()}?mode=ro&immutable=1",
-    uri=True,
-)
-try:
-    connection.execute("PRAGMA query_only=ON")
-    quick_check = connection.execute("PRAGMA quick_check").fetchone()[0]
-    foreign_key_issues = len(connection.execute("PRAGMA foreign_key_check").fetchall())
-    table_counts = {
-        table: connection.execute(
-            f"SELECT COUNT(*) FROM {quote_identifier(table)}"
-        ).fetchone()[0]
-        for table in expected_counts
-    }
-finally:
-    connection.close()
-
-require(manifest["backup_file"] == database_path.name, "manifest_backup_file_mismatch")
-require(manifest["sha256"] == digest, "manifest_sha256_mismatch")
-require(manifest["bytes"] == database_path.stat().st_size, "manifest_bytes_mismatch")
-require(manifest["quick_check_ok"] is True, "manifest_quick_check_not_ok")
-require(manifest["foreign_key_issues"] == 0, "manifest_foreign_key_issues")
-require(quick_check == "ok", "remote_database_quick_check_failed")
-require(foreign_key_issues == 0, "remote_database_foreign_key_issues")
-require(expected_counts == table_counts, "manifest_table_counts_mismatch")
-print(f"remote_backup_verification=pass file={database_path.name}", file=sys.stderr)
-PY
+sudo -n python3 "$temporary_validator" --context remote \
+  "$backup_dir/$database_file" "$backup_dir/$manifest_file"
 
 sudo -n tar -C "$backup_dir" -cf - -- "$database_file" "$manifest_file"
 REMOTE
