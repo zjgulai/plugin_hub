@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import os
+import runpy
 import shutil
 import sqlite3
 import subprocess
@@ -396,6 +397,100 @@ def test_offhost_restore_verification_checks_every_manifest_table(tmp_path: Path
 
     assert result.returncode != 0
     assert "manifest_table_counts_mismatch" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_offhost_verification_hashes_database_without_path_read_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    validator = Path(__file__).parents[3] / "scripts" / "verify-offhost-backup.py"
+    database = tmp_path / "plugin_hub_20260730T000003Z.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE collection_runs (id INTEGER PRIMARY KEY)")
+        connection.execute("INSERT INTO collection_runs DEFAULT VALUES")
+    manifest = tmp_path / "plugin_hub_20260730T000003Z.manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "backup_file": database.name,
+                "bytes": database.stat().st_size,
+                "foreign_key_issues": 0,
+                "quick_check_ok": True,
+                "sha256": hashlib.sha256(database.read_bytes()).hexdigest(),
+                "table_counts": {"collection_runs": 1},
+            }
+        )
+    )
+    verify_backup = runpy.run_path(str(validator))["verify_backup"]
+
+    def reject_read_bytes(_path: Path) -> bytes:
+        raise AssertionError("backup hashing must stream bounded chunks")
+
+    monkeypatch.setattr(Path, "read_bytes", reject_read_bytes)
+
+    verify_backup(database, manifest, "restore")
+
+
+@pytest.mark.parametrize(
+    ("manifest_payload", "expected_error"),
+    [
+        ("{", "Expecting property name enclosed in double quotes"),
+        (
+            json.dumps(
+                {
+                    "bytes": 0,
+                    "foreign_key_issues": 0,
+                    "quick_check_ok": True,
+                    "sha256": hashlib.sha256(b"").hexdigest(),
+                    "table_counts": {},
+                }
+            ),
+            "'backup_file'",
+        ),
+        (
+            json.dumps(
+                {
+                    "backup_file": "backup.db",
+                    "bytes": 0,
+                    "foreign_key_issues": 0,
+                    "quick_check_ok": True,
+                    "sha256": hashlib.sha256(b"").hexdigest(),
+                    "table_counts": {"missing_table": 0},
+                }
+            ),
+            "no such table: missing_table",
+        ),
+    ],
+)
+def test_offhost_verification_reports_clean_single_line_errors(
+    tmp_path: Path, manifest_payload: str, expected_error: str
+) -> None:
+    validator = Path(__file__).parents[3] / "scripts" / "verify-offhost-backup.py"
+    database = tmp_path / "backup.db"
+    database.touch()
+    manifest = tmp_path / "backup.manifest.json"
+    manifest.write_text(manifest_payload)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(validator),
+            "--context",
+            "restore",
+            str(database),
+            str(manifest),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("offhost_backup_verification_error=")
+    assert result.stderr.count("\n") == 1
+    assert expected_error in result.stderr
+    assert "Traceback" not in result.stderr
 
 
 def test_offhost_restore_verification_quotes_manifest_table_names(tmp_path: Path) -> None:

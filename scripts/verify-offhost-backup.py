@@ -7,6 +7,8 @@ import sqlite3
 import sys
 from pathlib import Path
 
+HASH_CHUNK_SIZE = 1024 * 1024
+
 
 def require(condition: bool, code: str) -> None:
     if not condition:
@@ -30,9 +32,17 @@ def validated_table_counts(value: object):
     return counts
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file_handle:
+        for chunk in iter(lambda: file_handle.read(HASH_CHUNK_SIZE), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def verify_backup(database_path: Path, manifest_path: Path, context: str) -> None:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    digest = hashlib.sha256(database_path.read_bytes()).hexdigest()
+    digest = sha256_file(database_path)
     expected_counts = validated_table_counts(manifest.get("table_counts"))
     connection = sqlite3.connect(
         f"{database_path.resolve().as_uri()}?mode=ro&immutable=1",
@@ -98,7 +108,12 @@ def main() -> None:
     parser.add_argument("database", type=Path)
     parser.add_argument("manifest", type=Path)
     arguments = parser.parse_args()
-    verify_backup(arguments.database, arguments.manifest, arguments.context)
+    try:
+        verify_backup(arguments.database, arguments.manifest, arguments.context)
+    except (RuntimeError, OSError, sqlite3.Error, json.JSONDecodeError, KeyError) as error:
+        error_message = " ".join(str(error).splitlines()) or type(error).__name__
+        print(f"offhost_backup_verification_error={error_message}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
