@@ -17,7 +17,6 @@ class Settings(BaseSettings):
     api_write_key: SecretStr | None = None
     trusted_hosts: list[str] = Field(
         default_factory=lambda: [
-            "testserver",
             "localhost",
             "127.0.0.1",
             "plugin-hub-api",

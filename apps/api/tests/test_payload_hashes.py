@@ -1,4 +1,8 @@
-from plugin_hub_api.payload_hashes import extension_payload_hash_matches, fnv1a64_payload_hash
+from plugin_hub_api.payload_hashes import (
+    _javascript_number_string,
+    extension_payload_hash_matches,
+    fnv1a64_payload_hash,
+)
 
 
 def test_fnv1a64_payload_hash_matches_extension_canonicalization() -> None:
@@ -32,3 +36,7 @@ def test_fnv1a64_payload_hash_formats_integer_valued_javascript_numbers() -> Non
     }
 
     assert fnv1a64_payload_hash(payload) == "fnv1a64:0be342c1c88acf1a"
+
+
+def test_javascript_number_string_uses_shortest_large_integral_float_digits() -> None:
+    assert _javascript_number_string(1.2345678901234568e20) == "123456789012345680000"

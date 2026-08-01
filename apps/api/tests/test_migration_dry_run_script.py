@@ -13,6 +13,7 @@ from typing import cast
 import pytest
 from fastapi.testclient import TestClient
 
+from plugin_hub_api.config import Settings
 from plugin_hub_api.main import create_app
 from plugin_hub_api.migrations import (
     ANALYSIS_SNAPSHOT_INSERT_GUARDS_MIGRATION_VERSION,
@@ -23,6 +24,18 @@ from plugin_hub_api.schemas import JsonValue
 
 REPOSITORY_ROOT = Path(__file__).parents[3]
 SCRIPT_PATH = REPOSITORY_ROOT / "scripts" / "dry-run-insight-snapshot-migration.py"
+
+
+def _test_settings(database_path: Path) -> Settings:
+    return Settings(
+        database_url=f"sqlite+pysqlite:///{database_path}",
+        sqlite_busy_timeout_ms=10_000,
+        sqlite_wal_enabled=False,
+        api_auth_mode="disabled",
+        api_read_key=None,
+        api_write_key=None,
+        trusted_hosts=["testserver"],
+    )
 
 
 def _load_script() -> ModuleType:
@@ -87,7 +100,7 @@ def test_dry_run_upgrades_0001_copy_with_existing_snapshots(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     database_path = tmp_path / "plugin_hub-copy.db"
-    app = create_app(database_url=f"sqlite+pysqlite:///{database_path}")
+    app = create_app(settings=_test_settings(database_path))
     apply_pending_migrations(app.state.engine)
     with TestClient(app) as client:
         source_inputs = (
@@ -207,7 +220,7 @@ def test_dry_run_rejects_missing_insert_guard_with_applied_migration_row(
     trigger_name: str,
 ) -> None:
     database_path = tmp_path / f"{trigger_name}.db"
-    app = create_app(database_url=f"sqlite+pysqlite:///{database_path}")
+    app = create_app(settings=_test_settings(database_path))
     apply_pending_migrations(app.state.engine)
     with app.state.engine.begin() as connection:
         connection.exec_driver_sql(f'DROP TRIGGER "{trigger_name}"')

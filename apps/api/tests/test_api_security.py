@@ -15,12 +15,21 @@ WRITE_KEY = "w" * 32
 API_KEY_HEADER = "X-Plugin-Hub-Api-Key"
 
 
+def test_default_trusted_hosts_exclude_test_only_host(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("PLUGIN_HUB_TRUSTED_HOSTS", raising=False)
+
+    assert "testserver" not in Settings().trusted_hosts
+
+
 @pytest.fixture
 def protected_client() -> Generator[TestClient]:
     settings = Settings(
         api_auth_mode="required",
         api_read_key=READ_KEY,
         api_write_key=WRITE_KEY,
+        trusted_hosts=["testserver"],
     )
     with TestClient(
         create_app(database_url="sqlite+pysqlite:///:memory:", settings=settings)
@@ -111,6 +120,7 @@ def test_required_auth_normalizes_surrounding_whitespace_in_configured_keys() ->
         api_auth_mode="required",
         api_read_key=f"  {READ_KEY}\n",
         api_write_key=f"\t{WRITE_KEY}  ",
+        trusted_hosts=["testserver"],
     )
 
     with TestClient(

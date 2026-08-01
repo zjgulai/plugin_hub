@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy.exc import DatabaseError
 
+import plugin_hub_api.migration_cli as migration_cli_module
 import plugin_hub_api.migrations as migration_module
 from plugin_hub_api.db import build_engine, init_database
 from plugin_hub_api.migration_cli import main as migration_cli_main
@@ -270,6 +271,33 @@ def test_migration_cli_status_does_not_enable_wal(
     assert result["changed_versions"] == []
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("PRAGMA journal_mode").fetchone() == ("delete",)
+
+
+def test_migration_status_closes_read_only_sqlite_connection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_path = tmp_path / "plugin_hub.db"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("CREATE TABLE probe (id INTEGER PRIMARY KEY)")
+
+    opened_connections: list[sqlite3.Connection] = []
+    real_connect = sqlite3.connect
+
+    def tracked_connect(database: object, *args: object, **kwargs: object) -> sqlite3.Connection:
+        connection = real_connect(database, *args, **kwargs)  # type: ignore[arg-type]
+        opened_connections.append(connection)
+        return connection
+
+    monkeypatch.setattr(migration_cli_module.sqlite3, "connect", tracked_connect)
+
+    assert migration_cli_module._read_migration_status(
+        f"sqlite+pysqlite:///{database_path}",
+        sqlite_busy_timeout_ms=10_000,
+    ) == []
+    assert len(opened_connections) == 1
+    with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+        opened_connections[0].execute("SELECT 1")
 
 
 def test_migration_cli_status_refuses_missing_sqlite_database(

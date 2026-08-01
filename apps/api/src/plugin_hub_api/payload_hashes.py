@@ -60,10 +60,9 @@ def _javascript_number_string(value: float) -> str:
         return "0"
     absolute = abs(value)
     representation = repr(value).lower()
-    if value.is_integer() and absolute < 1e21:
-        return str(int(value))
     if 1e-6 <= absolute < 1e21:
-        return format(Decimal(representation), "f")
+        fixed = format(Decimal(representation), "f")
+        return fixed.rstrip("0").rstrip(".") if "." in fixed else fixed
     if "e" not in representation:
         return representation
     mantissa, exponent = representation.split("e", maxsplit=1)

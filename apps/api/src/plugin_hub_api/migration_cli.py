@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from urllib.parse import quote
 
@@ -74,10 +75,12 @@ def _read_migration_status(database_url: str, *, sqlite_busy_timeout_ms: int) ->
         raise FileNotFoundError(f"sqlite_database_not_found:{database_path}")
 
     uri_path = quote(str(database_path), safe="/")
-    with sqlite3.connect(
-        f"file:{uri_path}?mode=ro",
-        uri=True,
-        timeout=sqlite_busy_timeout_ms / 1_000,
+    with closing(
+        sqlite3.connect(
+            f"file:{uri_path}?mode=ro",
+            uri=True,
+            timeout=sqlite_busy_timeout_ms / 1_000,
+        )
     ) as connection:
         connection.execute("PRAGMA query_only=ON")
         table_exists = connection.execute(

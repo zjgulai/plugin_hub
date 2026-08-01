@@ -72,7 +72,7 @@ def main() -> None:
     baseline_snapshot_run_count = _snapshot_run_count(app.state.engine)
 
     snapshot_results: dict[str, dict[str, object]] = {}
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://localhost") as client:
         for platform in ("amazon", "reddit"):
             first = client.post(
                 "/api/insights/snapshots",

@@ -233,12 +233,25 @@ def test_extension_collection_run_accepts_verified_payload_hash(client: TestClie
 
 
 def test_collection_run_rejects_more_than_two_thousand_raw_items(client: TestClient) -> None:
+    raw_items: list[dict[str, object]] = []
+    for index in range(2001):
+        item = _amazon_review_item()
+        source_object_id = f"R{index:010d}"
+        item["source_object_id"] = source_object_id
+        cast(dict[str, object], item["raw_payload"])["review_id"] = source_object_id
+        _refresh_payload_hash(item)
+        raw_items.append(item)
+
     response = client.post(
         "/api/collection-runs",
-        json={"run": _collection_run(), "raw_items": [_amazon_review_item()] * 2001},
+        json={"run": _collection_run(), "raw_items": raw_items},
     )
 
     assert response.status_code == 422
+    assert any(
+        error["type"] == "too_long" and error["loc"] == ["body", "raw_items"]
+        for error in response.json()["detail"]
+    )
 
 
 def test_reddit_comment_maps_thread_parent_and_reply_role(client: TestClient) -> None:
