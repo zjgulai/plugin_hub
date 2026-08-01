@@ -5,4 +5,18 @@ After=docker.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/docker exec plugin-hub-api .venv/bin/python -m plugin_hub_api.backup_cli --source /data/plugin_hub.db --destination-dir /backups --retention-count 14
+TimeoutStartSec=30min
+ExecStart=/usr/bin/docker run --rm \
+  --pull never \
+  --network none \
+  --read-only \
+  --cap-drop ALL \
+  --security-opt no-new-privileges=true \
+  --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m \
+  --mount type=bind,source=/opt/plugin-hub/data,target=/data \
+  --mount type=bind,source=/opt/plugin-hub/backups,target=/backups \
+  plugin-hub-api:latest \
+  .venv/bin/python -m plugin_hub_api.backup_cli \
+  --source /data/plugin_hub.db \
+  --destination-dir /backups \
+  --retention-count 14

@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from plugin_hub_api import backup_cli
 from plugin_hub_api.backup_cli import create_verified_backup, verify_sqlite_backup
 
 
@@ -63,6 +64,122 @@ def test_create_verified_backup_is_consistent_and_prunes_only_after_success(
         path.name.endswith(("-wal", "-shm")) or ".tmp" in path.name
         for path in destination.iterdir()
     )
+
+
+def test_backup_source_connection_allows_sqlite_recovery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "plugin_hub.db"
+    destination = tmp_path / "backups"
+    with sqlite3.connect(source) as connection:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("CREATE TABLE collection_runs (id TEXT PRIMARY KEY)")
+        connection.execute("INSERT INTO collection_runs (id) VALUES ('run-1')")
+
+    connect_targets: list[object] = []
+    real_connect = sqlite3.connect
+
+    def tracked_connect(database: object, *args: object, **kwargs: object) -> sqlite3.Connection:
+        connect_targets.append(database)
+        return real_connect(database, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(backup_cli.sqlite3, "connect", tracked_connect)
+
+    create_verified_backup(
+        source=source,
+        destination_dir=destination,
+        retention_count=2,
+        now=datetime(2026, 8, 1, 3, 15, tzinfo=UTC),
+    )
+
+    assert f"{source.resolve().as_uri()}?mode=rw" in connect_targets
+
+
+def test_backup_recovers_a_hot_rollback_journal_before_copying(tmp_path: Path) -> None:
+    source = tmp_path / "plugin_hub.db"
+    destination = tmp_path / "backups"
+    with sqlite3.connect(source) as connection:
+        connection.execute("PRAGMA journal_mode=DELETE")
+        connection.execute(
+            "CREATE TABLE collection_runs (id INTEGER PRIMARY KEY, payload TEXT NOT NULL)"
+        )
+        connection.execute("INSERT INTO collection_runs VALUES (1, 'committed')")
+
+    crash = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "\n".join(
+                (
+                    "import os, sqlite3, sys",
+                    "connection = sqlite3.connect(sys.argv[1])",
+                    "connection.execute('PRAGMA journal_mode=DELETE')",
+                    "connection.execute('PRAGMA synchronous=FULL')",
+                    "connection.execute('PRAGMA cache_size=1')",
+                    "connection.execute('BEGIN IMMEDIATE')",
+                    "connection.executemany(",
+                    "    'INSERT INTO collection_runs VALUES (?, ?)',",
+                    "    ((row_id, 'x' * 16384) for row_id in range(2, 258)),",
+                    ")",
+                    "os._exit(0)",
+                )
+            ),
+            str(source),
+        ],
+        check=False,
+    )
+
+    assert crash.returncode == 0
+    assert Path(f"{source}-journal").is_file()
+
+    result = create_verified_backup(
+        source=source,
+        destination_dir=destination,
+        retention_count=2,
+        now=datetime(2026, 8, 1, 3, 16, tzinfo=UTC),
+    )
+
+    verification = verify_sqlite_backup(result.backup_path)
+    assert verification.table_counts == {"collection_runs": 1}
+
+
+def test_deployment_runs_backups_outside_the_internet_facing_api() -> None:
+    repository_root = Path(__file__).parents[3]
+    compose = (
+        repository_root / "deploy" / "tencent-lighthouse" / "docker-compose.yml"
+    ).read_text()
+    unit = (
+        repository_root
+        / "deploy"
+        / "tencent-lighthouse"
+        / "systemd"
+        / "plugin-hub-db-backup.service"
+    ).read_text()
+
+    api_service = compose.split("\n  api:\n", maxsplit=1)[1].split(
+        "\n  web:\n", maxsplit=1
+    )[0]
+    backup_service = compose.split("\n  backup:\n", maxsplit=1)[1].split(
+        "\nnetworks:\n", maxsplit=1
+    )[0]
+
+    assert "/opt/plugin-hub/backups:/backups" not in api_service
+    assert "/opt/plugin-hub/backups:/backups" in backup_service
+    assert "network_mode: none" in backup_service
+    assert "read_only: true" in backup_service
+    assert "cap_drop:" in backup_service
+    assert "no-new-privileges:true" in backup_service
+    assert "maintenance" in backup_service
+
+    assert "docker exec plugin-hub-api" not in unit
+    assert "/usr/bin/docker run" in unit
+    assert "--network none" in unit
+    assert "--read-only" in unit
+    assert "--cap-drop ALL" in unit
+    assert "--security-opt no-new-privileges=true" in unit
+    assert "source=/opt/plugin-hub/data,target=/data" in unit
+    assert "source=/opt/plugin-hub/backups,target=/backups" in unit
 
 
 def test_backup_rejects_foreign_key_violations_before_publication(tmp_path: Path) -> None:

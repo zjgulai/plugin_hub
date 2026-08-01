@@ -27,7 +27,6 @@ services:
       PLUGIN_HUB_REDDIT_USER_AGENT: ${PLUGIN_HUB_REDDIT_USER_AGENT:-PluginHubVOC/0.1 server-side capture}
     volumes:
       - /opt/plugin-hub/data:/data
-      - /opt/plugin-hub/backups:/backups
     expose:
       - "8000"
     networks:
@@ -100,6 +99,36 @@ services:
         condition: service_healthy
     networks:
       - plugin-hub-net
+
+  backup:
+    image: plugin-hub-api:latest
+    pull_policy: never
+    profiles:
+      - maintenance
+    restart: "no"
+    command:
+      - .venv/bin/python
+      - -m
+      - plugin_hub_api.backup_cli
+      - --source
+      - /data/plugin_hub.db
+      - --destination-dir
+      - /backups
+      - --retention-count
+      - "14"
+    network_mode: none
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    volumes:
+      # This isolated one-shot gets source write access only so SQLite can
+      # recover a hot journal or WAL index before taking the online backup.
+      - /opt/plugin-hub/data:/data
+      - /opt/plugin-hub/backups:/backups
 
 networks:
   plugin-hub-net:

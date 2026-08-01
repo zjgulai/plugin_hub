@@ -118,8 +118,11 @@ def verify_sqlite_backup(path: Path) -> BackupVerification:
 
 
 def _sqlite_backup(source: Path, destination: Path) -> None:
+    # The source file already exists (resolved with strict=True by the caller).
+    # Open it read-write so SQLite can recover a hot journal or WAL index before
+    # the online backup starts, then block application-issued mutation SQL.
     source_connection = sqlite3.connect(
-        f"{source.as_uri()}?mode=ro",
+        f"{source.as_uri()}?mode=rw",
         uri=True,
         timeout=30,
     )
