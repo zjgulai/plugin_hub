@@ -34,6 +34,10 @@ import {
 } from "../src/lib/api";
 import { apiFetcherWithKey, loadApiAccessKeys } from "../src/lib/api-auth";
 import { loadDashboardConfig, type DashboardConfig } from "../src/lib/config";
+import {
+  getIntegrityIssueCount,
+  getIntegrityMetricDisplay
+} from "../src/lib/dashboard-metrics";
 
 export const dynamic = "force-dynamic";
 
@@ -77,7 +81,7 @@ type DashboardMetrics = {
   pendingTasks: number;
   latestCapturedAt: string | null;
   placeholderCount: number;
-  integrityIssueCount: number;
+  integrityIssueCount: number | null;
 };
 
 type RedditCaptureStatus = {
@@ -108,6 +112,7 @@ export default async function Page({ searchParams }: PageProps) {
     config.lowConfidenceThreshold,
     data.assetSummary
   );
+  const integrityMetric = getIntegrityMetricDisplay(metrics.integrityIssueCount);
   const analysisUnits = data.units.filter(isAnalysisEligibleUnit);
   const apiState = getApiState(data);
   const resolvedSearchParams = await resolveSearchParams(searchParams);
@@ -149,9 +154,9 @@ export default async function Page({ searchParams }: PageProps) {
         />
         <MetricTile
           label="资产一致性"
-          value={metrics.integrityIssueCount}
+          value={integrityMetric.value}
           detail="批次差异 / 孤儿记录"
-          tone={metrics.integrityIssueCount > 0 ? "risk" : "clear"}
+          tone={integrityMetric.tone}
         />
         <MetricTile
           label="待补采任务"
@@ -849,11 +854,7 @@ function getMetrics(
     latestCapturedAt,
     placeholderCount: assetSummary?.placeholder_voc_count ??
       units.filter((unit) => unit.quality_flags.includes("reddit_more_node")).length,
-    integrityIssueCount: assetSummary
-      ? assetSummary.runs_with_count_mismatch +
-        assetSummary.orphan_raw_count +
-        assetSummary.orphan_voc_count
-      : 0
+    integrityIssueCount: getIntegrityIssueCount(assetSummary)
   };
 }
 
