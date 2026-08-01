@@ -421,14 +421,46 @@ def test_offhost_verification_hashes_database_without_path_read_bytes(
             }
         )
     )
-    verify_backup = runpy.run_path(str(validator))["verify_backup"]
+    validator_namespace = runpy.run_path(str(validator))
+    verify_backup = validator_namespace["verify_backup"]
+    hash_chunk_size = validator_namespace["HASH_CHUNK_SIZE"]
+    original_open = Path.open
+    database_read_sizes: list[int] = []
+
+    class GuardedDatabaseReader:
+        def __init__(self, file_handle):
+            self.file_handle = file_handle
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return self.file_handle.__exit__(*args)
+
+        def read(self, size: int = -1) -> bytes:
+            database_read_sizes.append(size)
+            assert 0 < size <= hash_chunk_size, (
+                f"backup hashing requested an unbounded chunk: {size}"
+            )
+            return self.file_handle.read(size)
 
     def reject_read_bytes(_path: Path) -> bytes:
         raise AssertionError("backup hashing must stream bounded chunks")
 
+    def guard_database_open(path: Path, *args, **kwargs):
+        file_handle = original_open(path, *args, **kwargs)
+        mode = args[0] if args else kwargs.get("mode", "r")
+        if path == database and mode == "rb":
+            return GuardedDatabaseReader(file_handle)
+        return file_handle
+
     monkeypatch.setattr(Path, "read_bytes", reject_read_bytes)
+    monkeypatch.setattr(Path, "open", guard_database_open)
 
     verify_backup(database, manifest, "restore")
+
+    assert database_read_sizes
+    assert all(0 < size <= hash_chunk_size for size in database_read_sizes)
 
 
 @pytest.mark.parametrize(
