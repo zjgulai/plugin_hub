@@ -3,9 +3,9 @@ title: Plugin Hub Loop 41 Source Baseline Reconciliation Plan
 doc_type: execution_plan
 module: product_engineering
 topic: plugin-hub-source-baseline-and-release-reconciliation
-status: active
+status: completed
 created: 2026-07-10
-updated: 2026-07-10
+updated: 2026-08-01
 owner: self
 source: human+ai
 ---
@@ -97,11 +97,14 @@ source: human+ai
 
 精确边界清单见 `plugin-hub-loop41-source-baseline-file-manifest-20260710.tsv`。
 
-## 7. 最终状态
+## 7. 2026-07-10 收口状态（历史快照）
 
-- Draft PR：`https://github.com/zjgulai/plugin_hub/pull/3`；
-- PR 状态：Open、Draft、Mergeable；
-- GitHub 当前未返回 status checks；
+> 本节只记录 Loop 41 收口时点，不代表 PR 当前状态。后续状态以 PR
+> live checks 和 Loop 42 验收记录为准。
+
+- 当时的 Draft PR：`https://github.com/zjgulai/plugin_hub/pull/3`；
+- 当时的 PR 状态：Open、Draft、Mergeable；
+- GitHub 当时未返回 status checks；
 - 67 个 include 文件与 branch diff 完全一致；
 - 剩余工作区仅包含 manifest 明确排除的本地计划、历史证据、旧草稿和浏览器诊断；
 - `production unchanged`，merge 和再次部署仍需单独授权。

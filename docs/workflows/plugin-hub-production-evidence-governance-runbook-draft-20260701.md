@@ -5,7 +5,7 @@ module: product_engineering
 topic: plugin-hub-production-evidence-governance
 status: draft
 created: 2026-07-01
-updated: 2026-07-10
+updated: 2026-08-01
 owner: self
 source: codex
 ---
@@ -23,13 +23,24 @@ Before making any current durability or security claim, read:
 ```text
 docs/workflows/plugin-hub-loop38-data-asset-adversarial-audit-draft-20260710.md
 docs/workflows/plugin-hub-loop39-production-hardening-acceptance-20260710.md
+docs/workflows/plugin-hub-loop40-offhost-backup-insight-snapshot-acceptance-20260710.md
 ```
 
-Current boundary:
+Loop 39 historical boundary, superseded by the separately authorized Loop 40
+state recorded in Section 11:
 
 ```text
 production hardening deployed / verified backup and restore active
 no migration / no provider call / no live capture / no Web Store submission
+```
+
+Latest recorded authorized state (historical Loop 40 acceptance, not a fresh
+production observation):
+
+```text
+production hardening deployed / encrypted off-host backup accepted
+explicit 0001_analysis_snapshots migration applied / post-migration baselines recorded
+no historical backfill / no provider call / no live capture / no Web Store submission
 ```
 
 ## 1. Purpose
@@ -65,7 +76,7 @@ output/production-readonly/20260701T024920Z/
 | Check | URL | Status | Evidence | Interpretation |
 | --- | --- | --- | --- | --- |
 | Web shell | `https://plugin.lute-tlz-dddd.top/` | 200 | `root.body`, `root.headers` | Production web entry is reachable. |
-| Capture capability | `/api/capture-capabilities` | 200 | `capture-capabilities.body` | Production exposes capability inventory, but current production response does not include Loop 3 evidence-label fields. |
+| Capture capability | `/api/capture-capabilities` | 200 | `capture-capabilities.body` | The sampled 2026-07-01 production response exposed capability inventory without Loop 3 evidence-label fields. |
 | Amazon VOC units | `/api/voc-units?platform=amazon` | 200 | `voc-units-amazon.body` | Production read-only Amazon VOC data is observable; 10 returned items in this sampled response. |
 | Reddit VOC units | `/api/voc-units?platform=reddit` | 200 | `voc-units-reddit.body` | Production read-only Reddit VOC data is observable; 340 returned items in this sampled response. |
 | Amazon strategy notes | `/api/insights/strategy-notes?platform=amazon` | 200 | `strategy-notes-amazon.body` | Production returns 4 deterministic strategy-note groups. |
@@ -89,7 +100,7 @@ Blocked after this smoke:
 
 - Do not claim the local Loop 2 `voc-signals` endpoint is deployed to production; the public route returned 404.
 - Do not claim production capability responses already carry Loop 3 `evidence_grade`, `next_required_action`, or `side_effect_boundary`; the public response lacked these fields.
-- Do not claim authorized Instagram Graph live-read readiness; production still reports the Graph path as credential-gated.
+- Do not infer authorized Instagram Graph live-read readiness; the sampled 2026-07-01 response reported the Graph path as credential-gated.
 - Do not claim production database migration, schema upgrade, or backfill was executed.
 
 ## 5. Repeatable Read-Only Smoke Checklist
@@ -125,15 +136,20 @@ Minimum routes:
 
 Do not treat untracked output artifacts as release state by themselves. A release or deployment claim still needs a deploy record, version reference, and fresh production read-only evidence.
 
-## 7. Database Upgrade Boundary
+## 7. Historical Pre-Loop40 Database Upgrade Boundary
 
-Current facts:
+This section preserves the database boundary used before Loop 40. Loop 40 later
+introduced the explicit `0001_analysis_snapshots` migration runner described in
+Section 11. The facts and gates below remain the historical approval contract;
+they are not the current schema-status statement.
+
+Facts recorded before Loop 40:
 
 - Local API defaults to `sqlite+pysqlite:///./plugin_hub.db`.
 - Production compose sets the API and worker database URL to `sqlite+pysqlite:////data/plugin_hub.db`.
 - Production compose mounts `/opt/plugin-hub/data` into `/data`.
 - API startup calls SQLAlchemy `Base.metadata.create_all(bind=engine)`.
-- No Alembic or equivalent migration framework is currently configured.
+- No Alembic or equivalent migration framework was configured at that point.
 
 Implications:
 
@@ -151,7 +167,10 @@ Required gates before a production database change:
 6. Post-change read-only verification recorded in a new evidence directory.
 7. Rollback path recorded with the same approval boundary.
 
-## 8. Next Value Step
+## 8. Historical Next Value Step After The 2026-07-01 Smoke
+
+This list records the next step proposed after the July 1 read-only smoke. Later
+Loop 39 and Loop 40 acceptances supersede it where their dated evidence applies.
 
 To raise the evidence grade for Loop 2 and Loop 3 work:
 
@@ -161,17 +180,18 @@ To raise the evidence grade for Loop 2 and Loop 3 work:
 4. Confirm `/api/capture-capabilities` includes evidence-label fields in production.
 5. Keep Instagram Graph live-read blocked until platform rights, backend-only credential configuration, and explicit live-read approval are present.
 
-## 9. 2026-07-10 Data Asset Hardening Addendum
+## 9. 2026-07-10 Loop 38-39 Historical Hardening Addendum
 
 Before any future durability or security claim, read the Loop 38 adversarial
-audit first. The local candidate now provides API authentication, SQLite
+audit first. The Loop 38 local candidate provided API authentication, SQLite
 FK/WAL/busy-timeout parity for API and worker, idempotent extension ingestion,
 payload-hash verification, bounded reads, run-level asset history, verified
 online backups, and SSRF target validation.
 
-The following list was the Loop 38 deployment gate. Loop 39 received separate
-authorization and completed items 1-6; item 7 remains partially open because
-the timer is active but no off-host retention lane exists:
+The following list was the Loop 38 deployment gate. At the Loop 39 acceptance
+point, separate authorization had completed items 1-6; item 7 remained partially
+open because the timer was active but no off-host retention lane existed. Loop
+40 later closed that remaining action as recorded in Section 11:
 
 1. create independent API read/write keys and dashboard Basic Auth without printing values;
 2. set `/opt/plugin-hub/data` and `/opt/plugin-hub/backups` to service-owned `0700`;
@@ -181,12 +201,14 @@ the timer is active but no off-host retention lane exists:
 6. prove anonymous dashboard/API access is denied before enabling plugin writes;
 7. install and observe the backup timer, then create an off-host retention lane.
 
-Derived insight history is still blocked on an append-only snapshot migration.
-Current read-time output cannot be represented as historical persistence.
+At the Loop 39 acceptance point, derived insight history remained blocked on an
+append-only snapshot migration. Loop 40 later introduced the explicit migration
+and post-migration baseline snapshots described in Section 11. Pre-migration
+read-time output still cannot be represented as historical persistence.
 
-## 10. 2026-07-10 Authorized Hardening State
+## 10. 2026-07-10 Loop 39 Authorized Hardening State
 
-Current production evidence:
+Production evidence recorded at the Loop 39 acceptance point:
 
 - dashboard and API anonymous access return 401; Basic Auth/read-key access return 200;
 - all 19 API operations are protected and Nginx rate limiting is active;
@@ -202,6 +224,11 @@ historical public GET-only checklist without explicitly labeling the expected
 401 response.
 
 ## 11. 2026-07-10 Off-Host And Insight Snapshot State
+
+This is the latest accepted production state recorded in this runbook. It is
+historical L4 evidence, not a fresh observation of current production. Any new
+claim about current production requires a fresh L3 read-only check or a newly
+authorized L4 action, depending on the claim.
 
 Loop 40 received separate authorization and completed both remaining data-asset
 actions from Loop 39:
@@ -223,7 +250,7 @@ actions from Loop 39:
 The Mac target is a second host, not a cross-region/object-storage guarantee.
 The LaunchAgent also depends on the user session, SSH alias, and Keychain being
 available. A later durability step should add monitored object storage without
-removing the currently verified local encrypted copy.
+removing the verified local encrypted copy recorded by Loop 40.
 
 No snapshot row represents output from before its recorded `created_at`.
 Historical pre-migration insight output remains unknown and must never be
