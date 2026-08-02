@@ -743,6 +743,82 @@ def test_offhost_retention_counts_only_verified_archives(tmp_path: Path) -> None
     assert middle not in result.stdout
 
 
+def test_offhost_metadata_hashes_archive_in_bounded_chunks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script = Path(__file__).parents[3] / "scripts" / "pull-offhost-backup.zsh"
+    script_text = script.read_text()
+    verification_code = script_text.split("<<'PY_METADATA'\n", maxsplit=1)[1].split(
+        "\nPY_METADATA", maxsplit=1
+    )[0]
+    hash_chunk_size = 1024 * 1024
+    archive = tmp_path / "plugin_hub_20260728T000000Z.tar.age"
+    archive.write_bytes(b"x" * (hash_chunk_size + 17))
+    metadata = tmp_path / "plugin_hub_20260728T000000Z.offhost.json"
+    metadata.write_text(
+        json.dumps(
+            {
+                "archive_file": archive.name,
+                "encrypted_bytes": archive.stat().st_size,
+                "encrypted_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+                "fetched_at": "2026-07-28T00:00:00Z",
+                "remote_host": "backup-host",
+                "source_backup_file": "plugin_hub_20260728T000000Z.db",
+                "verification": "decrypt_manifest_hash_quick_check_counts_fk",
+            }
+        )
+    )
+    original_open = Path.open
+    archive_read_sizes: list[int] = []
+
+    class GuardedArchiveReader:
+        def __init__(self, file_handle):
+            self.file_handle = file_handle
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return self.file_handle.__exit__(*args)
+
+        def read(self, size: int = -1) -> bytes:
+            archive_read_sizes.append(size)
+            assert 0 < size <= hash_chunk_size, (
+                f"archive hashing requested an unbounded chunk: {size}"
+            )
+            return self.file_handle.read(size)
+
+    def reject_read_bytes(_path: Path) -> bytes:
+        raise AssertionError("archive hashing must stream bounded chunks")
+
+    def guard_archive_open(path: Path, *args, **kwargs):
+        file_handle = original_open(path, *args, **kwargs)
+        mode = args[0] if args else kwargs.get("mode", "r")
+        if path == archive and mode == "rb":
+            return GuardedArchiveReader(file_handle)
+        return file_handle
+
+    monkeypatch.setattr(Path, "read_bytes", reject_read_bytes)
+    monkeypatch.setattr(Path, "open", guard_archive_open)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "-",
+            str(archive),
+            str(metadata),
+            archive.name,
+            "plugin_hub_20260728T000000Z.db",
+            "backup-host",
+        ],
+    )
+
+    exec(compile(verification_code, str(script), "exec"), {})
+
+    assert archive_read_sizes
+    assert all(0 < size <= hash_chunk_size for size in archive_read_sizes)
+
+
 def test_offhost_metadata_verification_rejects_mismatched_sidecar(tmp_path: Path) -> None:
     script = Path(__file__).parents[3] / "scripts" / "pull-offhost-backup.zsh"
     script_text = script.read_text()

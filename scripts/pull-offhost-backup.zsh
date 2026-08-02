@@ -146,6 +146,16 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+HASH_CHUNK_SIZE = 1024 * 1024
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file_handle:
+        for chunk in iter(lambda: file_handle.read(HASH_CHUNK_SIZE), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
 
 def require(condition: bool, code: str) -> None:
     if not condition:
@@ -183,7 +193,7 @@ require(
     "metadata_encrypted_sha256_invalid",
 )
 require(
-    hashlib.sha256(archive_path.read_bytes()).hexdigest() == encrypted_sha256,
+    sha256_file(archive_path) == encrypted_sha256,
     "metadata_encrypted_sha256_mismatch",
 )
 fetched_at = payload["fetched_at"]
