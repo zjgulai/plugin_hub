@@ -95,6 +95,47 @@ describe("fetchVocUnits", () => {
     );
   });
 
+  it("bounds dashboard evidence to the latest 100 VOC units", async () => {
+    const items = Array.from({ length: 100 }, (_, index) => ({
+      source_object_id: `R${index + 1}`,
+      platform: "amazon",
+      source_kind: "amazon_review",
+      source_url: `https://www.amazon.com/review/R${index + 1}`,
+      captured_at: "2026-07-28T00:00:00.000Z",
+      body: "Evidence",
+      quality_flags: [],
+      coverage_confidence: 0.88,
+      platform_extension: {}
+    }));
+    const fetcher = vi.fn(async () => {
+      if (fetcher.mock.calls.length > 1) {
+        throw new Error("dashboard_voc_limit_exceeded");
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          items,
+          total: 101,
+          limit: 100,
+          offset: 0,
+          snapshot_max_id: 101
+        })
+      };
+    });
+
+    const result = await fetchVocUnits("http://localhost:8000", "all", fetcher, {
+      maxItems: 100
+    });
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8000/api/voc-units?limit=100&offset=0"
+    );
+    expect(result.items).toHaveLength(100);
+    expect(result.total).toBe(101);
+  });
+
   it("removes multiple trailing slashes from the base URL", async () => {
     const fetcher = vi.fn().mockResolvedValue({
       ok: true,

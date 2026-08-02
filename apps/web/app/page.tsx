@@ -40,6 +40,7 @@ import {
 } from "../src/lib/dashboard-metrics";
 
 export const dynamic = "force-dynamic";
+const DASHBOARD_RECENT_VOC_LIMIT = 100;
 
 type PageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -320,7 +321,9 @@ async function loadDashboardData(
     insightResult,
     strategyResult
   ] = await Promise.allSettled([
-    fetchVocUnits(apiBaseUrl, "all", fetcher),
+    fetchVocUnits(apiBaseUrl, "all", fetcher, {
+      maxItems: DASHBOARD_RECENT_VOC_LIMIT
+    }),
     fetchDataAssetSummary(apiBaseUrl, config.lowConfidenceThreshold, fetcher),
     fetchDataAssetRuns(apiBaseUrl, fetcher),
     fetchCollectionTasks(apiBaseUrl, "all", fetcher),

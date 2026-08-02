@@ -326,17 +326,31 @@ type FetchResponse = {
 
 export type ApiFetcher = (url: string, init?: RequestInit) => Promise<FetchResponse>;
 export type VocUnitsFetcher = ApiFetcher;
+export type VocUnitsFetchOptions = {
+  maxItems?: number;
+};
 
 export async function fetchVocUnits(
   apiBaseUrl: string,
   platform: VocPlatformFilter,
-  fetcher: VocUnitsFetcher = async (url) => fetch(url)
+  fetcher: VocUnitsFetcher = async (url) => fetch(url),
+  options: VocUnitsFetchOptions = {}
 ): Promise<VocUnitsResponse> {
-  const pageSize = 500;
+  const maxItems = options.maxItems;
+  if (maxItems !== undefined && (!Number.isSafeInteger(maxItems) || maxItems < 1)) {
+    throw new Error("voc_units_invalid_options:max_items_positive_integer_required");
+  }
+  const pageSize = Math.min(maxItems ?? 500, 500);
   const firstPage = await fetchVocUnitsPage(apiBaseUrl, platform, pageSize, 0, fetcher);
   const total = firstPage.total;
-  if (total === undefined || firstPage.items.length >= total) {
-    return firstPage;
+  if (total === undefined) {
+    return maxItems === undefined
+      ? firstPage
+      : { ...firstPage, items: firstPage.items.slice(0, maxItems) };
+  }
+  const targetItemCount = Math.min(total, maxItems ?? total);
+  if (firstPage.items.length >= targetItemCount) {
+    return { ...firstPage, items: firstPage.items.slice(0, targetItemCount) };
   }
   const snapshotMaxId = firstPage.snapshot_max_id;
   if (snapshotMaxId === undefined || snapshotMaxId === null) {
@@ -346,7 +360,7 @@ export async function fetchVocUnits(
   const items = [...firstPage.items];
   const itemKeys = new Set(items.map(vocUnitIdentity));
   let offset = (firstPage.offset ?? 0) + firstPage.items.length;
-  while (items.length < total) {
+  while (items.length < targetItemCount) {
     const page = await fetchVocUnitsPage(
       apiBaseUrl,
       platform,
@@ -363,7 +377,7 @@ export async function fetchVocUnits(
     }
     for (const item of page.items) {
       const itemKey = vocUnitIdentity(item);
-      if (!itemKeys.has(itemKey)) {
+      if (!itemKeys.has(itemKey) && items.length < targetItemCount) {
         itemKeys.add(itemKey);
         items.push(item);
       }
