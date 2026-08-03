@@ -233,6 +233,69 @@ def test_analysis_count_and_units_share_one_sqlite_read_snapshot(tmp_path: Path)
     engine.dispose()
 
 
+def test_bounded_analysis_units_releases_non_wal_read_snapshot_before_analysis(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "plugin_hub.db"
+    engine = build_engine(
+        f"sqlite+pysqlite:///{database_path}",
+        sqlite_busy_timeout_ms=250,
+        sqlite_wal_enabled=False,
+    )
+    init_database(engine)
+    session_factory = make_session_factory(engine)
+    with engine.begin() as connection:
+        _insert_collection_run(connection, "run-reader")
+        _insert_collection_run(connection, "run-writer")
+        _insert_voc_unit(connection, "run-reader", "reader-evidence", quality_flags="[]")
+
+    with session_factory() as reader_session:
+        units, source_unit_count = bounded_analysis_units(
+            SqlAlchemyRepository(reader_session),
+            Platform.AMAZON,
+        )
+
+        assert reader_session.in_transaction() is False
+        with engine.begin() as writer_connection:
+            _insert_voc_unit(
+                writer_connection,
+                "run-writer",
+                "writer-evidence",
+                quality_flags="[]",
+            )
+
+    assert source_unit_count == 1
+    assert [unit.source_object_id for unit in units] == ["reader-evidence"]
+    engine.dispose()
+
+
+def test_bounded_analysis_units_ends_read_snapshot_after_error(tmp_path: Path) -> None:
+    database_path = tmp_path / "plugin_hub.db"
+    engine = build_engine(f"sqlite+pysqlite:///{database_path}")
+    init_database(engine)
+    session_factory = make_session_factory(engine)
+
+    class FailingInsightRepository(SqlAlchemyRepository):
+        def count_voc_units(
+            self,
+            *,
+            platform: Platform | None = None,
+            snapshot_max_id: int | None = None,
+            exclude_quality_flag: str | None = None,
+        ) -> int:
+            raise RuntimeError("insight_count_probe_failed")
+
+    with session_factory() as session:
+        repository = FailingInsightRepository(session)
+
+        with pytest.raises(RuntimeError, match="insight_count_probe_failed"):
+            bounded_analysis_units(repository, Platform.AMAZON)
+
+        assert not session.in_transaction()
+
+    engine.dispose()
+
+
 def test_snapshot_history_items_and_total_share_one_sqlite_read_snapshot(
     tmp_path: Path,
 ) -> None:

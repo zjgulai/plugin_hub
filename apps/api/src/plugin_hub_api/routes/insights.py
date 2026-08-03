@@ -168,7 +168,6 @@ def create_analysis_snapshot(
             source_unit_limit=INSIGHT_SOURCE_UNIT_LIMIT,
             truncated=total > INSIGHT_SOURCE_UNIT_LIMIT,
         )
-        repository.end_read_snapshot()
         replayed = snapshot_repository.save_snapshot(
             run=build.run,
             artifacts=build.artifacts,
@@ -222,14 +221,17 @@ def bounded_analysis_units(
     platform: Platform | None,
 ) -> tuple[list[CanonicalVocUnit], int]:
     repository.begin_read_snapshot()
-    total = repository.count_voc_units(
-        platform=platform,
-        exclude_quality_flag="reddit_more_node",
-    )
-    newest_units = repository.list_voc_units(
-        platform=platform,
-        limit=INSIGHT_SOURCE_UNIT_LIMIT,
-        newest_first=True,
-        exclude_quality_flag="reddit_more_node",
-    )
+    try:
+        total = repository.count_voc_units(
+            platform=platform,
+            exclude_quality_flag="reddit_more_node",
+        )
+        newest_units = repository.list_voc_units(
+            platform=platform,
+            limit=INSIGHT_SOURCE_UNIT_LIMIT,
+            newest_first=True,
+            exclude_quality_flag="reddit_more_node",
+        )
+    finally:
+        repository.end_read_snapshot()
     return list(reversed(newest_units)), total
