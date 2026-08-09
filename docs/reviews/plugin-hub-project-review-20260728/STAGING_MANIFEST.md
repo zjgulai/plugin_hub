@@ -1,6 +1,6 @@
-# Plugin Hub 2026-07-28 精确暂存与合并清单
+# Plugin Hub 2026-07-28 精确暂存与 2026-08-09 合并后对账清单
 
-状态：Commit A（`3ba8e9c`）、Commit B（`b616235`）、Graphify 边界纠偏（`7b1c659`）、Commit C（`c8a7b93`）、Commit D（`513dbc1`）与 Commit E（本文件所在提交）已在本地分支完成。T00-07 关闭了上一轮 `REQUEST CHANGES` 的 1 HIGH + 1 MEDIUM，并完成 377 项本地回归；末次 Codex Review helper 超时终止，人工复核未发现新增 actionable finding，因此审查等级记录为 `COMMENT`，不虚称 helper clean。暂存区在两个提交后已清空；未执行 push、PR Ready、merge 或 deploy。
+状态：Commit A-E 及后续修复已形成精确 feature head `9b29af0242a2dec872e5000822bf257821326335`。PR #3 的精确 head CI run `30785038279` 三个 job 均为 success，PR 的 CodeRabbit check 亦为 success；PR 经独立 Ready 与 merge 授权后，以 merge commit `ff6d55b27b6021530e295e7c5bc4286df603e1bb` 合入 `main`。merge tree 与 feature tree 相同，main push CI run `31304748784` 三个 job 全部 success；源分支按 owner 要求保留。未执行 deploy、生产数据库操作、migration、backup、Store、provider 或 live capture。
 
 ## Commit A — data asset durability and local product fixes
 
@@ -118,6 +118,17 @@ docs/workflows/workflow-split-extension-browser-e2e-runbook-review.md
 
 本提交只更新当前设计、手册和复审证据；Graphify 图谱仍是 Commit C 的架构基线，不把它描述为包含 T00-07 增量的 fresh graph。
 
+## Commit F — reconcile post-merge evidence and remaining plan（本地文档提交）
+
+建议提交信息：`docs(review): reconcile post-merge evidence and remaining plan`
+
+```text
+docs/reviews/plugin-hub-project-review-20260728/STAGING_MANIFEST.md
+docs/reviews/plugin-hub-project-review-20260728/index.html
+```
+
+本提交只对账 PR #3 的精确 source head、Ready/merge、main CI 与剩余独立门禁。`.kiro/plan/*` 只作为 owner 本地连续性记录更新，不进入 Commit F；未跟踪 Graphify 本地状态、旧草稿、输出和 browser harness 继续排除。
+
 ## 明确排除
 
 不得使用 `git add .`、`git add -A` 或目录级广泛暂存。以下现有本地资产全部排除：
@@ -146,7 +157,10 @@ docs/reviews/plugin-hub-project-review-20260728/graphify/graphify-out/2026-07-28
 4. `[已完成]` T00-07 修复可信 API origin/sender、Popup key readiness 和 closed Shadow DOM 纵深防御；新增 sender/target/key race 回归，三包统一为 `0.2.2`。
 5. `[已完成]` 完整 377 项本地门禁、lint/typecheck/build/package/verify 通过；末次独立审查 helper exit 143，人工复核无新增 actionable finding，按 `COMMENT` 留痕。
 6. `[已完成]` Owner 逐文件授权 Commit D/E；两次暂存均与清单精确一致，未使用广泛暂存，未动其他本地资产。
-7. `[待下一门禁]` 只读刷新 PR #3 head/base/mergeability 后，精确 push 当前分支；push 属外部写，需新的明确授权。
-8. 等待新的 API、Web and Extension、Deployment Config CI；2026-07-10 的历史 green 不可复用为 fresh gate。
-9. Reviewer/owner 接受范围后才把 Draft 转 Ready；Ready 不等于 merge 授权。
-10. Merge 前再做 head guard、base `main`、review、fresh CI 和 mergeability 检查；merge、deploy、生产 migration、Store 分别审批。
+7. `[已完成]` 精确 push feature head `9b29af0`；PR run `30785038279` 的 API、Web and Extension、Deployment Config 均为 success，CodeRabbit check 亦为 success。
+8. `[已完成]` Reviewer/owner 接受延后项后把 PR #3 从 Draft 转 Ready；Ready 未被当作 merge 授权。
+9. `[已完成]` Owner 授权精确头 `9b29af0` 使用 merge commit 合并、不删分支、不部署；结果为 `ff6d55b`。
+10. `[已完成]` 合并后只读核验 parents、tree identity、PR MERGED、remote refs 与 main run `31304748784` 三 job success。
+11. `[本门禁完成]` 从 `ff6d55b` 建隔离分支，更新 HTML/manifest 与 owner 本地 `.kiro` 状态，执行文档和测试校验并创建 Commit F；不 push 或建 PR。
+12. `[待下一门禁]` 精确 push Commit F 所在分支并创建 docs-only Draft PR，等待 fresh CI 后停止；不 merge。
+13. `[保持分离]` docs PR merge、deploy、生产只读 freshness、生产 migration、Store、branch cleanup 均需新的明确授权和各自 evidence packet。
