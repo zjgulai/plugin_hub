@@ -5,6 +5,7 @@ import argparse
 import json
 import sqlite3
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from fastapi.testclient import TestClient
 from sqlalchemy import text
@@ -12,9 +13,12 @@ from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import DatabaseError
 
 from plugin_hub_api.config import Settings
+from plugin_hub_api.db import build_engine
 from plugin_hub_api.main import create_app
 from plugin_hub_api.migrations import (
     ANALYSIS_SNAPSHOT_INSERT_GUARDS_MIGRATION_VERSION,
+    CORE_EVIDENCE_BASELINE_MIGRATION_VERSION,
+    CORE_EVIDENCE_IMMUTABILITY_MIGRATION_VERSION,
     MigrationRollbackBlocked,
     applied_migration_versions,
     apply_pending_migrations,
@@ -143,11 +147,16 @@ def main() -> None:
         "analysis_snapshot_artifact_replace_guard_not_enforced",
     )
 
-    rollback_blocked = False
+    core_rollback_blocked_reason: str | None = None
     try:
         rollback_latest_migration(app.state.engine)
     except MigrationRollbackBlocked as error:
-        rollback_blocked = str(error) == "analysis_snapshot_rows_exist"
+        core_rollback_blocked_reason = str(error)
+    core_rollback_blocked = core_rollback_blocked_reason == "core_evidence_rows_exist"
+    require(core_rollback_blocked, "core_evidence_rollback_not_blocked")
+
+    rollback_blocked_reason = _snapshot_rollback_blocked_reason(database_path)
+    rollback_blocked = rollback_blocked_reason == "analysis_snapshot_rows_exist"
     require(rollback_blocked, "analysis_snapshot_rollback_not_blocked")
 
     after_counts = _table_counts(database_path)
@@ -175,11 +184,14 @@ def main() -> None:
                 "core_counts_after": after_counts,
                 "core_counts_before": before_counts,
                 "core_counts_unchanged": True,
+                "core_rollback_blocked_after_evidence": core_rollback_blocked,
+                "core_rollback_blocked_reason": core_rollback_blocked_reason,
                 "foreign_key_issues": foreign_key_issues,
                 "insert_guard_triggers": sorted(insert_guard_triggers),
                 "migration_checksum_verified": migration_checksum_verified,
                 "quick_check": quick_check,
                 "rollback_blocked_after_snapshot": rollback_blocked,
+                "rollback_blocked_reason": rollback_blocked_reason,
                 "run_replace_guard_enforced": run_replace_guard_enforced,
                 "snapshot_run_count": snapshot_run_count,
                 "snapshot_runs": snapshot_results,
@@ -301,6 +313,40 @@ def _statement_rejected(
     finally:
         transaction.rollback()
     return False
+
+
+def _snapshot_rollback_blocked_reason(database_path: Path) -> str | None:
+    with TemporaryDirectory(prefix="plugin-hub-snapshot-rollback-") as directory:
+        probe_path = Path(directory) / "rollback-probe.db"
+        source = sqlite3.connect(f"{database_path.as_uri()}?mode=ro", uri=True)
+        destination = sqlite3.connect(probe_path)
+        try:
+            source.backup(destination)
+        finally:
+            destination.close()
+            source.close()
+
+        connection = sqlite3.connect(probe_path)
+        try:
+            connection.executemany(
+                "DELETE FROM schema_migrations WHERE version = ?",
+                [
+                    (CORE_EVIDENCE_IMMUTABILITY_MIGRATION_VERSION,),
+                    (CORE_EVIDENCE_BASELINE_MIGRATION_VERSION,),
+                ],
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        engine = build_engine(f"sqlite+pysqlite:///{probe_path}")
+        try:
+            rollback_latest_migration(engine)
+        except MigrationRollbackBlocked as error:
+            return str(error)
+        finally:
+            engine.dispose()
+    return None
 
 
 def _table_counts(database_path: Path) -> dict[str, int]:

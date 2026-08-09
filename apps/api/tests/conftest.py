@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from plugin_hub_api.config import Settings
 from plugin_hub_api.main import create_app
+from plugin_hub_api.migrations import apply_pending_migrations
 
 
 @pytest.fixture
@@ -15,7 +16,7 @@ def client() -> Generator[TestClient]:
         sqlite_wal_enabled=False,
         trusted_hosts=["testserver"],
     )
-    with TestClient(
-        create_app(database_url="sqlite+pysqlite:///:memory:", settings=settings)
-    ) as test_client:
+    app = create_app(database_url="sqlite+pysqlite:///:memory:", settings=settings)
+    apply_pending_migrations(app.state.engine)
+    with TestClient(app) as test_client:
         yield test_client

@@ -14,8 +14,10 @@ from plugin_hub_api.db import build_engine
 from plugin_hub_api.migrations import (
     applied_migration_versions,
     apply_pending_migrations,
+    migration_contract_versions,
     migration_versions_from_applied_checksums,
     rollback_latest_migration,
+    validate_sqlite_applied_migration_contracts,
 )
 
 
@@ -91,8 +93,10 @@ def _read_migration_status(database_url: str, *, sqlite_busy_timeout_ms: int) ->
         rows = connection.execute(
             "SELECT version, checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-    applied = {str(version): str(checksum) for version, checksum in rows}
-    return migration_versions_from_applied_checksums(applied)
+        applied = {str(version): str(checksum) for version, checksum in rows}
+        versions = migration_versions_from_applied_checksums(applied)
+        validate_sqlite_applied_migration_contracts(connection, versions)
+        return versions
 
 
 def _print_status(*, action: str, applied_versions: list[str], changed: list[str]) -> None:
@@ -102,6 +106,7 @@ def _print_status(*, action: str, applied_versions: list[str], changed: list[str
                 "action": action,
                 "applied_versions": applied_versions,
                 "changed_versions": changed,
+                "verified_contract_versions": migration_contract_versions(applied_versions),
                 "status": "ok",
             },
             sort_keys=True,

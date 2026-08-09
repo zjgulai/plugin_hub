@@ -8,9 +8,11 @@ from threading import Barrier
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.engine import Engine
 
 from plugin_hub_api.config import Settings
 from plugin_hub_api.db import build_engine, init_database, make_session_factory
+from plugin_hub_api.migrations import apply_pending_migrations
 from plugin_hub_api.repositories import CollectionTaskClaimLostError, SqlAlchemyRepository
 from plugin_hub_api.routes.collection_tasks import (
     list_collection_tasks as list_collection_tasks_route,
@@ -26,10 +28,15 @@ from plugin_hub_api.services.collection_runs import map_raw_item_to_voc
 from plugin_hub_api.worker_cli import build_worker_engine
 
 
+def _init_migrated_database(engine: Engine) -> None:
+    init_database(engine)
+    apply_pending_migrations(engine)
+
+
 def test_sqlite_file_connections_enforce_foreign_keys_and_busy_timeout(tmp_path: Path) -> None:
     database_path = tmp_path / "durability.db"
     engine = build_engine(f"sqlite+pysqlite:///{database_path}")
-    init_database(engine)
+    _init_migrated_database(engine)
 
     with engine.connect() as connection:
         foreign_keys = connection.execute(text("PRAGMA foreign_keys")).scalar_one()
@@ -48,7 +55,7 @@ def test_sqlite_wal_serializes_concurrent_atomic_collection_writes(tmp_path: Pat
         sqlite_busy_timeout_ms=10_000,
         sqlite_wal_enabled=True,
     )
-    init_database(engine)
+    _init_migrated_database(engine)
     session_factory = make_session_factory(engine)
     writer_count = 8
     start_barrier = Barrier(writer_count)
@@ -148,7 +155,7 @@ def test_sqlite_collection_task_claim_is_atomic_across_workers(tmp_path: Path) -
         sqlite_busy_timeout_ms=10_000,
         sqlite_wal_enabled=True,
     )
-    init_database(engine)
+    _init_migrated_database(engine)
     session_factory = make_session_factory(engine)
     now = datetime(2026, 7, 28, tzinfo=UTC)
     task = CollectionTask.model_validate(
@@ -199,7 +206,7 @@ def test_expired_worker_claim_cannot_commit_collection_evidence(tmp_path: Path) 
         sqlite_busy_timeout_ms=10_000,
         sqlite_wal_enabled=True,
     )
-    init_database(engine)
+    _init_migrated_database(engine)
     session_factory = make_session_factory(engine)
     now = datetime(2026, 7, 28, tzinfo=UTC)
     task = CollectionTask.model_validate(
@@ -310,7 +317,7 @@ def test_collection_task_list_uses_one_snapshot_during_concurrent_transition(
         sqlite_busy_timeout_ms=10_000,
         sqlite_wal_enabled=True,
     )
-    init_database(engine)
+    _init_migrated_database(engine)
     session_factory = make_session_factory(engine)
     now = datetime(2026, 7, 28, tzinfo=UTC)
     task = CollectionTask.model_validate(

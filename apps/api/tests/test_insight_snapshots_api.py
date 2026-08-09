@@ -9,8 +9,10 @@ from sqlalchemy import event, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import DatabaseError
 
+from plugin_hub_api.config import Settings
 from plugin_hub_api.db import build_engine, init_database, make_session_factory
 from plugin_hub_api.insight_snapshot_repository import InsightSnapshotRepository
+from plugin_hub_api.main import create_app
 from plugin_hub_api.migrations import MigrationRollbackBlocked, apply_pending_migrations
 from plugin_hub_api.payload_hashes import fnv1a64_payload_hash
 from plugin_hub_api.repositories import SqlAlchemyRepository
@@ -36,11 +38,23 @@ def test_insight_endpoints_reject_unsupported_language_metadata(client: TestClie
     assert briefs_response.status_code == 422
 
 
-def test_snapshot_endpoint_requires_explicit_migration(client: TestClient) -> None:
-    response = client.post(
-        "/api/insights/snapshots",
-        json={"platform": "amazon", "language": "zh-CN"},
+def test_snapshot_endpoint_requires_explicit_migration(tmp_path: Path) -> None:
+    database_path = tmp_path / "unmigrated.db"
+    settings = Settings(
+        api_auth_mode="disabled",
+        sqlite_wal_enabled=False,
+        trusted_hosts=["testserver"],
     )
+    app = create_app(
+        database_url=f"sqlite+pysqlite:///{database_path}",
+        settings=settings,
+    )
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/insights/snapshots",
+            json={"platform": "amazon", "language": "zh-CN"},
+        )
+    app.state.engine.dispose()
 
     assert response.status_code == 503
     assert response.json()["detail"] == "analysis_snapshot_schema_not_ready"
@@ -194,7 +208,7 @@ def test_snapshot_creation_is_append_only_idempotent_and_queryable(client: TestC
     ):
         connection.exec_driver_sql("UPDATE analysis_artifact_snapshots SET schema_version = 'v2'")
 
-    with pytest.raises(MigrationRollbackBlocked, match="analysis_snapshot_rows_exist"):
+    with pytest.raises(MigrationRollbackBlocked, match="core_evidence_rows_exist"):
         from plugin_hub_api.migrations import rollback_latest_migration
 
         rollback_latest_migration(client.app.state.engine)
@@ -207,6 +221,7 @@ def test_analysis_count_and_units_share_one_sqlite_read_snapshot(tmp_path: Path)
         sqlite_wal_enabled=True,
     )
     init_database(engine)
+    apply_pending_migrations(engine)
     session_factory = make_session_factory(engine)
     with engine.begin() as connection:
         _insert_collection_run(connection, "run-old")
@@ -243,6 +258,7 @@ def test_bounded_analysis_units_releases_non_wal_read_snapshot_before_analysis(
         sqlite_wal_enabled=False,
     )
     init_database(engine)
+    apply_pending_migrations(engine)
     session_factory = make_session_factory(engine)
     with engine.begin() as connection:
         _insert_collection_run(connection, "run-reader")
@@ -273,6 +289,7 @@ def test_bounded_analysis_units_ends_read_snapshot_after_error(tmp_path: Path) -
     database_path = tmp_path / "plugin_hub.db"
     engine = build_engine(f"sqlite+pysqlite:///{database_path}")
     init_database(engine)
+    apply_pending_migrations(engine)
     session_factory = make_session_factory(engine)
 
     class FailingInsightRepository(SqlAlchemyRepository):
@@ -440,6 +457,7 @@ def test_analysis_filters_placeholders_before_applying_source_limit(tmp_path: Pa
     database_path = tmp_path / "plugin_hub.db"
     engine = build_engine(f"sqlite+pysqlite:///{database_path}")
     init_database(engine)
+    apply_pending_migrations(engine)
     session_factory = make_session_factory(engine)
     with engine.begin() as connection:
         _insert_collection_run(connection, "run-reddit", platform="reddit")

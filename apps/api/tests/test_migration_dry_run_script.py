@@ -204,6 +204,10 @@ def test_dry_run_upgrades_0001_copy_with_existing_snapshots(
     ]
     assert result["run_replace_guard_enforced"] is True
     assert result["artifact_replace_guard_enforced"] is True
+    assert result["rollback_blocked_after_snapshot"] is True
+    assert result["rollback_blocked_reason"] == "analysis_snapshot_rows_exist"
+    assert result["core_rollback_blocked_after_evidence"] is True
+    assert result["core_rollback_blocked_reason"] == "core_evidence_rows_exist"
     assert all(
         snapshot["initially_replayed"] is True
         for snapshot in result["snapshot_runs"].values()
