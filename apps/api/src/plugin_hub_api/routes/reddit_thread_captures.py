@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import AnyHttpUrl
+from pydantic import AnyHttpUrl, model_validator
 
 from plugin_hub_api.repositories import SqlAlchemyRepository
 from plugin_hub_api.routes.collection_runs import get_repository
@@ -20,12 +20,18 @@ from plugin_hub_api.services.reddit_capture import (
     RedditUpstreamAccessError,
     capture_reddit_thread_json,
 )
+from plugin_hub_api.source_urls import validate_reddit_source_url
 
 router = APIRouter()
 
 
 class RedditThreadCaptureRequest(StrictBaseModel):
     source_url: AnyHttpUrl
+
+    @model_validator(mode="after")
+    def validate_source_target(self) -> RedditThreadCaptureRequest:
+        validate_reddit_source_url(str(self.source_url))
+        return self
 
 
 class RedditThreadCaptureResponse(StrictBaseModel):

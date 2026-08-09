@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
+import secrets
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import Select, and_, func, or_, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -17,14 +20,30 @@ from plugin_hub_api.models import (
 from plugin_hub_api.schemas import (
     CanonicalVocUnit,
     CollectionRun,
+    CollectionRunCreate,
     CollectionTask,
     CollectionTaskStatus,
+    DataAssetRun,
+    DataAssetSummary,
     Platform,
     PlatformSetting,
     PlatformSettingAuditEvent,
     PlatformSettingSource,
     RawSourceItem,
 )
+
+COLLECTION_TASK_CLAIM_SCAN_LIMIT = 100
+
+
+@dataclass(frozen=True)
+class CollectionReplayState:
+    matches_payload: bool
+    raw_item_count: int
+    voc_unit_count: int
+
+
+class CollectionTaskClaimLostError(RuntimeError):
+    """Raised when a worker tries to write with an expired or replaced lease."""
 
 
 class SqlAlchemyRepository:
@@ -40,6 +59,7 @@ class SqlAlchemyRepository:
     ) -> None:
         try:
             self._session.add(_collection_run_row(run))
+            self._session.flush()
 
             for raw_item in raw_items:
                 self._session.add(
@@ -64,13 +84,355 @@ class SqlAlchemyRepository:
             self._session.rollback()
             raise
 
-    def list_voc_units(self, *, platform: Platform | None = None) -> list[CanonicalVocUnit]:
-        statement = select(CanonicalVocUnitRow).order_by(CanonicalVocUnitRow.id)
+    def list_voc_units(
+        self,
+        *,
+        platform: Platform | None = None,
+        limit: int | None = None,
+        offset: int = 0,
+        newest_first: bool = False,
+        snapshot_max_id: int | None = None,
+        exclude_quality_flag: str | None = None,
+    ) -> list[CanonicalVocUnit]:
+        order = CanonicalVocUnitRow.id.desc() if newest_first else CanonicalVocUnitRow.id
+        statement = select(CanonicalVocUnitRow).order_by(order)
         if platform is not None:
             statement = statement.where(CanonicalVocUnitRow.platform == platform.value)
+        if snapshot_max_id is not None:
+            statement = statement.where(CanonicalVocUnitRow.id <= snapshot_max_id)
+        if exclude_quality_flag is not None:
+            statement = statement.where(
+                text(
+                    """
+                    NOT EXISTS (
+                        SELECT 1
+                        FROM json_each(canonical_voc_units.quality_flags) AS flag
+                        WHERE flag.value = :excluded_quality_flag
+                    )
+                    """
+                )
+            ).params(excluded_quality_flag=exclude_quality_flag)
+        if limit is not None:
+            statement = statement.limit(limit).offset(offset)
 
         rows = self._session.scalars(statement).all()
         return [self._voc_unit_from_row(row) for row in rows]
+
+    def count_voc_units(
+        self,
+        *,
+        platform: Platform | None = None,
+        snapshot_max_id: int | None = None,
+        exclude_quality_flag: str | None = None,
+    ) -> int:
+        statement = select(func.count()).select_from(CanonicalVocUnitRow)
+        if platform is not None:
+            statement = statement.where(CanonicalVocUnitRow.platform == platform.value)
+        if snapshot_max_id is not None:
+            statement = statement.where(CanonicalVocUnitRow.id <= snapshot_max_id)
+        if exclude_quality_flag is not None:
+            statement = statement.where(
+                text(
+                    """
+                    NOT EXISTS (
+                        SELECT 1
+                        FROM json_each(canonical_voc_units.quality_flags) AS flag
+                        WHERE flag.value = :excluded_quality_flag
+                    )
+                    """
+                )
+            ).params(excluded_quality_flag=exclude_quality_flag)
+        return int(self._session.scalar(statement) or 0)
+
+    def max_voc_unit_id(self, *, platform: Platform | None = None) -> int:
+        statement = select(func.max(CanonicalVocUnitRow.id))
+        if platform is not None:
+            statement = statement.where(CanonicalVocUnitRow.platform == platform.value)
+        value = self._session.scalar(statement)
+        # Zero is a real empty-snapshot cursor. Returning None would disable
+        # the boundary predicate if a writer commits after this query.
+        return int(value) if value is not None else 0
+
+    def begin_read_snapshot(self) -> None:
+        if self._session.in_transaction():
+            # Snapshot ownership must be explicit. Rolling back here could
+            # silently discard work started by the caller, while issuing a
+            # second BEGIN fails on SQLite with a nested transaction error.
+            raise RuntimeError("read_snapshot_requires_clean_session")
+        connection = self._session.connection()
+        if connection.dialect.name == "sqlite":
+            # SQLAlchemy's logical autobegin does not make sqlite3 start a read
+            # transaction. An explicit BEGIN pins count and evidence queries to
+            # one SQLite snapshot until the request commits or rolls back.
+            connection.exec_driver_sql("BEGIN")
+
+    def end_read_snapshot(self) -> None:
+        # Read snapshots never contain application writes. Rollback ends the
+        # pinned SQLite transaction so a subsequent snapshot INSERT uses a
+        # fresh writer transaction instead of upgrading a stale WAL reader.
+        self._session.rollback()
+
+    def get_collection_replay_state(
+        self,
+        *,
+        collection_run_id: str,
+        run: CollectionRunCreate,
+        raw_items: list[RawSourceItem],
+    ) -> CollectionReplayState | None:
+        run_row = self._session.get(CollectionRunRow, collection_run_id)
+        if run_row is None:
+            return None
+        raw_rows = self._session.scalars(
+            select(RawSourceItemRow).where(RawSourceItemRow.collection_run_id == collection_run_id)
+        ).all()
+        voc_count = int(
+            self._session.scalar(
+                select(func.count())
+                .select_from(CanonicalVocUnitRow)
+                .where(CanonicalVocUnitRow.collection_run_id == collection_run_id)
+            )
+            or 0
+        )
+        run_json = run.model_dump(mode="json")
+        run_matches = (
+            run_row.platform == run.platform.value
+            and run_row.source_url == str(run_json["source_url"])
+            and run_row.capture_method == run.capture_method
+            and run_row.coverage_scope == run.coverage_scope
+            and run_row.stop_reason == run.stop_reason
+            and run_row.coverage_confidence == run.coverage_confidence
+        )
+        stored_signatures = sorted(_raw_row_signature(item) for item in raw_rows)
+        incoming_signatures = sorted(_raw_item_signature(item) for item in raw_items)
+        return CollectionReplayState(
+            matches_payload=(
+                run_matches
+                and stored_signatures == incoming_signatures
+                and voc_count == len(raw_items)
+            ),
+            raw_item_count=len(raw_rows),
+            voc_unit_count=voc_count,
+        )
+
+    def get_data_asset_summary(self, *, low_confidence_threshold: float) -> DataAssetSummary:
+        self.begin_read_snapshot()
+        try:
+            return self._get_data_asset_summary(
+                low_confidence_threshold=low_confidence_threshold,
+            )
+        finally:
+            self.end_read_snapshot()
+
+    def _get_data_asset_summary(
+        self,
+        *,
+        low_confidence_threshold: float,
+    ) -> DataAssetSummary:
+        collection_run_count = int(
+            self._session.scalar(select(func.count()).select_from(CollectionRunRow)) or 0
+        )
+        raw_item_count = int(
+            self._session.scalar(select(func.count()).select_from(RawSourceItemRow)) or 0
+        )
+        canonical_voc_count = int(
+            self._session.scalar(select(func.count()).select_from(CanonicalVocUnitRow)) or 0
+        )
+        placeholder_voc_count = self._text_count(
+            """
+            SELECT COUNT(*)
+            FROM canonical_voc_units AS unit
+            WHERE EXISTS (
+                SELECT 1
+                FROM json_each(unit.quality_flags) AS flag
+                WHERE flag.value = 'reddit_more_node'
+            )
+            """
+        )
+        platform_rows = self._session.execute(
+            text(
+                """
+                SELECT unit.platform, COUNT(*)
+                FROM canonical_voc_units AS unit
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM json_each(unit.quality_flags) AS flag
+                    WHERE flag.value = 'reddit_more_node'
+                )
+                GROUP BY unit.platform
+                """
+            )
+        ).all()
+        platform_counts = {platform.value: 0 for platform in Platform}
+        platform_counts.update({str(platform): int(count) for platform, count in platform_rows})
+        latest_run_at = self._session.scalar(select(func.max(CollectionRunRow.created_at)))
+        latest_capture_at = self._session.scalar(select(func.max(CanonicalVocUnitRow.captured_at)))
+        eligible_predicate = """
+            NOT EXISTS (
+                SELECT 1
+                FROM json_each(unit.quality_flags) AS flag
+                WHERE flag.value = 'reddit_more_node'
+            )
+        """
+        flagged_voc_count = self._text_count(
+            f"""
+            SELECT COUNT(*)
+            FROM canonical_voc_units AS unit
+            WHERE {eligible_predicate}
+              AND json_array_length(unit.quality_flags) > 0
+            """
+        )
+        low_confidence_voc_count = int(
+            self._session.execute(
+                text(
+                    f"""
+                    SELECT COUNT(*)
+                    FROM canonical_voc_units AS unit
+                    WHERE {eligible_predicate}
+                      AND unit.coverage_confidence < :threshold
+                    """
+                ),
+                {"threshold": low_confidence_threshold},
+            ).scalar_one()
+        )
+        average_coverage_confidence = float(
+            self._session.execute(
+                text(
+                    f"""
+                    SELECT COALESCE(AVG(unit.coverage_confidence), 0.0)
+                    FROM canonical_voc_units AS unit
+                    WHERE {eligible_predicate}
+                    """
+                )
+            ).scalar_one()
+        )
+
+        return DataAssetSummary(
+            collection_run_count=collection_run_count,
+            raw_item_count=raw_item_count,
+            canonical_voc_count=canonical_voc_count,
+            analysis_eligible_voc_count=canonical_voc_count - placeholder_voc_count,
+            placeholder_voc_count=placeholder_voc_count,
+            flagged_voc_count=flagged_voc_count,
+            low_confidence_voc_count=low_confidence_voc_count,
+            average_coverage_confidence=round(average_coverage_confidence, 6),
+            runs_with_count_mismatch=self._text_count(
+                """
+                SELECT COUNT(*)
+                FROM collection_runs AS run
+                LEFT JOIN (
+                    SELECT collection_run_id, COUNT(*) AS item_count
+                    FROM raw_source_items
+                    GROUP BY collection_run_id
+                ) AS raw ON raw.collection_run_id = run.collection_run_id
+                LEFT JOIN (
+                    SELECT collection_run_id, COUNT(*) AS item_count
+                    FROM canonical_voc_units
+                    GROUP BY collection_run_id
+                ) AS voc ON voc.collection_run_id = run.collection_run_id
+                WHERE COALESCE(raw.item_count, 0) <> COALESCE(voc.item_count, 0)
+                """
+            ),
+            orphan_raw_count=self._text_count(
+                """
+                SELECT COUNT(*)
+                FROM raw_source_items AS item
+                LEFT JOIN collection_runs AS run
+                  ON run.collection_run_id = item.collection_run_id
+                WHERE run.collection_run_id IS NULL
+                """
+            ),
+            orphan_voc_count=self._text_count(
+                """
+                SELECT COUNT(*)
+                FROM canonical_voc_units AS item
+                LEFT JOIN collection_runs AS run
+                  ON run.collection_run_id = item.collection_run_id
+                WHERE run.collection_run_id IS NULL
+                """
+            ),
+            platform_counts=platform_counts,
+            latest_run_at=latest_run_at,
+            latest_capture_at=latest_capture_at,
+        )
+
+    def list_data_asset_runs(self, *, limit: int, offset: int) -> list[DataAssetRun]:
+        rows = self._session.execute(
+            text(
+                """
+                SELECT
+                    run.collection_run_id,
+                    run.platform,
+                    run.capture_method,
+                    run.stop_reason,
+                    run.coverage_confidence,
+                    run.created_at,
+                    voc.first_captured_at,
+                    voc.last_captured_at,
+                    COALESCE(raw.item_count, 0) AS raw_item_count,
+                    COALESCE(voc.item_count, 0) AS canonical_voc_count,
+                    COALESCE(voc.analysis_item_count, 0) AS analysis_eligible_voc_count,
+                    COALESCE(voc.placeholder_count, 0) AS placeholder_voc_count
+                FROM collection_runs AS run
+                LEFT JOIN (
+                    SELECT collection_run_id, COUNT(*) AS item_count
+                    FROM raw_source_items
+                    GROUP BY collection_run_id
+                ) AS raw ON raw.collection_run_id = run.collection_run_id
+                LEFT JOIN (
+                    SELECT
+                        unit.collection_run_id,
+                        COUNT(*) AS item_count,
+                        SUM(
+                            CASE WHEN EXISTS (
+                                SELECT 1
+                                FROM json_each(unit.quality_flags) AS flag
+                                WHERE flag.value = 'reddit_more_node'
+                            ) THEN 0 ELSE 1 END
+                        ) AS analysis_item_count,
+                        SUM(
+                            CASE WHEN EXISTS (
+                                SELECT 1
+                                FROM json_each(unit.quality_flags) AS flag
+                                WHERE flag.value = 'reddit_more_node'
+                            ) THEN 1 ELSE 0 END
+                        ) AS placeholder_count,
+                        MIN(unit.captured_at) AS first_captured_at,
+                        MAX(unit.captured_at) AS last_captured_at
+                    FROM canonical_voc_units AS unit
+                    GROUP BY unit.collection_run_id
+                ) AS voc ON voc.collection_run_id = run.collection_run_id
+                ORDER BY run.created_at DESC, run.collection_run_id DESC
+                LIMIT :limit OFFSET :offset
+                """
+            ),
+            {"limit": limit, "offset": offset},
+        ).mappings()
+
+        output: list[DataAssetRun] = []
+        for row in rows:
+            raw_count = int(row["raw_item_count"])
+            voc_count = int(row["canonical_voc_count"])
+            if raw_count != voc_count:
+                state = "mismatch"
+            elif raw_count == 0:
+                state = "empty"
+            else:
+                state = "complete"
+            output.append(
+                DataAssetRun.model_validate(
+                    {
+                        **dict(row),
+                        "asset_state": state,
+                    }
+                )
+            )
+        return output
+
+    def count_collection_runs(self) -> int:
+        return int(self._session.scalar(select(func.count()).select_from(CollectionRunRow)) or 0)
+
+    def _text_count(self, statement: str) -> int:
+        return int(self._session.execute(text(statement)).scalar_one())
 
     def save_collection_task(self, task: CollectionTask) -> None:
         try:
@@ -80,13 +442,36 @@ class SqlAlchemyRepository:
             self._session.rollback()
             raise
 
-    def list_collection_tasks(self, *, platform: Platform | None = None) -> list[CollectionTask]:
+    def list_collection_tasks(
+        self,
+        *,
+        platform: Platform | None = None,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[CollectionTask]:
         statement = select(CollectionTaskRow).order_by(CollectionTaskRow.created_at.desc())
         if platform is not None:
             statement = statement.where(CollectionTaskRow.platform == platform.value)
+        if limit is not None:
+            statement = statement.limit(limit).offset(offset)
 
         rows = self._session.scalars(statement).all()
         return [self._collection_task_from_row(row) for row in rows]
+
+    def count_collection_tasks(
+        self,
+        *,
+        platform: Platform | None = None,
+        statuses: tuple[CollectionTaskStatus, ...] | None = None,
+    ) -> int:
+        statement = select(func.count()).select_from(CollectionTaskRow)
+        if platform is not None:
+            statement = statement.where(CollectionTaskRow.platform == platform.value)
+        if statuses is not None:
+            statement = statement.where(
+                CollectionTaskRow.status.in_(tuple(status.value for status in statuses))
+            )
+        return int(self._session.scalar(statement) or 0)
 
     def get_collection_task(self, collection_task_id: str) -> CollectionTask | None:
         row = self._session.get(CollectionTaskRow, collection_task_id)
@@ -126,46 +511,176 @@ class SqlAlchemyRepository:
         now: datetime | None = None,
     ) -> CollectionTask | None:
         reference_time = now if now is not None else datetime.now(tz=UTC)
-        claim_expires_at = reference_time + timedelta(seconds=max(claim_ttl_seconds, 0))
-        rows = self._session.scalars(
-            select(CollectionTaskRow).order_by(CollectionTaskRow.created_at)
-        ).all()
         try:
+            statement = (
+                select(CollectionTaskRow)
+                .where(
+                    CollectionTaskRow.status.in_(
+                        (
+                            CollectionTaskStatus.PENDING.value,
+                            CollectionTaskStatus.RETRY_SCHEDULED.value,
+                            CollectionTaskStatus.RUNNING.value,
+                        )
+                    )
+                )
+                .order_by(CollectionTaskRow.created_at)
+            )
+            is_sqlite = self._session.get_bind().dialect.name == "sqlite"
+            if is_sqlite:
+                next_run_at = func.json_extract(CollectionTaskRow.context, "$.next_run_at")
+                next_run_at_type = func.json_type(
+                    CollectionTaskRow.context,
+                    "$.next_run_at",
+                )
+                claim_expires_at = func.json_extract(
+                    CollectionTaskRow.context,
+                    "$.claim_expires_at",
+                )
+                claim_expires_at_type = func.json_type(
+                    CollectionTaskRow.context,
+                    "$.claim_expires_at",
+                )
+                reference_time_iso = reference_time.astimezone(UTC).isoformat()
+                statement = statement.where(
+                    or_(
+                        CollectionTaskRow.status == CollectionTaskStatus.PENDING.value,
+                        and_(
+                            CollectionTaskRow.status == CollectionTaskStatus.RETRY_SCHEDULED.value,
+                            or_(
+                                next_run_at_type.is_(None),
+                                next_run_at_type != "text",
+                                func.julianday(next_run_at).is_(None),
+                                func.julianday(next_run_at) <= func.julianday(reference_time_iso),
+                            ),
+                        ),
+                        and_(
+                            CollectionTaskRow.status == CollectionTaskStatus.RUNNING.value,
+                            or_(
+                                claim_expires_at_type.is_(None),
+                                claim_expires_at_type != "text",
+                                func.julianday(claim_expires_at).is_(None),
+                                func.julianday(claim_expires_at)
+                                <= func.julianday(reference_time_iso),
+                            ),
+                        ),
+                    )
+                )
+                # SQLite's exact predicate makes this a safe hard cap while
+                # BEGIN IMMEDIATE holds the database write lock.
+                statement = statement.limit(COLLECTION_TASK_CLAIM_SCAN_LIMIT)
+            statement = self._begin_collection_task_claim(statement)
+            # Other databases retain full claimability semantics under
+            # SKIP LOCKED, while yield_per avoids materializing all active rows.
+            # Python remains the final guard for malformed legacy context.
+            rows = self._session.scalars(statement).yield_per(COLLECTION_TASK_CLAIM_SCAN_LIMIT)
             for row in rows:
                 task = self._collection_task_from_row(row)
                 if not _collection_task_is_claimable(task, reference_time):
                     continue
 
-                claimed_task = task.model_copy(
-                    update={
-                        "status": CollectionTaskStatus.RUNNING,
-                        "updated_at": reference_time,
-                        "context": {
-                            **task.context,
-                            "claimed_by": worker_id,
-                            "claimed_at": reference_time.isoformat(),
-                            "claim_expires_at": claim_expires_at.isoformat(),
-                        },
-                    }
+                claimed_task = _claimed_collection_task(
+                    task,
+                    worker_id=worker_id,
+                    claim_ttl_seconds=claim_ttl_seconds,
+                    reference_time=reference_time,
                 )
                 _update_collection_task_row(row, claimed_task)
                 self._session.commit()
                 return claimed_task
+            self._session.rollback()
             return None
         except SQLAlchemyError:
             self._session.rollback()
             raise
 
-    def update_collection_task(self, task: CollectionTask) -> None:
+    def claim_collection_task(
+        self,
+        *,
+        collection_task_id: str,
+        worker_id: str,
+        claim_ttl_seconds: int,
+        now: datetime | None = None,
+    ) -> CollectionTask | None:
+        reference_time = now if now is not None else datetime.now(tz=UTC)
         try:
-            row = self._session.get(CollectionTaskRow, task.collection_task_id)
+            statement = select(CollectionTaskRow).where(
+                CollectionTaskRow.collection_task_id == collection_task_id
+            )
+            statement = self._begin_collection_task_claim(statement)
+            row = self._session.scalar(statement)
+            if row is None:
+                self._session.rollback()
+                return None
+
+            task = self._collection_task_from_row(row)
+            if not _collection_task_is_claimable(task, reference_time):
+                self._session.rollback()
+                return None
+
+            claimed_task = _claimed_collection_task(
+                task,
+                worker_id=worker_id,
+                claim_ttl_seconds=claim_ttl_seconds,
+                reference_time=reference_time,
+            )
+            _update_collection_task_row(row, claimed_task)
+            self._session.commit()
+            return claimed_task
+        except SQLAlchemyError:
+            self._session.rollback()
+            raise
+
+    def _begin_collection_task_claim(
+        self,
+        statement: Select[tuple[CollectionTaskRow]],
+    ) -> Select[tuple[CollectionTaskRow]]:
+        # Claim selection and state transition must share one writer transaction.
+        # SQLite ignores SELECT FOR UPDATE, so BEGIN IMMEDIATE serializes claimers
+        # before they inspect task state. Other databases use row-level locking.
+        if self._session.in_transaction():
+            self._session.rollback()
+        connection = self._session.connection()
+        if connection.dialect.name == "sqlite":
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+            return statement
+        return statement.with_for_update(skip_locked=True)
+
+    def update_collection_task(
+        self,
+        task: CollectionTask,
+        *,
+        expected_claim_token: str | None = None,
+        now: datetime | None = None,
+    ) -> None:
+        try:
+            if expected_claim_token is None:
+                row = self._session.get(CollectionTaskRow, task.collection_task_id)
+            else:
+                row = self._locked_collection_task_row(task.collection_task_id)
+                row = _require_active_collection_task_claim(
+                    row,
+                    expected_claim_token=expected_claim_token,
+                    reference_time=now if now is not None else datetime.now(tz=UTC),
+                )
             if row is None:
                 return
             _update_collection_task_row(row, task)
             self._session.commit()
+        except CollectionTaskClaimLostError:
+            self._session.rollback()
+            raise
         except SQLAlchemyError:
             self._session.rollback()
             raise
+
+    def _locked_collection_task_row(
+        self,
+        collection_task_id: str,
+    ) -> CollectionTaskRow | None:
+        statement = select(CollectionTaskRow).where(
+            CollectionTaskRow.collection_task_id == collection_task_id
+        )
+        return self._session.scalar(self._begin_collection_task_claim(statement))
 
     def list_platform_settings(self) -> list[PlatformSetting]:
         rows = self._session.scalars(select(PlatformSettingRow)).all()
@@ -227,9 +742,19 @@ class SqlAlchemyRepository:
         raw_items: list[RawSourceItem],
         voc_units: list[CanonicalVocUnit],
         task: CollectionTask,
+        expected_claim_token: str,
+        now: datetime | None = None,
     ) -> None:
         try:
+            row = self._locked_collection_task_row(task.collection_task_id)
+            row = _require_active_collection_task_claim(
+                row,
+                expected_claim_token=expected_claim_token,
+                reference_time=now if now is not None else datetime.now(tz=UTC),
+            )
+
             self._session.add(_collection_run_row(run))
+            self._session.flush()
 
             for raw_item in raw_items:
                 self._session.add(
@@ -249,11 +774,12 @@ class SqlAlchemyRepository:
             for voc_unit in voc_units:
                 self._session.add(_canonical_voc_unit_row(voc_unit))
 
-            row = self._session.get(CollectionTaskRow, task.collection_task_id)
-            if row is not None:
-                _update_collection_task_row(row, task)
+            _update_collection_task_row(row, task)
 
             self._session.commit()
+        except CollectionTaskClaimLostError:
+            self._session.rollback()
+            raise
         except SQLAlchemyError:
             self._session.rollback()
             raise
@@ -420,6 +946,53 @@ def _collection_task_is_claimable(task: CollectionTask, reference_time: datetime
     return _collection_task_is_runnable(task, reference_time)
 
 
+def _claimed_collection_task(
+    task: CollectionTask,
+    *,
+    worker_id: str,
+    claim_ttl_seconds: int,
+    reference_time: datetime,
+) -> CollectionTask:
+    claim_expires_at = reference_time + timedelta(seconds=max(claim_ttl_seconds, 0))
+    return task.model_copy(
+        update={
+            "status": CollectionTaskStatus.RUNNING,
+            "updated_at": reference_time,
+            "context": {
+                **task.context,
+                "claimed_by": worker_id,
+                "claimed_at": reference_time.isoformat(),
+                "claim_expires_at": claim_expires_at.isoformat(),
+                "claim_token": secrets.token_urlsafe(24),
+            },
+        }
+    )
+
+
+def _require_active_collection_task_claim(
+    row: CollectionTaskRow | None,
+    *,
+    expected_claim_token: str,
+    reference_time: datetime,
+) -> CollectionTaskRow:
+    if row is None or row.status != CollectionTaskStatus.RUNNING.value:
+        raise CollectionTaskClaimLostError("collection_task_claim_lost")
+    stored_claim_token = row.context.get("claim_token")
+    if stored_claim_token != expected_claim_token:
+        raise CollectionTaskClaimLostError("collection_task_claim_lost")
+    claim_expires_at = row.context.get("claim_expires_at")
+    if not isinstance(claim_expires_at, str):
+        raise CollectionTaskClaimLostError("collection_task_claim_lost")
+    parsed_claim_expires_at = _parse_iso_datetime(claim_expires_at)
+    if parsed_claim_expires_at is None:
+        raise CollectionTaskClaimLostError("collection_task_claim_lost")
+    if parsed_claim_expires_at.tzinfo is None:
+        parsed_claim_expires_at = parsed_claim_expires_at.replace(tzinfo=UTC)
+    if parsed_claim_expires_at <= reference_time:
+        raise CollectionTaskClaimLostError("collection_task_claim_lost")
+    return row
+
+
 def _is_running_task_stale(task: CollectionTask, reference_time: datetime) -> bool:
     claim_expires_at = task.context.get("claim_expires_at")
     if not isinstance(claim_expires_at, str):
@@ -469,3 +1042,40 @@ def _canonical_voc_unit_row(voc_unit: CanonicalVocUnit) -> CanonicalVocUnitRow:
         coverage_confidence=voc_unit.coverage_confidence,
         platform_extension=voc_unit.platform_extension,
     )
+
+
+def _raw_row_signature(row: RawSourceItemRow) -> tuple[str, ...]:
+    return (
+        row.platform,
+        row.source_kind,
+        row.source_object_id,
+        row.raw_schema_version,
+        row.parser_version,
+        _stable_json(row.raw_payload),
+        row.raw_payload_hash,
+        _datetime_signature(row.captured_at),
+    )
+
+
+def _raw_item_signature(item: RawSourceItem) -> tuple[str, ...]:
+    return (
+        item.platform.value,
+        item.source_kind.value,
+        item.source_object_id,
+        item.raw_schema_version,
+        item.parser_version,
+        _stable_json(item.raw_payload),
+        item.raw_payload_hash,
+        _datetime_signature(item.captured_at),
+    )
+
+
+def _stable_json(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _datetime_signature(value: datetime) -> str:
+    normalized = value
+    if normalized.tzinfo is not None:
+        normalized = normalized.astimezone(UTC).replace(tzinfo=None)
+    return normalized.isoformat(timespec="microseconds")

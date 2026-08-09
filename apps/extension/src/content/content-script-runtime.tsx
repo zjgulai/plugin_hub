@@ -110,7 +110,7 @@ export function mountContentScript(options: ContentScriptOptions): void {
     host.style.zIndex = "2147483640";
     host.style.pointerEvents = "none";
 
-    const shadowRoot = host.attachShadow({ mode: "open" });
+    const shadowRoot = host.attachShadow({ mode: "closed" });
     const style = document.createElement("style");
     style.textContent = CONTENT_COMMAND_BAR_CSS;
     const rootElement = document.createElement("div");

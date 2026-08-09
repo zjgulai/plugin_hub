@@ -1,0 +1,707 @@
+{
+  "apps/api/pyproject.toml": {
+    "mtime": 1780643730.334587,
+    "ast_hash": "70494c6646d5fa722d13aab9ff431210",
+    "semantic_hash": "70494c6646d5fa722d13aab9ff431210"
+  },
+  "apps/api/src/plugin_hub_api/__init__.py": {
+    "mtime": 1780643182.802224,
+    "ast_hash": "352d6ced575a0e9b7833bfe746a1137f",
+    "semantic_hash": "352d6ced575a0e9b7833bfe746a1137f"
+  },
+  "apps/api/src/plugin_hub_api/backup_cli.py": {
+    "mtime": 1785215210.428603,
+    "ast_hash": "2afbf87b3f9c80f0b6ca0a9d466ddac6",
+    "semantic_hash": "2afbf87b3f9c80f0b6ca0a9d466ddac6"
+  },
+  "apps/api/src/plugin_hub_api/config.py": {
+    "mtime": 1783675827.43175,
+    "ast_hash": "d6532c62a2e2325a938aed2e62b694d0",
+    "semantic_hash": "d6532c62a2e2325a938aed2e62b694d0"
+  },
+  "apps/api/src/plugin_hub_api/db.py": {
+    "mtime": 1783677375.7446241,
+    "ast_hash": "f13331e9203b4e6a1a54f9bb2877a019",
+    "semantic_hash": "f13331e9203b4e6a1a54f9bb2877a019"
+  },
+  "apps/api/src/plugin_hub_api/insight_snapshot_repository.py": {
+    "mtime": 1785221904.492956,
+    "ast_hash": "9a42624e385e99c731bed51e5ad6faf1",
+    "semantic_hash": "9a42624e385e99c731bed51e5ad6faf1"
+  },
+  "apps/api/src/plugin_hub_api/main.py": {
+    "mtime": 1783675464.8072,
+    "ast_hash": "754291f0f325ac9a6832a237a76b61b1",
+    "semantic_hash": "754291f0f325ac9a6832a237a76b61b1"
+  },
+  "apps/api/src/plugin_hub_api/migration_cli.py": {
+    "mtime": 1785212711.087508,
+    "ast_hash": "df203041215bb59aaeae5cfaeaa43fe0",
+    "semantic_hash": "df203041215bb59aaeae5cfaeaa43fe0"
+  },
+  "apps/api/src/plugin_hub_api/migrations.py": {
+    "mtime": 1785215210.426051,
+    "ast_hash": "9cf70b8696beed80eff3417e0423d092",
+    "semantic_hash": "9cf70b8696beed80eff3417e0423d092"
+  },
+  "apps/api/src/plugin_hub_api/models.py": {
+    "mtime": 1782029246.839955,
+    "ast_hash": "cfa0ad106fb77b0df0bf5ff3391c499b",
+    "semantic_hash": "cfa0ad106fb77b0df0bf5ff3391c499b"
+  },
+  "apps/api/src/plugin_hub_api/payload_hashes.py": {
+    "mtime": 1783675726.0142167,
+    "ast_hash": "3b95317d097f7ca7b711410ca04cb58d",
+    "semantic_hash": "3b95317d097f7ca7b711410ca04cb58d"
+  },
+  "apps/api/src/plugin_hub_api/repositories.py": {
+    "mtime": 1785219918.9242039,
+    "ast_hash": "93e63958cd015daa751901dc5df7eb80",
+    "semantic_hash": "93e63958cd015daa751901dc5df7eb80"
+  },
+  "apps/api/src/plugin_hub_api/routes/__init__.py": {
+    "mtime": 1780649558.3358111,
+    "ast_hash": "5de1980dee48c44fc3e850f3a8b673f6",
+    "semantic_hash": "5de1980dee48c44fc3e850f3a8b673f6"
+  },
+  "apps/api/src/plugin_hub_api/routes/capture_authorizations.py": {
+    "mtime": 1782872825.9076626,
+    "ast_hash": "bab468e055afb26ebd03bf7a32f9fdf6",
+    "semantic_hash": "bab468e055afb26ebd03bf7a32f9fdf6"
+  },
+  "apps/api/src/plugin_hub_api/routes/capture_capabilities.py": {
+    "mtime": 1782872841.065566,
+    "ast_hash": "223bc8f9fbe0ed4c667f1696e3bb8e09",
+    "semantic_hash": "223bc8f9fbe0ed4c667f1696e3bb8e09"
+  },
+  "apps/api/src/plugin_hub_api/routes/collection_runs.py": {
+    "mtime": 1785216526.2931244,
+    "ast_hash": "92c6d29a6a6a2931f8d512962faad6a8",
+    "semantic_hash": "92c6d29a6a6a2931f8d512962faad6a8"
+  },
+  "apps/api/src/plugin_hub_api/routes/collection_tasks.py": {
+    "mtime": 1785219974.5504718,
+    "ast_hash": "aa1848cc56fb8f4318658854a5ac04e6",
+    "semantic_hash": "aa1848cc56fb8f4318658854a5ac04e6"
+  },
+  "apps/api/src/plugin_hub_api/routes/data_assets.py": {
+    "mtime": 1785216950.4415655,
+    "ast_hash": "836a6e27414bc328322069ee04ceb133",
+    "semantic_hash": "836a6e27414bc328322069ee04ceb133"
+  },
+  "apps/api/src/plugin_hub_api/routes/insights.py": {
+    "mtime": 1785216853.8717842,
+    "ast_hash": "b56244b2987da1178abe9a3b72f3447d",
+    "semantic_hash": "b56244b2987da1178abe9a3b72f3447d"
+  },
+  "apps/api/src/plugin_hub_api/routes/instagram_media_captures.py": {
+    "mtime": 1785207570.0937166,
+    "ast_hash": "f20d9524b9cd0b4df95852f67c1b839f",
+    "semantic_hash": "f20d9524b9cd0b4df95852f67c1b839f"
+  },
+  "apps/api/src/plugin_hub_api/routes/platform_settings.py": {
+    "mtime": 1782029706.9787264,
+    "ast_hash": "60bc9a2498046645dc817ccd8e7c1e81",
+    "semantic_hash": "60bc9a2498046645dc817ccd8e7c1e81"
+  },
+  "apps/api/src/plugin_hub_api/routes/reddit_thread_captures.py": {
+    "mtime": 1783675311.620195,
+    "ast_hash": "96699df16efac12deb0dfa8760413209",
+    "semantic_hash": "96699df16efac12deb0dfa8760413209"
+  },
+  "apps/api/src/plugin_hub_api/schemas.py": {
+    "mtime": 1785205907.6476862,
+    "ast_hash": "640a286c8a6d529993bac6d366222e95",
+    "semantic_hash": "640a286c8a6d529993bac6d366222e95"
+  },
+  "apps/api/src/plugin_hub_api/security.py": {
+    "mtime": 1785209544.7309978,
+    "ast_hash": "019bae242e643515b87172c024451cfe",
+    "semantic_hash": "019bae242e643515b87172c024451cfe"
+  },
+  "apps/api/src/plugin_hub_api/services/__init__.py": {
+    "mtime": 1780645809.6802201,
+    "ast_hash": "70fe28e1312b20585663f14c843a6cbd",
+    "semantic_hash": "70fe28e1312b20585663f14c843a6cbd"
+  },
+  "apps/api/src/plugin_hub_api/services/collection_runs.py": {
+    "mtime": 1781979763.4666498,
+    "ast_hash": "165f0469764a75268a18836dfaa701d9",
+    "semantic_hash": "165f0469764a75268a18836dfaa701d9"
+  },
+  "apps/api/src/plugin_hub_api/services/collection_task_worker.py": {
+    "mtime": 1785219934.7255764,
+    "ast_hash": "08ae0de4913850b4a66b15b5d981ab13",
+    "semantic_hash": "08ae0de4913850b4a66b15b5d981ab13"
+  },
+  "apps/api/src/plugin_hub_api/services/etl.py": {
+    "mtime": 1781979752.008033,
+    "ast_hash": "df8a29315f780cef16ff6d70d23516b6",
+    "semantic_hash": "df8a29315f780cef16ff6d70d23516b6"
+  },
+  "apps/api/src/plugin_hub_api/services/insight_snapshots.py": {
+    "mtime": 1783687719.0645983,
+    "ast_hash": "887707071a855c74577a6f26cdb693c9",
+    "semantic_hash": "887707071a855c74577a6f26cdb693c9"
+  },
+  "apps/api/src/plugin_hub_api/services/insights.py": {
+    "mtime": 1785216526.295425,
+    "ast_hash": "78f20af3b629f209cc74da42d69f5a67",
+    "semantic_hash": "78f20af3b629f209cc74da42d69f5a67"
+  },
+  "apps/api/src/plugin_hub_api/services/instagram_capture.py": {
+    "mtime": 1785218103.5995896,
+    "ast_hash": "fa068542f49507c232b674229b892001",
+    "semantic_hash": "fa068542f49507c232b674229b892001"
+  },
+  "apps/api/src/plugin_hub_api/services/instagram_graph_authorization.py": {
+    "mtime": 1782027091.839706,
+    "ast_hash": "8daf23145786e19b0806bf9cface4875",
+    "semantic_hash": "8daf23145786e19b0806bf9cface4875"
+  },
+  "apps/api/src/plugin_hub_api/services/instagram_graph_capture.py": {
+    "mtime": 1782091177.0266397,
+    "ast_hash": "0cce3aba4c71598a197bd512f6596656",
+    "semantic_hash": "0cce3aba4c71598a197bd512f6596656"
+  },
+  "apps/api/src/plugin_hub_api/services/reddit_capture.py": {
+    "mtime": 1783675284.4608357,
+    "ast_hash": "07d69fc7ef8f0dc2073c9839c1b0d329",
+    "semantic_hash": "07d69fc7ef8f0dc2073c9839c1b0d329"
+  },
+  "apps/api/src/plugin_hub_api/source_urls.py": {
+    "mtime": 1785199640.2167974,
+    "ast_hash": "a004716f3cf9997810d0d8b68bb2b40d",
+    "semantic_hash": "a004716f3cf9997810d0d8b68bb2b40d"
+  },
+  "apps/api/src/plugin_hub_api/worker_cli.py": {
+    "mtime": 1783677308.6237729,
+    "ast_hash": "174e4c9e0ba3321709cbbcc476ce0da9",
+    "semantic_hash": "174e4c9e0ba3321709cbbcc476ce0da9"
+  },
+  "apps/api/tests/conftest.py": {
+    "mtime": 1780649468.1689997,
+    "ast_hash": "6ccdef72ea5c50863b6719da11524507",
+    "semantic_hash": "6ccdef72ea5c50863b6719da11524507"
+  },
+  "apps/api/tests/test_api_security.py": {
+    "mtime": 1785209544.7323942,
+    "ast_hash": "1fa1b1f34785a6b4c1b07a909314340d",
+    "semantic_hash": "1fa1b1f34785a6b4c1b07a909314340d"
+  },
+  "apps/api/tests/test_backup_cli.py": {
+    "mtime": 1785220098.7465727,
+    "ast_hash": "fcbe4b388e6c86e63404aeb3503a6c7c",
+    "semantic_hash": "fcbe4b388e6c86e63404aeb3503a6c7c"
+  },
+  "apps/api/tests/test_capture_authorizations_api.py": {
+    "mtime": 1782872854.149014,
+    "ast_hash": "3b451a10cb6d09d3196f9393cff6efd2",
+    "semantic_hash": "3b451a10cb6d09d3196f9393cff6efd2"
+  },
+  "apps/api/tests/test_capture_capabilities_api.py": {
+    "mtime": 1782872976.501079,
+    "ast_hash": "54c6340a6befb6948f74446707b6c915",
+    "semantic_hash": "54c6340a6befb6948f74446707b6c915"
+  },
+  "apps/api/tests/test_collection_runs_api.py": {
+    "mtime": 1785216781.548677,
+    "ast_hash": "9baba9f7def8743dee2a2a29ad541c10",
+    "semantic_hash": "9baba9f7def8743dee2a2a29ad541c10"
+  },
+  "apps/api/tests/test_collection_tasks_api.py": {
+    "mtime": 1785218103.7470973,
+    "ast_hash": "c54f3260411353cf35f9f37f8e0543c1",
+    "semantic_hash": "c54f3260411353cf35f9f37f8e0543c1"
+  },
+  "apps/api/tests/test_contracts.py": {
+    "mtime": 1785205989.0511444,
+    "ast_hash": "7949a4dfe99c7a1680f649ca87512b59",
+    "semantic_hash": "7949a4dfe99c7a1680f649ca87512b59"
+  },
+  "apps/api/tests/test_cors.py": {
+    "mtime": 1783675827.4329553,
+    "ast_hash": "3fbdf7884c316142eaa0ba89f6b30289",
+    "semantic_hash": "3fbdf7884c316142eaa0ba89f6b30289"
+  },
+  "apps/api/tests/test_data_assets_api.py": {
+    "mtime": 1785216640.3703644,
+    "ast_hash": "9dc808035719aae77a49f962f47f7fcd",
+    "semantic_hash": "9dc808035719aae77a49f962f47f7fcd"
+  },
+  "apps/api/tests/test_database_hardening.py": {
+    "mtime": 1785220090.594543,
+    "ast_hash": "a05c9f3cced92e9a9a2c6f9573bacf8b",
+    "semantic_hash": "a05c9f3cced92e9a9a2c6f9573bacf8b"
+  },
+  "apps/api/tests/test_etl_amazon.py": {
+    "mtime": 1780647641.642865,
+    "ast_hash": "41166aa1840fa835184aa8af09a64f8e",
+    "semantic_hash": "41166aa1840fa835184aa8af09a64f8e"
+  },
+  "apps/api/tests/test_etl_instagram.py": {
+    "mtime": 1781979837.0982618,
+    "ast_hash": "6aff26772a42de1a0fa5f99bf388dfe6",
+    "semantic_hash": "6aff26772a42de1a0fa5f99bf388dfe6"
+  },
+  "apps/api/tests/test_etl_reddit.py": {
+    "mtime": 1782027247.0737088,
+    "ast_hash": "d52a7e1b1100a76d57260cba3e679838",
+    "semantic_hash": "d52a7e1b1100a76d57260cba3e679838"
+  },
+  "apps/api/tests/test_health_api.py": {
+    "mtime": 1783674181.9891632,
+    "ast_hash": "598335e7185126c9c75a5b12eebbef80",
+    "semantic_hash": "598335e7185126c9c75a5b12eebbef80"
+  },
+  "apps/api/tests/test_import.py": {
+    "mtime": 1780643730.3348527,
+    "ast_hash": "97616a5a7e4930ef0e17fe9546379339",
+    "semantic_hash": "97616a5a7e4930ef0e17fe9546379339"
+  },
+  "apps/api/tests/test_insight_snapshots_api.py": {
+    "mtime": 1785221904.4944606,
+    "ast_hash": "3b14cd73357ff62d3550813d3c4133c1",
+    "semantic_hash": "3b14cd73357ff62d3550813d3c4133c1"
+  },
+  "apps/api/tests/test_insights.py": {
+    "mtime": 1785216905.6918197,
+    "ast_hash": "08e71b5381cd1b3067f8001288a8493e",
+    "semantic_hash": "08e71b5381cd1b3067f8001288a8493e"
+  },
+  "apps/api/tests/test_instagram_capture.py": {
+    "mtime": 1785218103.6129916,
+    "ast_hash": "a120c1e46094fae422bf6d55953516ea",
+    "semantic_hash": "a120c1e46094fae422bf6d55953516ea"
+  },
+  "apps/api/tests/test_instagram_graph_capture.py": {
+    "mtime": 1782091138.0512745,
+    "ast_hash": "0a48db40912d458926e6cb6c40702c7d",
+    "semantic_hash": "0a48db40912d458926e6cb6c40702c7d"
+  },
+  "apps/api/tests/test_instagram_media_capture_api.py": {
+    "mtime": 1785207570.095502,
+    "ast_hash": "83aaca375de91dbd1fa9fccda2ddd441",
+    "semantic_hash": "83aaca375de91dbd1fa9fccda2ddd441"
+  },
+  "apps/api/tests/test_payload_hashes.py": {
+    "mtime": 1783675734.4860907,
+    "ast_hash": "188297bf492d5740637e2588fcf56caf",
+    "semantic_hash": "188297bf492d5740637e2588fcf56caf"
+  },
+  "apps/api/tests/test_platform_settings_api.py": {
+    "mtime": 1782029377.0868676,
+    "ast_hash": "739dd56d778f234919b0934908f3c003",
+    "semantic_hash": "739dd56d778f234919b0934908f3c003"
+  },
+  "apps/api/tests/test_reddit_capture.py": {
+    "mtime": 1783675293.4227424,
+    "ast_hash": "c9a5f80b681a0d5e281d5393ece94716",
+    "semantic_hash": "c9a5f80b681a0d5e281d5393ece94716"
+  },
+  "apps/api/tests/test_reddit_thread_capture_api.py": {
+    "mtime": 1783675325.6418278,
+    "ast_hash": "d81c7080b98960d1b0a3c5e4965fd511",
+    "semantic_hash": "d81c7080b98960d1b0a3c5e4965fd511"
+  },
+  "apps/api/tests/test_snapshot_migrations.py": {
+    "mtime": 1785215256.106649,
+    "ast_hash": "3cf9fd1a5a1daa8fc33d01f1aaf0cb5a",
+    "semantic_hash": "3cf9fd1a5a1daa8fc33d01f1aaf0cb5a"
+  },
+  "apps/extension/eslint.config.js": {
+    "mtime": 1780652020.0988445,
+    "ast_hash": "3d58fbf5673014384b9be328d7f51e9b",
+    "semantic_hash": "3d58fbf5673014384b9be328d7f51e9b"
+  },
+  "apps/extension/extension-targets.json": {
+    "mtime": 1782262795.798638,
+    "ast_hash": "682e3fcd508a31520397969cb381148f",
+    "semantic_hash": "682e3fcd508a31520397969cb381148f"
+  },
+  "apps/extension/extension-versions.json": {
+    "mtime": 1783675907.163736,
+    "ast_hash": "9be0e32c983209dab8fbe31af4c0f4c6",
+    "semantic_hash": "9be0e32c983209dab8fbe31af4c0f4c6"
+  },
+  "apps/extension/manifest.config.ts": {
+    "mtime": 1783652125.8698964,
+    "ast_hash": "706f3fa634c1f17e51ee4501af3f1435",
+    "semantic_hash": "706f3fa634c1f17e51ee4501af3f1435"
+  },
+  "apps/extension/package.json": {
+    "mtime": 1782011101.9990044,
+    "ast_hash": "9d5e9e981998ed6105b7662665a24061",
+    "semantic_hash": "9d5e9e981998ed6105b7662665a24061"
+  },
+  "apps/extension/src/background/service-worker.ts": {
+    "mtime": 1783674808.028865,
+    "ast_hash": "e13241bba6adc90586ec05af80dca165",
+    "semantic_hash": "e13241bba6adc90586ec05af80dca165"
+  },
+  "apps/extension/src/content/content-script-runtime.tsx": {
+    "mtime": 1782096566.519354,
+    "ast_hash": "aa0ac294bf93acc9659acfa1888e95aa",
+    "semantic_hash": "aa0ac294bf93acc9659acfa1888e95aa"
+  },
+  "apps/extension/src/content/content-script.amazon.tsx": {
+    "mtime": 1781773357.6063821,
+    "ast_hash": "9da4ac1936d37a55fc44f22ed219d927",
+    "semantic_hash": "9da4ac1936d37a55fc44f22ed219d927"
+  },
+  "apps/extension/src/content/content-script.instagram.tsx": {
+    "mtime": 1782011491.3834527,
+    "ast_hash": "aff47c6f8bc67fd76e1193a8a53d621d",
+    "semantic_hash": "aff47c6f8bc67fd76e1193a8a53d621d"
+  },
+  "apps/extension/src/content/content-script.reddit.tsx": {
+    "mtime": 1781773362.2451153,
+    "ast_hash": "f92ae0b34685463164575027ad9d9ec4",
+    "semantic_hash": "f92ae0b34685463164575027ad9d9ec4"
+  },
+  "apps/extension/src/content/content-script.tsx": {
+    "mtime": 1781773353.2444203,
+    "ast_hash": "a1fb0fed2c5bf4dde86d6160e72a29c0",
+    "semantic_hash": "a1fb0fed2c5bf4dde86d6160e72a29c0"
+  },
+  "apps/extension/src/content/ui/ContentCommandBar.tsx": {
+    "mtime": 1783675801.209492,
+    "ast_hash": "c8c5bb9b4cd2dee0d677ccf59f12ee15",
+    "semantic_hash": "c8c5bb9b4cd2dee0d677ccf59f12ee15"
+  },
+  "apps/extension/src/content/ui/command-bar-model.ts": {
+    "mtime": 1782011172.9940007,
+    "ast_hash": "1b2da77a8e2ec85394cbbeb4fd489f85",
+    "semantic_hash": "1b2da77a8e2ec85394cbbeb4fd489f85"
+  },
+  "apps/extension/src/content/ui/content-command-bar.css.ts": {
+    "mtime": 1783533520.0262997,
+    "ast_hash": "d1f939258c04e6fd445a4051f6485ab6",
+    "semantic_hash": "d1f939258c04e6fd445a4051f6485ab6"
+  },
+  "apps/extension/src/content/ui/export-payload.ts": {
+    "mtime": 1781366665.678433,
+    "ast_hash": "817b831bc2bf5874e2c78d9917cb2e59",
+    "semantic_hash": "817b831bc2bf5874e2c78d9917cb2e59"
+  },
+  "apps/extension/src/content/ui/page-snapshot.ts": {
+    "mtime": 1782011180.69855,
+    "ast_hash": "e25f2beb756b32170a93eb4921078735",
+    "semantic_hash": "e25f2beb756b32170a93eb4921078735"
+  },
+  "apps/extension/src/lib/amazon-capture.ts": {
+    "mtime": 1782096566.5179274,
+    "ast_hash": "dcc05a11fd6d33f6d7f28fb2d43b45ef",
+    "semantic_hash": "dcc05a11fd6d33f6d7f28fb2d43b45ef"
+  },
+  "apps/extension/src/lib/amazon-parser.ts": {
+    "mtime": 1781327157.757156,
+    "ast_hash": "5e74ffbfd5e4b459cbd5689d2bec14a5",
+    "semantic_hash": "5e74ffbfd5e4b459cbd5689d2bec14a5"
+  },
+  "apps/extension/src/lib/capture-types.ts": {
+    "mtime": 1782096566.516824,
+    "ast_hash": "fa35349221149107099c366dd91ee45c",
+    "semantic_hash": "fa35349221149107099c366dd91ee45c"
+  },
+  "apps/extension/src/lib/capture.ts": {
+    "mtime": 1782011166.4190657,
+    "ast_hash": "10b466aa33d896efce63e59a6eb0d6e5",
+    "semantic_hash": "10b466aa33d896efce63e59a6eb0d6e5"
+  },
+  "apps/extension/src/lib/extension-target.ts": {
+    "mtime": 1782262795.802625,
+    "ast_hash": "752469619444566372261b2e56e69e6f",
+    "semantic_hash": "752469619444566372261b2e56e69e6f"
+  },
+  "apps/extension/src/lib/extension-version.ts": {
+    "mtime": 1783652299.4370027,
+    "ast_hash": "0dfe48a57e122fedab8bc55857cdb828",
+    "semantic_hash": "0dfe48a57e122fedab8bc55857cdb828"
+  },
+  "apps/extension/src/lib/page-detect.ts": {
+    "mtime": 1782011137.1795197,
+    "ast_hash": "7759e270a9fa02ddad9917da28af161d",
+    "semantic_hash": "7759e270a9fa02ddad9917da28af161d"
+  },
+  "apps/extension/src/lib/platform-runtime-settings.ts": {
+    "mtime": 1782096566.5174987,
+    "ast_hash": "c50f70505663ef7fed65341b0345578b",
+    "semantic_hash": "c50f70505663ef7fed65341b0345578b"
+  },
+  "apps/extension/src/lib/reddit-capture.ts": {
+    "mtime": 1781773258.774471,
+    "ast_hash": "28448292ad6d938627d7fadad5c85ef4",
+    "semantic_hash": "28448292ad6d938627d7fadad5c85ef4"
+  },
+  "apps/extension/src/lib/reddit-parser.ts": {
+    "mtime": 1783409317.1129851,
+    "ast_hash": "400c657649dc842ba205a889008a3f9e",
+    "semantic_hash": "400c657649dc842ba205a889008a3f9e"
+  },
+  "apps/extension/src/lib/settings.ts": {
+    "mtime": 1785212698.4234545,
+    "ast_hash": "854bac2022053fa2c605662fefa6e4b6",
+    "semantic_hash": "854bac2022053fa2c605662fefa6e4b6"
+  },
+  "apps/extension/src/lib/upload-client.ts": {
+    "mtime": 1783675507.580499,
+    "ast_hash": "00a49c4698c501d63a8f0124a947c4ca",
+    "semantic_hash": "00a49c4698c501d63a8f0124a947c4ca"
+  },
+  "apps/extension/src/popup/Popup.tsx": {
+    "mtime": 1785212698.4336514,
+    "ast_hash": "016365134e09e454109cabf908e6d77f",
+    "semantic_hash": "016365134e09e454109cabf908e6d77f"
+  },
+  "apps/extension/src/types/contracts.ts": {
+    "mtime": 1783533221.2399395,
+    "ast_hash": "c916f1f83aec7a3d5049370e98e6605f",
+    "semantic_hash": "c916f1f83aec7a3d5049370e98e6605f"
+  },
+  "apps/extension/src/types/messages.ts": {
+    "mtime": 1783533231.6459215,
+    "ast_hash": "e0a76b5fe5c66199c58ec47ccdcf1aee",
+    "semantic_hash": "e0a76b5fe5c66199c58ec47ccdcf1aee"
+  },
+  "apps/extension/tests/amazon-parser.test.ts": {
+    "mtime": 1781327183.8143473,
+    "ast_hash": "fd5a1ce9a5681ca35f5adb05bcad3ee0",
+    "semantic_hash": "fd5a1ce9a5681ca35f5adb05bcad3ee0"
+  },
+  "apps/extension/tests/capture.test.ts": {
+    "mtime": 1782096621.0245254,
+    "ast_hash": "9274e8e98732cc252c3e7dbbb5d63ddf",
+    "semantic_hash": "9274e8e98732cc252c3e7dbbb5d63ddf"
+  },
+  "apps/extension/tests/content-command-bar-model.test.ts": {
+    "mtime": 1782011291.0708327,
+    "ast_hash": "4ce9b5e0721515f4f99dbb4c650bd69b",
+    "semantic_hash": "4ce9b5e0721515f4f99dbb4c650bd69b"
+  },
+  "apps/extension/tests/content-command-bar-render.test.tsx": {
+    "mtime": 1783533172.8469331,
+    "ast_hash": "fd44113528aaad4752aa89c290109d6b",
+    "semantic_hash": "fd44113528aaad4752aa89c290109d6b"
+  },
+  "apps/extension/tests/contracts.test.ts": {
+    "mtime": 1780671302.3999994,
+    "ast_hash": "e527f8e8cc3d58431a2fe17f65549cb0",
+    "semantic_hash": "e527f8e8cc3d58431a2fe17f65549cb0"
+  },
+  "apps/extension/tests/export-payload.test.ts": {
+    "mtime": 1781366708.5171685,
+    "ast_hash": "a76320be30adc4ad549f6ad3f05af945",
+    "semantic_hash": "a76320be30adc4ad549f6ad3f05af945"
+  },
+  "apps/extension/tests/manifest.test.ts": {
+    "mtime": 1783655956.1965692,
+    "ast_hash": "1f0ae1330cb0761ddd406ee19963d1ef",
+    "semantic_hash": "1f0ae1330cb0761ddd406ee19963d1ef"
+  },
+  "apps/extension/tests/page-detect.test.ts": {
+    "mtime": 1782011272.7008655,
+    "ast_hash": "e9d4378b02f6b519fb9af50c7143c201",
+    "semantic_hash": "e9d4378b02f6b519fb9af50c7143c201"
+  },
+  "apps/extension/tests/reddit-parser.test.ts": {
+    "mtime": 1783409249.1191142,
+    "ast_hash": "1f190399e82adee8650fddbd9124a2f4",
+    "semantic_hash": "1f190399e82adee8650fddbd9124a2f4"
+  },
+  "apps/extension/tests/settings.test.ts": {
+    "mtime": 1785212698.4637508,
+    "ast_hash": "ee60b3b42e69db1037798a45f774b21b",
+    "semantic_hash": "ee60b3b42e69db1037798a45f774b21b"
+  },
+  "apps/extension/tests/upload-client.test.ts": {
+    "mtime": 1783675507.5810294,
+    "ast_hash": "867c5071cfe855303ac2d5248835b9c0",
+    "semantic_hash": "867c5071cfe855303ac2d5248835b9c0"
+  },
+  "apps/extension/tsconfig.json": {
+    "mtime": 1780652020.0911722,
+    "ast_hash": "bb1540436e33aee4cb713b6de9d9601c",
+    "semantic_hash": "bb1540436e33aee4cb713b6de9d9601c"
+  },
+  "apps/extension/vite.config.ts": {
+    "mtime": 1782347904.5419257,
+    "ast_hash": "51ff64d7f34cd484acd93be07e4ed7eb",
+    "semantic_hash": "51ff64d7f34cd484acd93be07e4ed7eb"
+  },
+  "apps/web/app/layout.tsx": {
+    "mtime": 1782031864.2347019,
+    "ast_hash": "dffea2ecbf0a18a52debcd474c45c561",
+    "semantic_hash": "dffea2ecbf0a18a52debcd474c45c561"
+  },
+  "apps/web/app/page.tsx": {
+    "mtime": 1785205976.2149572,
+    "ast_hash": "8e2206f11fe9919603d22e23f59190dd",
+    "semantic_hash": "8e2206f11fe9919603d22e23f59190dd"
+  },
+  "apps/web/eslint.config.js": {
+    "mtime": 1780681200.248326,
+    "ast_hash": "edaad55fe023d92987221a3cc40d4d70",
+    "semantic_hash": "edaad55fe023d92987221a3cc40d4d70"
+  },
+  "apps/web/next-env.d.ts": {
+    "mtime": 1780679827.4477606,
+    "ast_hash": "ba64ff7d54714a8f64db89b1003207d8",
+    "semantic_hash": "ba64ff7d54714a8f64db89b1003207d8"
+  },
+  "apps/web/next.config.ts": {
+    "mtime": 1780714081.18792,
+    "ast_hash": "a18f5193ffc84da0cea7208ce7a18b1e",
+    "semantic_hash": "a18f5193ffc84da0cea7208ce7a18b1e"
+  },
+  "apps/web/package.json": {
+    "mtime": 1781854999.8626885,
+    "ast_hash": "62daaf4c2d0c4b97a49246922bbe7172",
+    "semantic_hash": "62daaf4c2d0c4b97a49246922bbe7172"
+  },
+  "apps/web/src/components/DashboardAutoRefresh.tsx": {
+    "mtime": 1783674864.1397784,
+    "ast_hash": "c1ff18f04e52617574aff57065ace011",
+    "semantic_hash": "c1ff18f04e52617574aff57065ace011"
+  },
+  "apps/web/src/components/DataAssetRunTable.tsx": {
+    "mtime": 1783675135.442889,
+    "ast_hash": "919dc967db35d283ffd8786911ea1682",
+    "semantic_hash": "919dc967db35d283ffd8786911ea1682"
+  },
+  "apps/web/src/components/InsightBriefPanel.tsx": {
+    "mtime": 1783528298.9697084,
+    "ast_hash": "ee0605c4f250a9cb97bbd59dec906f24",
+    "semantic_hash": "ee0605c4f250a9cb97bbd59dec906f24"
+  },
+  "apps/web/src/components/QualityBadge.tsx": {
+    "mtime": 1780681066.338405,
+    "ast_hash": "348300db24f200b92f3f450a0d66f8c3",
+    "semantic_hash": "348300db24f200b92f3f450a0d66f8c3"
+  },
+  "apps/web/src/components/RedditCaptureSubmitButton.tsx": {
+    "mtime": 1781866253.3346093,
+    "ast_hash": "e76c127470d6c3304d8d8a710d8e0b79",
+    "semantic_hash": "e76c127470d6c3304d8d8a710d8e0b79"
+  },
+  "apps/web/src/components/VocEvidenceTable.tsx": {
+    "mtime": 1782869953.4695673,
+    "ast_hash": "8f39e52f58787360fbcc3d53eb4845a0",
+    "semantic_hash": "8f39e52f58787360fbcc3d53eb4845a0"
+  },
+  "apps/web/src/components/operations/PlatformSettingSubmitButton.tsx": {
+    "mtime": 1782031877.5579822,
+    "ast_hash": "3800efbe28455efc824171cfcc3c2a12",
+    "semantic_hash": "3800efbe28455efc824171cfcc3c2a12"
+  },
+  "apps/web/src/components/operations/PlatformWorkspace.tsx": {
+    "mtime": 1785205976.2198684,
+    "ast_hash": "2dac6d2816de253ab880f04aa9c5fcfd",
+    "semantic_hash": "2dac6d2816de253ab880f04aa9c5fcfd"
+  },
+  "apps/web/src/lib/api-auth.ts": {
+    "mtime": 1783674733.3598385,
+    "ast_hash": "0e20ebdf3fffbda5e3696ab05d21ecab",
+    "semantic_hash": "0e20ebdf3fffbda5e3696ab05d21ecab"
+  },
+  "apps/web/src/lib/api.ts": {
+    "mtime": 1785216526.296404,
+    "ast_hash": "e03f43051a76ed26a4ad1a4fe289f93a",
+    "semantic_hash": "e03f43051a76ed26a4ad1a4fe289f93a"
+  },
+  "apps/web/src/lib/config.ts": {
+    "mtime": 1781980179.9860873,
+    "ast_hash": "19412f07a0a443fbfc30c25c6b2c46f3",
+    "semantic_hash": "19412f07a0a443fbfc30c25c6b2c46f3"
+  },
+  "apps/web/tests/api-auth.test.ts": {
+    "mtime": 1783675192.4574287,
+    "ast_hash": "fd98ef95b680003e3fe6bd77d827c883",
+    "semantic_hash": "fd98ef95b680003e3fe6bd77d827c883"
+  },
+  "apps/web/tests/api.test.ts": {
+    "mtime": 1785216793.5284889,
+    "ast_hash": "afa8fde6790485e8b9777fa7a50dcd88",
+    "semantic_hash": "afa8fde6790485e8b9777fa7a50dcd88"
+  },
+  "apps/web/tests/config.test.ts": {
+    "mtime": 1785207570.1028244,
+    "ast_hash": "e17dbe016212feb011854ea83ff54464",
+    "semantic_hash": "e17dbe016212feb011854ea83ff54464"
+  },
+  "apps/web/tests/data-assets-api.test.ts": {
+    "mtime": 1783675192.4577081,
+    "ast_hash": "f0052031ccb116711b993effe13c673b",
+    "semantic_hash": "f0052031ccb116711b993effe13c673b"
+  },
+  "apps/web/tests/insight-brief-panel.test.tsx": {
+    "mtime": 1783528331.9966195,
+    "ast_hash": "7e306d05b3615593f25a9cab892198f9",
+    "semantic_hash": "7e306d05b3615593f25a9cab892198f9"
+  },
+  "apps/web/tsconfig.json": {
+    "mtime": 1780681821.1149428,
+    "ast_hash": "ab433c23caac3b21537c64348e44aa5a",
+    "semantic_hash": "ab433c23caac3b21537c64348e44aa5a"
+  },
+  "package.json": {
+    "mtime": 1783652125.8724155,
+    "ast_hash": "dbe0c63b5072cdb7853ccec9d1bd7fe6",
+    "semantic_hash": "dbe0c63b5072cdb7853ccec9d1bd7fe6"
+  },
+  "scripts/dry-run-insight-snapshot-migration.py": {
+    "mtime": 1785221441.9781318,
+    "ast_hash": "9113f37c72799b564ee5082c56949ba9",
+    "semantic_hash": "9113f37c72799b564ee5082c56949ba9"
+  },
+  "scripts/extension-version-utils.mjs": {
+    "mtime": 1783652125.870679,
+    "ast_hash": "a1e316d57c3d1bb1dc11fdc1dab73da0",
+    "semantic_hash": "a1e316d57c3d1bb1dc11fdc1dab73da0"
+  },
+  "scripts/generate-extension-icons.py": {
+    "mtime": 1782347827.2600398,
+    "ast_hash": "a6abb4181f247f7bb1b8c2cf2c3e11f7",
+    "semantic_hash": "a6abb4181f247f7bb1b8c2cf2c3e11f7"
+  },
+  "scripts/manage-extension-version.mjs": {
+    "mtime": 1783652393.4282022,
+    "ast_hash": "e5b31c9bec3b200b3a59b71c26247a49",
+    "semantic_hash": "e5b31c9bec3b200b3a59b71c26247a49"
+  },
+  "scripts/package-extension.mjs": {
+    "mtime": 1783652393.4287841,
+    "ast_hash": "57e028c2fc8d73d76eeb71b93fd705a6",
+    "semantic_hash": "57e028c2fc8d73d76eeb71b93fd705a6"
+  },
+  "scripts/start-collection-worker.sh": {
+    "mtime": 1781412462.567322,
+    "ast_hash": "6e5f6a2cbe99dfd3405c012fc28a3acb",
+    "semantic_hash": "6e5f6a2cbe99dfd3405c012fc28a3acb"
+  },
+  "scripts/tests/extension-version-utils.test.mjs": {
+    "mtime": 1783655956.1972349,
+    "ast_hash": "354ec3b6476c3ea44dccba641bf42410",
+    "semantic_hash": "354ec3b6476c3ea44dccba641bf42410"
+  },
+  "scripts/verify-extension-package.mjs": {
+    "mtime": 1783652125.8721385,
+    "ast_hash": "75ea678d423ad3dc43a48fe05a65e7f3",
+    "semantic_hash": "75ea678d423ad3dc43a48fe05a65e7f3"
+  },
+  "tests/fixtures/instagram-media-comments.json": {
+    "mtime": 1781979809.9190898,
+    "ast_hash": "c42ff4924a0740013259bc01a3ea85fe",
+    "semantic_hash": "c42ff4924a0740013259bc01a3ea85fe"
+  },
+  "tests/fixtures/reddit-thread.json": {
+    "mtime": 1780681741.6264143,
+    "ast_hash": "a2fe4ae799faf0114c910ba168b9adc2",
+    "semantic_hash": "a2fe4ae799faf0114c910ba168b9adc2"
+  },
+  "apps/api/tests/test_migration_dry_run_script.py": {
+    "mtime": 1785221402.5993674,
+    "ast_hash": "c9c7f4ddb2fcac296102ce2991944cec",
+    "semantic_hash": "c9c7f4ddb2fcac296102ce2991944cec"
+  }
+}

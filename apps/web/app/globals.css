@@ -2196,6 +2196,50 @@ h2 {
   background: var(--surface-alt);
 }
 
+.assetRunTable {
+  min-width: 880px;
+}
+
+.assetRunTable code,
+.assetRunTable small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.assetRunTable small {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.runState {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 1px solid rgba(185, 193, 207, 0.9);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.runState--complete {
+  border-color: rgba(39, 128, 86, 0.45);
+  background: #edf8f1;
+  color: #1d6d48;
+}
+
+.runState--empty {
+  border-color: rgba(167, 118, 27, 0.45);
+  background: #fff7df;
+  color: #7c5615;
+}
+
+.runState--mismatch {
+  border-color: rgba(179, 61, 61, 0.5);
+  background: #fff0f0;
+  color: #993232;
+}
+
 .vocDetailDrawer__header h3 {
   margin: 8px 0 0;
   font-size: 18px;

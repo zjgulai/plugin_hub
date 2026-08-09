@@ -5,8 +5,7 @@ import { amazonRuntimeSettingsFromPlatformSetting } from "../../lib/platform-run
 import type { DetectedPage } from "../../lib/page-detect";
 import {
   DEFAULT_API_BASE_URL,
-  loadApiBaseUrl,
-  saveApiBaseUrl
+  loadApiBaseUrl
 } from "../../lib/settings";
 import type {
   CollectionRunPayload,
@@ -224,11 +223,8 @@ export function ContentCommandBar({
         throw new Error("collection_run_requires_raw_items_submit_server_task");
       }
       setStatus("uploading");
-      const normalizedApiBaseUrl = await saveApiBaseUrl(apiBaseUrl);
-      setApiBaseUrl(normalizedApiBaseUrl);
       const response = await sendRuntimeMessage<UploadCollectionResponse>({
         type: UPLOAD_COLLECTION_MESSAGE_TYPE,
-        apiBaseUrl: normalizedApiBaseUrl,
         payload: nextPayload
       });
 
@@ -256,11 +252,8 @@ export function ContentCommandBar({
     setCollectionTaskResult(null);
 
     try {
-      const normalizedApiBaseUrl = await saveApiBaseUrl(apiBaseUrl);
-      setApiBaseUrl(normalizedApiBaseUrl);
       const response = await sendRuntimeMessage<CreateCollectionTaskResponse>({
         type: CREATE_COLLECTION_TASK_MESSAGE_TYPE,
-        apiBaseUrl: normalizedApiBaseUrl,
         payload: buildServerCollectionTaskPayload({
           detectedPage,
           sourceUrl,
@@ -300,11 +293,8 @@ export function ContentCommandBar({
     }
 
     try {
-      const normalizedApiBaseUrl = await saveApiBaseUrl(apiBaseUrl);
-      setApiBaseUrl(normalizedApiBaseUrl);
       const response = await sendRuntimeMessage<GetPlatformSettingResponse>({
         type: GET_PLATFORM_SETTING_MESSAGE_TYPE,
-        apiBaseUrl: normalizedApiBaseUrl,
         platform: "amazon"
       });
 
@@ -342,11 +332,8 @@ export function ContentCommandBar({
       if (!isInsightPlatform(detectedPage.platform)) {
         throw new Error("insight_briefs_platform_required");
       }
-      const normalizedApiBaseUrl = await saveApiBaseUrl(apiBaseUrl);
-      setApiBaseUrl(normalizedApiBaseUrl);
       const response = await sendRuntimeMessage<GetInsightBriefsResponse>({
         type: GET_INSIGHT_BRIEFS_MESSAGE_TYPE,
-        apiBaseUrl: normalizedApiBaseUrl,
         platform: detectedPage.platform
       });
 
@@ -649,9 +636,9 @@ export function ContentCommandBar({
           ) : null}
 
           <details className="ph-section ph-settings">
-            <summary>回传设置</summary>
+            <summary>回传目标</summary>
             <label>
-              <span>API 地址</span>
+              <span>API 地址（在扩展弹窗中修改）</span>
               <input
                 type="url"
                 name="plugin-hub-api-base-url"
@@ -660,7 +647,7 @@ export function ContentCommandBar({
                 spellCheck={false}
                 value={apiBaseUrl}
                 aria-label="私有服务器 API 地址"
-                onChange={(event) => setApiBaseUrl(event.currentTarget.value)}
+                readOnly
               />
             </label>
           </details>
@@ -901,8 +888,11 @@ function recoveryDetailForError(error: string, apiBaseUrl: string): string {
   if (error === "platform_disabled_by_settings") {
     return "后台平台配置已关闭，先在 VOC Hub 启用该平台或切换到已启用平台。";
   }
+  if (error.includes(":401")) {
+    return "API Key 缺失或无权执行当前操作；请在扩展 popup 中更新生产 API Key 后重试。";
+  }
   if (error.includes("fetch") || error.includes("network")) {
-    return `网络或 API 不可达（当前 API：${apiBaseUrl}）。展开“回传设置”确认地址；如果使用本地 API，请先启动后端后重试；不要把本次结果记为平台采集成功。`;
+    return `网络或 API 不可达（当前 API：${apiBaseUrl}）。请在扩展弹窗中确认地址；如果使用本地 API，请先启动后端后重试；不要把本次结果记为平台采集成功。`;
   }
   return `保留当前状态并复核错误码：${error}`;
 }

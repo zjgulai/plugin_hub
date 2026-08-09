@@ -69,7 +69,7 @@ describe("extension manifest", () => {
 
   it("builds an Amazon-only extension manifest", () => {
     expect(amazonManifest.name).toBe("Plugin Hub Amazon VOC Collector");
-    expect(amazonManifest.host_permissions).toContain("https://www.amazon.com/*");
+    expect(amazonManifest.host_permissions).not.toContain("https://www.amazon.com/*");
     expect(amazonManifest.host_permissions).not.toContain("https://www.reddit.com/*");
     expect(amazonManifest.host_permissions).not.toContain("https://www.instagram.com/*");
     expect(amazonManifest.content_scripts?.[0]?.matches).toContain("https://www.amazon.com/*");
@@ -79,7 +79,7 @@ describe("extension manifest", () => {
 
   it("builds a Reddit-only extension manifest", () => {
     expect(redditManifest.name).toBe("Plugin Hub Reddit VOC Collector");
-    expect(redditManifest.host_permissions).toContain("https://www.reddit.com/*");
+    expect(redditManifest.host_permissions).not.toContain("https://www.reddit.com/*");
     expect(redditManifest.host_permissions).not.toContain("https://www.amazon.com/*");
     expect(redditManifest.host_permissions).not.toContain("https://www.instagram.com/*");
     expect(redditManifest.content_scripts?.[0]?.matches).toContain("https://www.reddit.com/*");
@@ -89,7 +89,7 @@ describe("extension manifest", () => {
 
   it("builds an Instagram-only extension manifest", () => {
     expect(instagramManifest.name).toBe("Plugin Hub Instagram VOC Collector");
-    expect(instagramManifest.host_permissions).toContain("https://www.instagram.com/*");
+    expect(instagramManifest.host_permissions).not.toContain("https://www.instagram.com/*");
     expect(instagramManifest.host_permissions).not.toContain("https://www.amazon.com/*");
     expect(instagramManifest.host_permissions).not.toContain("https://www.reddit.com/*");
     expect(instagramManifest.content_scripts?.[0]?.matches).toContain("https://www.instagram.com/*");

@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Plugin Hub verified SQLite backup
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+Persistent=true
+RandomizedDelaySec=15m
+Unit=plugin-hub-db-backup.service
+
+[Install]
+WantedBy=timers.target

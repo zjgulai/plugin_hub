@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import AnyHttpUrl, field_validator
+from pydantic import AnyHttpUrl, field_validator, model_validator
 
 from plugin_hub_api.repositories import SqlAlchemyRepository
 from plugin_hub_api.routes.collection_runs import get_repository
@@ -18,6 +18,7 @@ from plugin_hub_api.schemas import (
 )
 from plugin_hub_api.services.collection_runs import map_raw_item_to_voc
 from plugin_hub_api.services.instagram_capture import capture_instagram_media_comments_payload
+from plugin_hub_api.source_urls import validate_platform_source_url
 
 router = APIRouter()
 
@@ -30,6 +31,11 @@ class InstagramMediaCommentsCaptureRequest(StrictBaseModel):
     @classmethod
     def validate_payload(cls, value: object) -> dict[str, JsonValue]:
         return ensure_json_object(value)
+
+    @model_validator(mode="after")
+    def validate_source_target(self) -> InstagramMediaCommentsCaptureRequest:
+        validate_platform_source_url(Platform.INSTAGRAM.value, str(self.source_url))
+        return self
 
 
 class InstagramMediaCommentsCaptureResponse(StrictBaseModel):

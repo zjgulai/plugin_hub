@@ -61,3 +61,18 @@ def test_post_reddit_thread_capture_maps_network_errors_to_stable_response(
     assert response.status_code == 502
     assert response.json()["detail"] == "reddit_capture_failed"
     assert client.get("/api/voc-units", params={"platform": "reddit"}).json()["items"] == []
+
+
+def test_post_reddit_thread_capture_rejects_private_network_target_before_fetch(
+    client: TestClient,
+) -> None:
+    requested_urls: list[str] = []
+    client.app.state.reddit_json_fetcher = lambda url: requested_urls.append(url)
+
+    response = client.post(
+        "/api/reddit-thread-captures",
+        json={"source_url": "http://127.0.0.1:8000/internal"},
+    )
+
+    assert response.status_code == 422
+    assert requested_urls == []

@@ -37,15 +37,20 @@ export type UploadFetcher = (url: string, init: RequestInit) => Promise<UploadHt
 export async function uploadCollectionRun(
   apiBaseUrl: string,
   payload: CollectionRunPayload,
-  fetcher: UploadFetcher = fetch
+  fetcher: UploadFetcher = fetch,
+  apiKey?: string
 ): Promise<CollectionRunUploadResult> {
   assertCollectionRunPayloadJson(payload);
 
   const response = await fetcher(`${trimBaseUrl(apiBaseUrl)}/api/collection-runs`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
+    headers: apiHeaders(
+      {
+        "Content-Type": "application/json",
+        "Idempotency-Key": buildCollectionIdempotencyKey(payload)
+      },
+      apiKey
+    ),
     body: JSON.stringify(payload)
   });
 
@@ -56,18 +61,28 @@ export async function uploadCollectionRun(
   return parseUploadResult(await response.json());
 }
 
+export function buildCollectionIdempotencyKey(payload: CollectionRunPayload): string {
+  const serialized = JSON.stringify(payload);
+  let hash = 0xcbf29ce484222325n;
+  const prime = 0x100000001b3n;
+  for (let index = 0; index < serialized.length; index += 1) {
+    hash ^= BigInt(serialized.charCodeAt(index));
+    hash = BigInt.asUintN(64, hash * prime);
+  }
+  return `capture-fnv1a64-${hash.toString(16).padStart(16, "0")}`;
+}
+
 export async function createCollectionTask(
   apiBaseUrl: string,
   payload: CollectionTaskPayload,
-  fetcher: UploadFetcher = fetch
+  fetcher: UploadFetcher = fetch,
+  apiKey?: string
 ): Promise<CollectionTaskResult> {
   assertCollectionTaskPayloadJson(payload);
 
   const response = await fetcher(`${trimBaseUrl(apiBaseUrl)}/api/collection-tasks`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
+    headers: apiHeaders({ "Content-Type": "application/json" }, apiKey),
     body: JSON.stringify(payload)
   });
 
@@ -81,13 +96,12 @@ export async function createCollectionTask(
 export async function getPlatformSetting(
   apiBaseUrl: string,
   platform: Platform,
-  fetcher: UploadFetcher = fetch
+  fetcher: UploadFetcher = fetch,
+  apiKey?: string
 ): Promise<PlatformSettingResult> {
   const response = await fetcher(`${trimBaseUrl(apiBaseUrl)}/api/platform-settings/${platform}`, {
     method: "GET",
-    headers: {
-      Accept: "application/json"
-    }
+    headers: apiHeaders({ Accept: "application/json" }, apiKey)
   });
 
   if (!response.ok) {
@@ -100,15 +114,14 @@ export async function getPlatformSetting(
 export async function getStrategyNotes(
   apiBaseUrl: string,
   platform: Platform,
-  fetcher: UploadFetcher = fetch
+  fetcher: UploadFetcher = fetch,
+  apiKey?: string
 ): Promise<StrategyNotesResponse> {
   const response = await fetcher(
     `${trimBaseUrl(apiBaseUrl)}/api/insights/strategy-notes?platform=${encodeURIComponent(platform)}`,
     {
       method: "GET",
-      headers: {
-        Accept: "application/json"
-      }
+      headers: apiHeaders({ Accept: "application/json" }, apiKey)
     }
   );
 
@@ -122,15 +135,14 @@ export async function getStrategyNotes(
 export async function getInsightBriefs(
   apiBaseUrl: string,
   platform: Platform,
-  fetcher: UploadFetcher = fetch
+  fetcher: UploadFetcher = fetch,
+  apiKey?: string
 ): Promise<InsightBriefsResponse> {
   const response = await fetcher(
     `${trimBaseUrl(apiBaseUrl)}/api/insights/briefs?platform=${encodeURIComponent(platform)}`,
     {
       method: "GET",
-      headers: {
-        Accept: "application/json"
-      }
+      headers: apiHeaders({ Accept: "application/json" }, apiKey)
     }
   );
 
@@ -143,6 +155,16 @@ export async function getInsightBriefs(
 
 function trimBaseUrl(apiBaseUrl: string): string {
   return apiBaseUrl.replace(/\/+$/, "");
+}
+
+function apiHeaders(
+  headers: Record<string, string>,
+  apiKey: string | undefined
+): Record<string, string> {
+  const normalized = apiKey?.trim();
+  return normalized
+    ? { ...headers, "X-Plugin-Hub-Api-Key": normalized }
+    : headers;
 }
 
 function assertCollectionRunPayloadJson(payload: CollectionRunPayload): void {

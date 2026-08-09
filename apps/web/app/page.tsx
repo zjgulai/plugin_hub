@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { DashboardAutoRefresh } from "../src/components/DashboardAutoRefresh";
+import { DataAssetRunTable } from "../src/components/DataAssetRunTable";
 import { InsightBriefPanel } from "../src/components/InsightBriefPanel";
 import { PlatformWorkspace } from "../src/components/operations/PlatformWorkspace";
 import { RedditCaptureSubmitButton } from "../src/components/RedditCaptureSubmitButton";
@@ -10,14 +11,19 @@ import {
   captureRedditThreadByUrl,
   fetchCaptureCapabilities,
   fetchCollectionTasks,
+  fetchDataAssetSummary,
+  fetchDataAssetRuns,
   fetchInsightBriefs,
   fetchPlatformSettingAuditEvents,
   fetchPlatformSettings,
   fetchStrategyNotes,
   fetchVocUnits,
   updatePlatformSetting,
+  type ApiFetcher,
   type CaptureCapability,
   type CollectionTask,
+  type DataAssetSummary,
+  type DataAssetRun,
   type InsightBrief,
   type JsonValue,
   type PlatformSettingAuditEvent,
@@ -26,9 +32,15 @@ import {
   type VocPlatform,
   type VocUnit
 } from "../src/lib/api";
+import { apiFetcherWithKey, loadApiAccessKeys } from "../src/lib/api-auth";
 import { loadDashboardConfig, type DashboardConfig } from "../src/lib/config";
+import {
+  getIntegrityIssueCount,
+  getIntegrityMetricDisplay
+} from "../src/lib/dashboard-metrics";
 
 export const dynamic = "force-dynamic";
+const DASHBOARD_RECENT_VOC_LIMIT = 100;
 
 type PageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -37,11 +49,15 @@ type PageProps = {
 type DashboardData = {
   units: VocUnit[];
   tasks: CollectionTask[];
+  openTaskCount: number | null;
+  openTaskCounts: Record<VocPlatform, number> | null;
   captureCapabilities: CaptureCapability[];
   platformSettings: PlatformSetting[];
   platformSettingAuditEvents: PlatformSettingAuditEvent[];
   insightBriefs: InsightBrief[];
   strategyNotes: StrategyNote[];
+  assetSummary: DataAssetSummary | null;
+  assetRuns: DataAssetRun[];
   vocError: string | null;
   taskError: string | null;
   capabilityError: string | null;
@@ -49,6 +65,8 @@ type DashboardData = {
   platformSettingAuditError: string | null;
   insightError: string | null;
   strategyError: string | null;
+  assetSummaryError: string | null;
+  assetRunsError: string | null;
   loadedAt: string;
 };
 
@@ -63,6 +81,8 @@ type DashboardMetrics = {
   runCount: number;
   pendingTasks: number;
   latestCapturedAt: string | null;
+  placeholderCount: number;
+  integrityIssueCount: number | null;
 };
 
 type RedditCaptureStatus = {
@@ -81,8 +101,20 @@ type PlatformSettingsStatus = {
 
 export default async function Page({ searchParams }: PageProps) {
   const config = loadDashboardConfig();
-  const data = await loadDashboardData(config.apiBaseUrl);
-  const metrics = getMetrics(data.units, data.tasks, config.lowConfidenceThreshold);
+  const accessKeys = loadApiAccessKeys();
+  const data = await loadDashboardData(
+    config,
+    apiFetcherWithKey(accessKeys.readKey)
+  );
+  const metrics = getMetrics(
+    data.units,
+    data.tasks,
+    data.openTaskCount,
+    config.lowConfidenceThreshold,
+    data.assetSummary
+  );
+  const integrityMetric = getIntegrityMetricDisplay(metrics.integrityIssueCount);
+  const analysisUnits = data.units.filter(isAnalysisEligibleUnit);
   const apiState = getApiState(data);
   const resolvedSearchParams = await resolveSearchParams(searchParams);
   const redditCaptureStatus = getRedditCaptureStatus(resolvedSearchParams);
@@ -116,6 +148,18 @@ export default async function Page({ searchParams }: PageProps) {
         />
         <MetricTile label="质量 Flags" value={metrics.flagged} detail="需复核证据" tone="warning" />
         <MetricTile
+          label="非证据占位"
+          value={metrics.placeholderCount}
+          detail="保留 raw，不进入洞察"
+          tone={metrics.placeholderCount > 0 ? "warning" : "clear"}
+        />
+        <MetricTile
+          label="资产一致性"
+          value={integrityMetric.value}
+          detail="批次差异 / 孤儿记录"
+          tone={integrityMetric.tone}
+        />
+        <MetricTile
           label="待补采任务"
           value={metrics.pendingTasks}
           detail="server capture queue"
@@ -125,8 +169,10 @@ export default async function Page({ searchParams }: PageProps) {
       </section>
 
       <PlatformWorkspace
-        units={data.units}
+        units={analysisUnits}
+        platformUnitCounts={data.assetSummary?.platform_counts ?? null}
         tasks={data.tasks}
+        platformOpenTaskCounts={data.openTaskCounts}
         capabilities={data.captureCapabilities}
         platformSettings={data.platformSettings}
         platformSettingAuditEvents={data.platformSettingAuditEvents}
@@ -151,6 +197,22 @@ export default async function Page({ searchParams }: PageProps) {
       </section>
 
       {data.vocError ? <ErrorNotice title="VOC 数据拉取失败" error={data.vocError} /> : null}
+      {data.assetSummaryError ? (
+        <ErrorNotice title="数据资产汇总失败" error={data.assetSummaryError} />
+      ) : null}
+      {data.assetRunsError ? (
+        <ErrorNotice title="采集历史加载失败" error={data.assetRunsError} />
+      ) : null}
+
+      <section className="tableSection" aria-label="采集历史">
+        <div className="sectionHeading">
+          <div>
+            <h2>采集历史</h2>
+            <p>逐批核对 raw、canonical、可分析证据和占位节点。</p>
+          </div>
+        </div>
+        <DataAssetRunTable runs={data.assetRuns} />
+      </section>
 
       <section className="tableSection" aria-label="VOC 证据列表">
         <div className="sectionHeading">
@@ -188,7 +250,11 @@ async function captureRedditThreadAction(formData: FormData) {
   if (sourceUrl.length > 0) {
     try {
       const config = loadDashboardConfig();
-      const result = await captureRedditThreadByUrl(config.apiBaseUrl, sourceUrl);
+      const result = await captureRedditThreadByUrl(
+        config.apiBaseUrl,
+        sourceUrl,
+        apiFetcherWithKey(loadApiAccessKeys().writeKey)
+      );
       revalidatePath("/");
       destination = [
         "/?reddit_capture=success",
@@ -216,11 +282,16 @@ async function updatePlatformSettingAction(formData: FormData) {
   let destination = `/?settings_update=success&settings_platform=${platform}`;
   try {
     const config = loadDashboardConfig();
-    const result = await updatePlatformSetting(config.apiBaseUrl, platform, {
-      enabled: formData.get("enabled") === "on",
-      config: platformConfigFromForm(platform, formData),
-      updated_by: "dashboard-ui"
-    });
+    const result = await updatePlatformSetting(
+      config.apiBaseUrl,
+      platform,
+      {
+        enabled: formData.get("enabled") === "on",
+        config: platformConfigFromForm(platform, formData),
+        updated_by: "dashboard-ui"
+      },
+      apiFetcherWithKey(loadApiAccessKeys().writeKey)
+    );
     revalidatePath("/");
     destination = [
       "/?settings_update=success",
@@ -234,9 +305,15 @@ async function updatePlatformSettingAction(formData: FormData) {
   redirect(destination);
 }
 
-async function loadDashboardData(apiBaseUrl: string): Promise<DashboardData> {
+async function loadDashboardData(
+  config: DashboardConfig,
+  fetcher: ApiFetcher
+): Promise<DashboardData> {
+  const apiBaseUrl = config.apiBaseUrl;
   const [
     vocResult,
+    assetSummaryResult,
+    assetRunsResult,
     taskResult,
     capabilityResult,
     platformSettingsResult,
@@ -244,18 +321,27 @@ async function loadDashboardData(apiBaseUrl: string): Promise<DashboardData> {
     insightResult,
     strategyResult
   ] = await Promise.allSettled([
-    fetchVocUnits(apiBaseUrl, "all"),
-    fetchCollectionTasks(apiBaseUrl, "all"),
-    fetchCaptureCapabilities(apiBaseUrl),
-    fetchPlatformSettings(apiBaseUrl),
-    fetchPlatformSettingAuditEventsForActivePlatforms(apiBaseUrl),
-    fetchInsightBriefs(apiBaseUrl, "all"),
-    fetchStrategyNotes(apiBaseUrl, "all")
+    fetchVocUnits(apiBaseUrl, "all", fetcher, {
+      maxItems: DASHBOARD_RECENT_VOC_LIMIT
+    }),
+    fetchDataAssetSummary(apiBaseUrl, config.lowConfidenceThreshold, fetcher),
+    fetchDataAssetRuns(apiBaseUrl, fetcher),
+    fetchCollectionTasks(apiBaseUrl, "all", fetcher),
+    fetchCaptureCapabilities(apiBaseUrl, fetcher),
+    fetchPlatformSettings(apiBaseUrl, fetcher),
+    fetchPlatformSettingAuditEventsForActivePlatforms(apiBaseUrl, fetcher),
+    fetchInsightBriefs(apiBaseUrl, "all", fetcher),
+    fetchStrategyNotes(apiBaseUrl, "all", fetcher)
   ]);
 
   return {
     units: vocResult.status === "fulfilled" ? vocResult.value.items : [],
+    assetSummary:
+      assetSummaryResult.status === "fulfilled" ? assetSummaryResult.value : null,
+    assetRuns: assetRunsResult.status === "fulfilled" ? assetRunsResult.value.items : [],
     tasks: taskResult.status === "fulfilled" ? taskResult.value.items : [],
+    openTaskCount: taskResult.status === "fulfilled" ? taskResult.value.open_total : null,
+    openTaskCounts: taskResult.status === "fulfilled" ? taskResult.value.open_totals : null,
     captureCapabilities:
       capabilityResult.status === "fulfilled" ? capabilityResult.value.items : [],
     platformSettings:
@@ -278,17 +364,22 @@ async function loadDashboardData(apiBaseUrl: string): Promise<DashboardData> {
         : null,
     insightError: insightResult.status === "rejected" ? stableError(insightResult.reason) : null,
     strategyError: strategyResult.status === "rejected" ? stableError(strategyResult.reason) : null,
+    assetSummaryError:
+      assetSummaryResult.status === "rejected" ? stableError(assetSummaryResult.reason) : null,
+    assetRunsError:
+      assetRunsResult.status === "rejected" ? stableError(assetRunsResult.reason) : null,
     loadedAt: new Date().toISOString()
   };
 }
 
 async function fetchPlatformSettingAuditEventsForActivePlatforms(
-  apiBaseUrl: string
+  apiBaseUrl: string,
+  fetcher: ApiFetcher
 ): Promise<PlatformSettingAuditEvent[]> {
   const results = await Promise.all([
-    fetchPlatformSettingAuditEvents(apiBaseUrl, "amazon"),
-    fetchPlatformSettingAuditEvents(apiBaseUrl, "reddit"),
-    fetchPlatformSettingAuditEvents(apiBaseUrl, "instagram")
+    fetchPlatformSettingAuditEvents(apiBaseUrl, "amazon", fetcher),
+    fetchPlatformSettingAuditEvents(apiBaseUrl, "reddit", fetcher),
+    fetchPlatformSettingAuditEvents(apiBaseUrl, "instagram", fetcher)
   ]);
   return results.flatMap((result) => result.items);
 }
@@ -714,32 +805,44 @@ function ErrorNotice({ title, error }: { title: string; error: string }) {
 function getMetrics(
   units: VocUnit[],
   tasks: CollectionTask[],
-  lowConfidenceThreshold: number
+  openTaskCount: number | null,
+  lowConfidenceThreshold: number,
+  assetSummary: DataAssetSummary | null
 ): DashboardMetrics {
-  const total = units.length;
-  const amazon = units.filter((unit) => unit.platform === "amazon").length;
-  const reddit = units.filter((unit) => unit.platform === "reddit").length;
-  const instagram = units.filter((unit) => unit.platform === "instagram").length;
-  const flagged = units.filter((unit) => unit.quality_flags.length > 0).length;
-  const lowConfidence = units.filter(
+  const analysisUnits = units.filter(isAnalysisEligibleUnit);
+  const total = assetSummary?.analysis_eligible_voc_count ?? analysisUnits.length;
+  const amazon = assetSummary?.platform_counts.amazon ??
+    analysisUnits.filter((unit) => unit.platform === "amazon").length;
+  const reddit = assetSummary?.platform_counts.reddit ??
+    analysisUnits.filter((unit) => unit.platform === "reddit").length;
+  const instagram = assetSummary?.platform_counts.instagram ??
+    analysisUnits.filter((unit) => unit.platform === "instagram").length;
+  const flagged = assetSummary?.flagged_voc_count ??
+    analysisUnits.filter((unit) => unit.quality_flags.length > 0).length;
+  const lowConfidence = assetSummary?.low_confidence_voc_count ?? analysisUnits.filter(
     (unit) => unit.coverage_confidence < lowConfidenceThreshold
   ).length;
-  const averageConfidence =
-    total === 0
+  const averageConfidence = assetSummary
+    ? Math.round(assetSummary.average_coverage_confidence * 100)
+    : analysisUnits.length === 0
       ? 0
       : Math.round(
-          (units.reduce((sum, unit) => sum + unit.coverage_confidence, 0) / total) * 100
+          (analysisUnits.reduce((sum, unit) => sum + unit.coverage_confidence, 0) /
+            analysisUnits.length) * 100
         );
-  const runCount = new Set(
-    units.map((unit) => unit.collection_run_id).filter((value): value is string => value !== null)
+  const runCount = assetSummary?.collection_run_count ?? new Set(
+    analysisUnits
+      .map((unit) => unit.collection_run_id)
+      .filter((value): value is string => value !== null)
   ).size;
-  const pendingTasks = tasks.filter(
+  const pendingTasks = openTaskCount ?? tasks.filter(
     (task) =>
       task.status === "pending" ||
       task.status === "running" ||
       task.status === "retry_scheduled"
   ).length;
-  const latestCapturedAt = latestDate(units.map((unit) => unit.captured_at));
+  const latestCapturedAt = assetSummary?.latest_capture_at ??
+    latestDate(analysisUnits.map((unit) => unit.captured_at));
 
   return {
     total,
@@ -751,8 +854,15 @@ function getMetrics(
     averageConfidence,
     runCount,
     pendingTasks,
-    latestCapturedAt
+    latestCapturedAt,
+    placeholderCount: assetSummary?.placeholder_voc_count ??
+      units.filter((unit) => unit.quality_flags.includes("reddit_more_node")).length,
+    integrityIssueCount: getIntegrityIssueCount(assetSummary)
   };
+}
+
+function isAnalysisEligibleUnit(unit: VocUnit): boolean {
+  return !unit.quality_flags.includes("reddit_more_node");
 }
 
 function getApiState(data: DashboardData) {
@@ -769,7 +879,9 @@ function getApiState(data: DashboardData) {
     data.taskError ||
     data.capabilityError ||
     data.platformSettingsError ||
-    data.platformSettingAuditError
+    data.platformSettingAuditError ||
+    data.assetSummaryError ||
+    data.assetRunsError
   ) {
     return {
       tone: "partial",

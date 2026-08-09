@@ -51,3 +51,21 @@ def test_post_instagram_media_comment_capture_rejects_empty_fixture(
     assert response.status_code == 422
     assert response.json()["detail"] == "instagram_capture_no_raw_items"
     assert client.get("/api/voc-units", params={"platform": "instagram"}).json()["items"] == []
+
+
+def test_post_instagram_media_comment_capture_rejects_non_instagram_source(
+    client: TestClient,
+) -> None:
+    payload = json.loads(INSTAGRAM_FIXTURE.read_text())
+
+    response = client.post(
+        "/api/instagram-media-comment-captures",
+        json={
+            "source_url": "https://example.com/post/1",
+            "payload": payload,
+        },
+    )
+
+    assert response.status_code == 422
+    assert "instagram_source_url_not_allowed" in response.text
+    assert client.get("/api/voc-units", params={"platform": "instagram"}).json()["items"] == []

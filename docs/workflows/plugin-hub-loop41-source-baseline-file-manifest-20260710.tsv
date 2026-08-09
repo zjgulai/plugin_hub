@@ -1,0 +1,74 @@
+decision	group	path	reason
+include	backend	.env.example	non-secret runtime contract
+include	backend	apps/api/src/plugin_hub_api/config.py	auth and sqlite settings
+include	backend	apps/api/src/plugin_hub_api/db.py	database durability settings
+include	backend	apps/api/src/plugin_hub_api/main.py	security and route wiring
+include	backend	apps/api/src/plugin_hub_api/repositories.py	atomic asset persistence and summaries
+include	backend	apps/api/src/plugin_hub_api/routes/collection_runs.py	validated idempotent ingestion
+include	backend	apps/api/src/plugin_hub_api/routes/collection_tasks.py	bounded task reads
+include	backend	apps/api/src/plugin_hub_api/routes/insights.py	snapshot and bounded insight routes
+include	backend	apps/api/src/plugin_hub_api/routes/reddit_thread_captures.py	validated source URL
+include	backend	apps/api/src/plugin_hub_api/routes/data_assets.py	asset summary and run history routes
+include	backend	apps/api/src/plugin_hub_api/schemas.py	asset and snapshot contracts
+include	backend	apps/api/src/plugin_hub_api/services/insights.py	placeholder exclusion
+include	backend	apps/api/src/plugin_hub_api/services/reddit_capture.py	SSRF-safe retrieval
+include	backend	apps/api/src/plugin_hub_api/services/insight_snapshots.py	deterministic snapshot builder
+include	backend	apps/api/src/plugin_hub_api/worker_cli.py	worker database parity
+include	backend	apps/api/src/plugin_hub_api/backup_cli.py	verified online backup
+include	backend	apps/api/src/plugin_hub_api/insight_snapshot_repository.py	append-only snapshot repository
+include	backend	apps/api/src/plugin_hub_api/migration_cli.py	explicit migration CLI
+include	backend	apps/api/src/plugin_hub_api/migrations.py	versioned snapshot migration
+include	backend	apps/api/src/plugin_hub_api/payload_hashes.py	server-side hash verification
+include	backend	apps/api/src/plugin_hub_api/security.py	read/write API key enforcement
+include	backend	apps/api/src/plugin_hub_api/source_urls.py	platform URL allowlists
+include	backend	apps/api/tests/test_api_security.py	auth regression
+include	backend	apps/api/tests/test_backup_cli.py	backup and recovery regression
+include	backend	apps/api/tests/test_collection_runs_api.py	ingestion integrity regression
+include	backend	apps/api/tests/test_collection_tasks_api.py	bounded task regression
+include	backend	apps/api/tests/test_cors.py	browser-origin regression
+include	backend	apps/api/tests/test_data_assets_api.py	asset summary regression
+include	backend	apps/api/tests/test_database_hardening.py	sqlite durability regression
+include	backend	apps/api/tests/test_health_api.py	health/readiness regression
+include	backend	apps/api/tests/test_insight_snapshots_api.py	snapshot API regression
+include	backend	apps/api/tests/test_payload_hashes.py	hash regression
+include	backend	apps/api/tests/test_reddit_capture.py	SSRF and redirect regression
+include	backend	apps/api/tests/test_reddit_thread_capture_api.py	capture route regression
+include	backend	apps/api/tests/test_snapshot_migrations.py	migration immutability regression
+include	client	apps/extension/extension-versions.json	independent plugin versions
+include	client	apps/extension/src/background/service-worker.ts	key-aware background requests
+include	client	apps/extension/src/content/ui/ContentCommandBar.tsx	effective API diagnostics
+include	client	apps/extension/src/lib/settings.ts	local key settings
+include	client	apps/extension/src/lib/upload-client.ts	authenticated upload and snapshot parsing
+include	client	apps/extension/src/popup/Popup.tsx	key configuration UI
+include	client	apps/extension/tests/settings.test.ts	settings regression
+include	client	apps/extension/tests/upload-client.test.ts	upload regression
+include	client	apps/web/app/globals.css	asset history presentation
+include	client	apps/web/app/page.tsx	server-side authenticated data loading
+include	client	apps/web/src/components/DashboardAutoRefresh.tsx	bounded authenticated refresh
+include	client	apps/web/src/components/DataAssetRunTable.tsx	asset run history table
+include	client	apps/web/src/components/operations/PlatformWorkspace.tsx	pagination contract adaptation
+include	client	apps/web/src/lib/api-auth.ts	server-only API key fetcher
+include	client	apps/web/src/lib/api.ts	bounded data and snapshot contracts
+include	client	apps/web/tests/api-auth.test.ts	server auth regression
+include	client	apps/web/tests/data-assets-api.test.ts	asset API regression
+include	deploy	deploy/tencent-lighthouse/docker-compose.yml	runtime hardening and backup mount
+include	deploy	deploy/tencent-lighthouse/nginx-plugin-hub.conf	edge auth and limits
+include	deploy	deploy/tencent-lighthouse/systemd/plugin-hub-db-backup.service	verified backup service
+include	deploy	deploy/tencent-lighthouse/systemd/plugin-hub-db-backup.timer	daily backup schedule
+include	deploy	scripts/dry-run-insight-snapshot-migration.py	copied-database migration gate
+include	deploy	scripts/pull-offhost-backup.zsh	encrypted second-host backup
+include	governance	AGENTS.md	project data-asset invariants
+include	governance	README.md	operator commands and security contract
+include	governance	docs/workflows/plugin-hub-production-evidence-governance-runbook-draft-20260701.md	production evidence rules
+include	governance	docs/workflows/plugin-hub-loop38-data-asset-adversarial-audit-draft-20260710.md	audit evidence
+include	governance	docs/workflows/plugin-hub-loop39-production-hardening-acceptance-20260710.md	production acceptance
+include	governance	docs/workflows/plugin-hub-loop40-offhost-backup-insight-snapshot-acceptance-20260710.md	migration and recovery acceptance
+include	governance	docs/workflows/plugin-hub-loop41-source-baseline-reconciliation-plan-draft-20260710.md	reconciliation plan
+include	governance	docs/workflows/plugin-hub-loop41-source-baseline-reconciliation-acceptance-20260710.md	reconciliation acceptance
+include	governance	docs/workflows/plugin-hub-loop41-source-baseline-file-manifest-20260710.tsv	exact staging boundary
+exclude	local_state	.kiro/plan/**	local session memory
+exclude	historical_evidence	output/**	screenshots and prior smoke artifacts
+exclude	historical_docs	docs/workflows/plugin-hub-loop9-release-approval-packet-draft-20260706.md	old release packet
+exclude	historical_docs	docs/workflows/plugin-hub-loop13-release-approval-refresh-draft-20260708.md	old release packet
+exclude	historical_drafts	drafts/analysis/**	pre-existing analysis drafts
+exclude	browser_diagnostics	scripts/browser-harness/**	manual Chrome blocker diagnostics

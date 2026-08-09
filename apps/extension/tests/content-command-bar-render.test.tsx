@@ -376,7 +376,6 @@ describe("ContentCommandBar", () => {
 
     expect(sendMessage).toHaveBeenCalledWith({
       type: GET_INSIGHT_BRIEFS_MESSAGE_TYPE,
-      apiBaseUrl: "https://plugin.lute-tlz-dddd.top",
       platform: "amazon"
     });
     expect(rootElement.textContent).toContain("经营诊断");
@@ -534,7 +533,6 @@ describe("ContentCommandBar", () => {
 
     expect(sendMessage).toHaveBeenCalledWith({
       type: CREATE_COLLECTION_TASK_MESSAGE_TYPE,
-      apiBaseUrl: "http://localhost:8000",
       payload: {
         task: {
           platform: "reddit",
@@ -627,7 +625,7 @@ describe("ContentCommandBar", () => {
     });
 
     expect(rootElement.textContent).toContain("当前 API：http://localhost:8000");
-    expect(rootElement.textContent).toContain("展开“回传设置”确认地址");
+    expect(rootElement.textContent).toContain("请在扩展弹窗中确认地址");
   }, 20_000);
 
   it("renders Instagram target as authorization-gated without enabling page capture", async () => {

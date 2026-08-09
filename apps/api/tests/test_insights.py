@@ -5,8 +5,13 @@ from typing import cast
 
 from fastapi.testclient import TestClient
 
+from plugin_hub_api.payload_hashes import fnv1a64_payload_hash
 from plugin_hub_api.schemas import CanonicalVocUnit, JsonValue
-from plugin_hub_api.services.insights import build_voc_signal_bundle, generate_strategy_notes
+from plugin_hub_api.services.insights import (
+    build_voc_signal_bundle,
+    generate_insight_briefs,
+    generate_strategy_notes,
+)
 
 
 def test_generate_strategy_notes_groups_loud_and_noise_as_noise() -> None:
@@ -187,7 +192,6 @@ def test_get_strategy_notes_from_collection_runs_by_platform(client: TestClient)
                 _amazon_review_item(
                     source_object_id="RLOUD",
                     body="The fan noise is loud enough to wake everyone.",
-                    raw_payload_hash="sha256:amazon-loud",
                 )
             ],
         },
@@ -248,7 +252,6 @@ def test_get_voc_signals_from_collection_runs_by_platform(client: TestClient) ->
                 _amazon_review_item(
                     source_object_id="RLOUD",
                     body="The fan noise is loud enough to wake everyone.",
-                    raw_payload_hash="sha256:amazon-loud",
                     asin="B000000001",
                     parent_asin="B000PARENT1",
                     marketplace="US",
@@ -343,7 +346,6 @@ def test_get_amazon_insight_briefs_returns_listing_ops_actions(
                 _amazon_review_item(
                     source_object_id="RBROKE",
                     body="The lid broke after three days even though the listing says durable.",
-                    raw_payload_hash="sha256:amazon-broke",
                     asin="B000000001",
                     parent_asin="B000PARENT1",
                     marketplace="US",
@@ -351,7 +353,6 @@ def test_get_amazon_insight_briefs_returns_listing_ops_actions(
                 _amazon_review_item(
                     source_object_id="RPRICE",
                     body="The price feels expensive for this quality level.",
-                    raw_payload_hash="sha256:amazon-price",
                     asin="B000000001",
                     parent_asin="B000PARENT1",
                     marketplace="US",
@@ -399,7 +400,6 @@ def test_get_amazon_insight_briefs_skips_signals_without_exposed_evidence_ref(
                 _amazon_review_item(
                     source_object_id=f"RGENERAL{i}",
                     body="The product works well overall and setup was easy.",
-                    raw_payload_hash=f"sha256:amazon-general-{i}",
                     asin="B000000001",
                     parent_asin="B000PARENT1",
                     marketplace="US",
@@ -410,7 +410,6 @@ def test_get_amazon_insight_briefs_skips_signals_without_exposed_evidence_ref(
                 _amazon_review_item(
                     source_object_id="RLATEBROKE",
                     body="The lid broke after three days even though the listing says durable.",
-                    raw_payload_hash="sha256:amazon-late-broke",
                     asin="B000000001",
                     parent_asin="B000PARENT1",
                     marketplace="US",
@@ -432,6 +431,52 @@ def test_get_amazon_insight_briefs_skips_signals_without_exposed_evidence_ref(
         assert set(signal["evidence_ref_ids"]).issubset(exposed_ref_ids)
 
 
+def test_brief_evidence_mapping_preserves_repeated_source_id_run_lineage() -> None:
+    first_body = "First run lid broke after three days."
+    second_body = "Second run motor stopped after one week."
+    briefs = generate_insight_briefs(
+        [
+            _voc_unit(
+                platform="amazon",
+                source_kind="amazon_review",
+                source_object_id="REPEATED",
+                collection_run_id="run-first",
+                body=first_body,
+                coverage_confidence=0.9,
+                asin="B000000001",
+            ),
+            _voc_unit(
+                platform="amazon",
+                source_kind="amazon_review",
+                source_object_id="REPEATED",
+                collection_run_id="run-second",
+                body=second_body,
+                coverage_confidence=0.9,
+                asin="B000000001",
+            ),
+        ]
+    )
+
+    assert len(briefs) == 1
+    brief = briefs[0].model_dump(mode="json")
+    evidence_ids_by_quote = {
+        ref["quote"]: ref["evidence_ref_id"] for ref in brief["evidence_refs"]
+    }
+    assert set(evidence_ids_by_quote) == {first_body, second_body}
+    assert len(set(evidence_ids_by_quote.values())) == 2
+    matched_signals = 0
+    for signal in brief["business_signals"]:
+        for customer_quote in signal["customer_language"]:
+            expected_ref_id = evidence_ids_by_quote.get(customer_quote)
+            if expected_ref_id is not None:
+                matched_signals += 1
+                assert signal["evidence_ref_ids"] == [expected_ref_id]
+    # The deterministic brief currently emits one highest-priority signal for
+    # this pair. Its quote belongs to the first run, so the former source-only
+    # map (which kept the second run's ref) fails this assertion.
+    assert matched_signals == 1
+
+
 def _voc_unit(
     *,
     platform: str,
@@ -449,12 +494,13 @@ def _voc_unit(
     parent_id: str | None = None,
     reply_role: str | None = None,
     platform_extension: dict[str, JsonValue] | None = None,
+    collection_run_id: str = "run_insights",
 ) -> CanonicalVocUnit:
     payload: dict[str, object] = {
         "platform": platform,
         "source_kind": source_kind,
         "source_object_id": source_object_id,
-        "collection_run_id": "run_insights",
+        "collection_run_id": collection_run_id,
         "source_url": "https://example.com/source",
         "captured_at": "2026-06-05T00:00:00+00:00",
         "body": body,
@@ -496,7 +542,6 @@ def _amazon_review_item(
     *,
     source_object_id: str,
     body: str,
-    raw_payload_hash: str,
     asin: str | None = None,
     parent_asin: str | None = None,
     marketplace: str | None = None,
@@ -520,28 +565,29 @@ def _amazon_review_item(
         "raw_schema_version": "amazon-review-v1",
         "parser_version": "parser-v1",
         "raw_payload": raw_payload,
-        "raw_payload_hash": raw_payload_hash,
+        "raw_payload_hash": fnv1a64_payload_hash(cast(dict[str, JsonValue], raw_payload)),
         "captured_at": datetime(2026, 6, 5, tzinfo=UTC).isoformat(),
     }
 
 
 def _reddit_thread_item(*, body: str) -> dict[str, object]:
+    raw_payload: dict[str, JsonValue] = {
+        "name": "t3_thread123",
+        "id": "thread123",
+        "title": "Best grinder for espresso?",
+        "selftext": body,
+        "author": "buyer_researcher",
+        "created_utc": 1780602718.0,
+        "score": 42,
+    }
     return {
         "platform": "reddit",
         "source_kind": "reddit_thread",
         "source_object_id": "t3_thread123",
         "raw_schema_version": "reddit-thread-v1",
         "parser_version": "parser-v1",
-        "raw_payload": {
-            "name": "t3_thread123",
-            "id": "thread123",
-            "title": "Best grinder for espresso?",
-            "selftext": body,
-            "author": "buyer_researcher",
-            "created_utc": 1780602718.0,
-            "score": 42,
-        },
-        "raw_payload_hash": "sha256:reddit-thread123",
+        "raw_payload": raw_payload,
+        "raw_payload_hash": fnv1a64_payload_hash(raw_payload),
         "captured_at": datetime(2026, 6, 5, tzinfo=UTC).isoformat(),
     }
 
@@ -552,25 +598,26 @@ def _reddit_comment_item(
     body: str,
     parent_id: str,
 ) -> dict[str, object]:
+    raw_payload: dict[str, JsonValue] = {
+        "name": source_object_id,
+        "id": source_object_id.removeprefix("t1_"),
+        "body": body,
+        "author": "operator_peer",
+        "created_utc": 1780602818.0,
+        "score": 7,
+        "link_id": "t3_thread123",
+        "parent_id": parent_id,
+        "depth": 1,
+        "subreddit": "shopify",
+        "subreddit_name_prefixed": "r/shopify",
+    }
     return {
         "platform": "reddit",
         "source_kind": "reddit_comment",
         "source_object_id": source_object_id,
         "raw_schema_version": "reddit-comment-v1",
         "parser_version": "parser-v1",
-        "raw_payload": {
-            "name": source_object_id,
-            "id": source_object_id.removeprefix("t1_"),
-            "body": body,
-            "author": "operator_peer",
-            "created_utc": 1780602818.0,
-            "score": 7,
-            "link_id": "t3_thread123",
-            "parent_id": parent_id,
-            "depth": 1,
-            "subreddit": "shopify",
-            "subreddit_name_prefixed": "r/shopify",
-        },
-        "raw_payload_hash": f"sha256:{source_object_id}",
+        "raw_payload": raw_payload,
+        "raw_payload_hash": fnv1a64_payload_hash(raw_payload),
         "captured_at": datetime(2026, 6, 5, tzinfo=UTC).isoformat(),
     }

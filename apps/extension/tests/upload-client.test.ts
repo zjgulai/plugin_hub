@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { CollectionRunPayload, CollectionTaskPayload } from "../src/types/contracts";
 import {
+  buildCollectionIdempotencyKey,
   createCollectionTask,
   getInsightBriefs,
   getStrategyNotes,
@@ -57,6 +58,36 @@ const taskPayload = {
 } satisfies CollectionTaskPayload;
 
 describe("uploadCollectionRun", () => {
+  it("adds the configured API key without placing it in the payload", async () => {
+    let request: RequestInit | undefined;
+    const fetcher: UploadFetcher = async (_url, init) => {
+      request = init;
+      return {
+        ok: true,
+        status: 201,
+        json: async () => ({
+          collection_run_id: "run-1",
+          raw_item_count: 1,
+          voc_unit_count: 1
+        })
+      };
+    };
+
+    await uploadCollectionRun(
+      "https://api.example.com",
+      payload,
+      fetcher,
+      "k".repeat(32)
+    );
+
+    expect(request?.headers).toEqual({
+      "Content-Type": "application/json",
+      "Idempotency-Key": buildCollectionIdempotencyKey(payload),
+      "X-Plugin-Hub-Api-Key": "k".repeat(32)
+    });
+    expect(request?.body).toBe(JSON.stringify(payload));
+  });
+
   it("posts the collection run payload and returns the created counters", async () => {
     const calls: Array<{ url: string; init: RequestInit }> = [];
     const fetcher: UploadFetcher = async (url, init) => {
@@ -85,11 +116,31 @@ describe("uploadCollectionRun", () => {
       init: {
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          "Idempotency-Key": buildCollectionIdempotencyKey(payload)
         },
         body: JSON.stringify(payload)
       }
     });
+  });
+
+  it("generates a stable idempotency key that changes with capture content", () => {
+    const changedPayload = {
+      ...payload,
+      raw_items: [
+        {
+          ...payload.raw_items[0],
+          captured_at: "2026-06-06T01:02:04.000Z"
+        }
+      ]
+    } satisfies CollectionRunPayload;
+
+    expect(buildCollectionIdempotencyKey(payload)).toBe(
+      buildCollectionIdempotencyKey(payload)
+    );
+    expect(buildCollectionIdempotencyKey(changedPayload)).not.toBe(
+      buildCollectionIdempotencyKey(payload)
+    );
   });
 
   it("removes multiple trailing slashes from the base URL", async () => {

@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from urllib.error import HTTPError
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from plugin_hub_api.config import Settings
 from plugin_hub_api.schemas import (
@@ -19,10 +19,12 @@ from plugin_hub_api.schemas import (
     SourceKind,
     ensure_json_object,
 )
+from plugin_hub_api.source_urls import validate_reddit_network_url, validate_reddit_source_url
 
 THREAD_RAW_SCHEMA_VERSION = "raw_reddit_thread_v1"
 COMMENT_RAW_SCHEMA_VERSION = "raw_reddit_comment_v1"
 PARSER_VERSION = "server-reddit-json-parser@0.1.0"
+MAX_REDDIT_RESPONSE_BYTES = 25 * 1024 * 1024
 THREAD_FIELD_KEYS = (
     "name",
     "id",
@@ -65,6 +67,23 @@ MORE_FIELD_KEYS = ("id", "parent_id", "children", "depth")
 
 type RedditJsonFetcher = Callable[[str], object]
 type RedditHttpRequest = Callable[[Request, float], bytes]
+
+
+class RedditRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        req: Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> Request | None:
+        validate_reddit_network_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+REDDIT_URL_OPENER = build_opener(RedditRedirectHandler())
 
 
 @dataclass(frozen=True)
@@ -240,6 +259,7 @@ def parse_reddit_thread_json_payload(
 
 
 def build_reddit_json_url(source_url: str) -> str:
+    validate_reddit_source_url(source_url)
     parsed = urlparse(source_url)
     path = parsed.path if parsed.path.endswith(".json") else f"{parsed.path.rstrip('/')}/.json"
     query_items = dict(parse_qsl(parsed.query, keep_blank_values=True))
@@ -295,6 +315,7 @@ def build_configured_reddit_json_fetcher(settings: Settings) -> RedditJsonFetche
 
 
 def default_reddit_json_fetcher(url: str) -> str:
+    validate_reddit_network_url(url)
     request = Request(
         url,
         headers={
@@ -310,8 +331,13 @@ def default_reddit_json_fetcher(url: str) -> str:
 
 
 def _urlopen_bytes(request: Request, timeout: float) -> bytes:
-    with urlopen(request, timeout=timeout) as response:
-        return cast(bytes, response.read())
+    validate_reddit_network_url(request.full_url)
+    with REDDIT_URL_OPENER.open(request, timeout=timeout) as response:
+        validate_reddit_network_url(response.geturl())
+        body = cast(bytes, response.read(MAX_REDDIT_RESPONSE_BYTES + 1))
+        if len(body) > MAX_REDDIT_RESPONSE_BYTES:
+            raise RedditUpstreamAccessError("reddit_upstream_response_too_large")
+        return body
 
 
 def _parse_oauth_token_response(body: bytes, *, now: datetime) -> RedditAccessToken:

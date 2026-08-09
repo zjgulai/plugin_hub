@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import {
@@ -8,10 +8,17 @@ import {
 import type { CaptureRuntimeSettings } from "../lib/capture-types";
 import { amazonRuntimeSettingsFromPlatformSetting } from "../lib/platform-runtime-settings";
 import {
+  clearPendingCollectionUpload,
   DEFAULT_API_BASE_URL,
+  loadApiKey,
   loadApiBaseUrl,
-  normalizeApiBaseUrl,
-  saveApiBaseUrl
+  loadPendingCollectionUpload,
+  retargetPendingCollectionUpload,
+  resolvePendingUpload,
+  saveApiBaseUrl,
+  saveApiKey,
+  savePendingCollectionUpload,
+  type PendingCollectionUpload
 } from "../lib/settings";
 import {
   CAPTURE_CURRENT_PAGE_MESSAGE_TYPE,
@@ -45,42 +52,91 @@ type UploadResult = {
 const TARGET_CONFIG = extensionTargetConfig(CURRENT_EXTENSION_TARGET);
 
 export function Popup() {
-  const [apiBaseUrl, setApiBaseUrl] = useState(DEFAULT_API_BASE_URL);
+  const [apiBaseUrl, setApiBaseUrl] = useState<string | null>(null);
+  const [apiKey, setApiKey] = useState<string | null>(null);
+  const [settingsReady, setSettingsReady] = useState(false);
   const [status, setStatus] = useState<PopupStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<UploadResult | null>(null);
+  const [pendingUpload, setPendingUpload] = useState<PendingCollectionUpload | null>(null);
+  const [pendingUploadReady, setPendingUploadReady] = useState(false);
+  const submissionInFlight = useRef(false);
 
   useEffect(() => {
-    void loadApiBaseUrl().then(setApiBaseUrl).catch(() => setApiBaseUrl(DEFAULT_API_BASE_URL));
+    void Promise.all([
+      loadApiBaseUrl().catch(() => DEFAULT_API_BASE_URL),
+      loadApiKey()
+        .then((value) => ({ ok: true as const, value }))
+        .catch((loadError: unknown) => ({ ok: false as const, loadError }))
+    ])
+      .then(([restoredApiBaseUrl, restoredApiKey]) => {
+        setApiBaseUrl(restoredApiBaseUrl);
+        if (restoredApiKey.ok) {
+          setApiKey(restoredApiKey.value);
+        } else {
+          const { loadError } = restoredApiKey;
+          setError(
+            loadError instanceof Error ? loadError.message : "extension_settings_restore_failed:unknown"
+          );
+          setStatus("error");
+        }
+        setSettingsReady(true);
+      });
+    void loadPendingCollectionUpload()
+      .then(setPendingUpload)
+      .catch((loadError: unknown) => {
+        setError(
+          loadError instanceof Error ? loadError.message : "pending_upload_restore_failed:unknown"
+        );
+        setStatus("error");
+      })
+      .finally(() => setPendingUploadReady(true));
   }, []);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submissionInFlight.current) {
+      return;
+    }
+    submissionInFlight.current = true;
     setError(null);
     setResult(null);
 
     try {
-      const normalizedApiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
-      setApiBaseUrl(normalizedApiBaseUrl);
-      await saveApiBaseUrl(normalizedApiBaseUrl);
-      const runtimeSettings = await loadCaptureRuntimeSettings(normalizedApiBaseUrl);
-
-      setStatus("capturing");
-      const tabId = await getActiveTabId();
-      const captureResponse = await sendTabMessage<CaptureCurrentPageResponse>(tabId, {
-        type: CAPTURE_CURRENT_PAGE_MESSAGE_TYPE,
-        runtimeSettings
-      });
-
-      if ("error" in captureResponse) {
-        throw new Error(captureResponse.error);
+      if (!settingsReady || apiBaseUrl === null || apiKey === null) {
+        throw new Error("extension_settings_not_ready");
       }
+      const normalizedApiKey = apiKey.trim();
+      if (!normalizedApiKey) {
+        throw new Error("api_key_required");
+      }
+      const normalizedApiBaseUrl = await saveApiBaseUrl(apiBaseUrl);
+      setApiBaseUrl(normalizedApiBaseUrl);
+      await saveApiKey(normalizedApiKey);
+      const restoredPendingUpload =
+        pendingUpload ?? (await loadPendingCollectionUpload());
+      const resolvedUpload = await resolvePendingUpload(restoredPendingUpload, async () => {
+        const runtimeSettings = await loadCaptureRuntimeSettings();
+        setStatus("capturing");
+        const tabId = await getActiveTabId();
+        const response = await sendTabMessage<CaptureCurrentPageResponse>(tabId, {
+          type: CAPTURE_CURRENT_PAGE_MESSAGE_TYPE,
+          runtimeSettings
+        });
+
+        if ("error" in response) {
+          throw new Error(response.error);
+        }
+        return { apiBaseUrl: normalizedApiBaseUrl, capture: response };
+      });
+      const upload = retargetPendingCollectionUpload(resolvedUpload, normalizedApiBaseUrl);
+      setPendingUpload(upload);
+      await savePendingCollectionUpload(upload);
 
       setStatus("uploading");
       const uploadResponse = await sendRuntimeMessage<UploadCollectionResponse>({
         type: UPLOAD_COLLECTION_MESSAGE_TYPE,
-        apiBaseUrl: normalizedApiBaseUrl,
-        payload: captureResponse.payload
+        payload: upload.capture.payload
       });
 
       if ("error" in uploadResponse) {
@@ -91,14 +147,20 @@ export function Popup() {
         collectionRunId: uploadResponse.collection_run_id,
         rawItemCount: uploadResponse.raw_item_count,
         vocUnitCount: uploadResponse.voc_unit_count,
-        captureSummary: captureResponse.summary
+        captureSummary: upload.capture.summary
       });
+      await clearPendingCollectionUpload();
+      setPendingUpload(null);
       setStatus("done");
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "capture_upload_failed:unknown");
       setStatus("error");
+    } finally {
+      submissionInFlight.current = false;
     }
   }
+
+  const apiKeyReady = apiKey !== null && apiKey.trim().length > 0;
 
   return (
     <>
@@ -126,12 +188,45 @@ export function Popup() {
           autoComplete="off"
           spellCheck={false}
           placeholder="https://plugin.example.com…"
-          value={apiBaseUrl}
+          value={apiBaseUrl ?? ""}
           onChange={(event) => setApiBaseUrl(event.currentTarget.value)}
+          disabled={!settingsReady}
           required
         />
-        <button type="submit" disabled={status === "capturing" || status === "uploading"}>
-          {buttonLabel(status)}
+        <label htmlFor="api-key">
+          <span>API Key</span>
+        </label>
+        <input
+          id="api-key"
+          name="api-key"
+          type="password"
+          autoComplete="new-password"
+          spellCheck={false}
+          placeholder="生产环境必填"
+          value={apiKey ?? ""}
+          onChange={(event) => setApiKey(event.currentTarget.value)}
+          disabled={!settingsReady}
+          required
+          minLength={32}
+        />
+        <button
+          type="submit"
+          disabled={
+            !settingsReady ||
+            apiBaseUrl === null ||
+            !apiKeyReady ||
+            !pendingUploadReady ||
+            status === "capturing" ||
+            status === "uploading"
+          }
+        >
+          {buttonLabel(
+            status,
+            pendingUpload !== null,
+            settingsReady,
+            apiKeyReady,
+            pendingUploadReady
+          )}
         </button>
       </form>
 
@@ -214,14 +309,29 @@ function StatusPanel({
   );
 }
 
-function buttonLabel(status: PopupStatus): string {
+function buttonLabel(
+  status: PopupStatus,
+  hasPendingUpload: boolean,
+  settingsReady: boolean,
+  apiKeyReady: boolean,
+  pendingUploadReady: boolean
+): string {
+  if (!settingsReady) {
+    return "正在恢复设置…";
+  }
+  if (!apiKeyReady) {
+    return "请输入 API Key";
+  }
+  if (!pendingUploadReady) {
+    return "正在恢复待上传任务…";
+  }
   if (status === "capturing") {
     return "采集中…";
   }
   if (status === "uploading") {
     return "回传中…";
   }
-  return "采集并回传";
+  return hasPendingUpload ? "重试回传" : "采集并回传";
 }
 
 async function getActiveTabId(): Promise<number> {
@@ -248,16 +358,13 @@ async function sendRuntimeMessage<TResponse>(
   return chrome.runtime.sendMessage(message) as Promise<TResponse>;
 }
 
-async function loadCaptureRuntimeSettings(
-  apiBaseUrl: string
-): Promise<CaptureRuntimeSettings | undefined> {
+async function loadCaptureRuntimeSettings(): Promise<CaptureRuntimeSettings | undefined> {
   if (TARGET_CONFIG.platform !== "amazon") {
     return undefined;
   }
 
   const response = await sendRuntimeMessage<GetPlatformSettingResponse>({
     type: GET_PLATFORM_SETTING_MESSAGE_TYPE,
-    apiBaseUrl,
     platform: "amazon"
   });
 

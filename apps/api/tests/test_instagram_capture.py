@@ -42,3 +42,19 @@ def test_parse_instagram_media_comments_payload_rejects_invalid_shape() -> None:
     assert raw_items == []
     assert comment_count == 0
     assert stop_reason == "missing_comments"
+
+
+def test_parse_instagram_media_comments_payload_deduplicates_comment_ids() -> None:
+    payload = json.loads(INSTAGRAM_FIXTURE.read_text())
+    comments = payload["comments"]["data"]
+    comments.append({**comments[0], "text": "duplicate transport record"})
+
+    raw_items, comment_count, _ = parse_instagram_media_comments_payload(
+        payload=payload,
+        source_url="https://www.instagram.com/p/example/",
+        captured_at=datetime(2026, 6, 5, 10, 0, tzinfo=UTC),
+    )
+
+    assert comment_count == 2
+    assert len(raw_items) == 2
+    assert len({item.source_object_id for item in raw_items}) == 2

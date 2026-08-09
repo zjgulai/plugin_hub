@@ -48,6 +48,102 @@ PLUGIN_HUB_API_URL=http://localhost:8000 pnpm --filter @plugin-hub/web dev
 
 If port `8000` is occupied, run the API on another local port and set the same API URL in VOC Hub and the extension popup.
 
+### API Access Control
+
+Local development defaults to `PLUGIN_HUB_API_AUTH_MODE=disabled`. Production
+deployment is configured to fail closed and requires distinct read and write
+keys of at least 32 characters:
+
+```bash
+PLUGIN_HUB_API_AUTH_MODE=required
+PLUGIN_HUB_API_READ_KEY=<independent-read-key>
+PLUGIN_HUB_API_WRITE_KEY=<independent-write-key>
+```
+
+The API accepts keys through `X-Plugin-Hub-Api-Key`. VOC Hub injects its keys
+server-side from environment variables. Browser plugins store the write key in
+`chrome.storage.local`; configure it through the extension popup. Never compile
+a production key into an extension package or frontend bundle.
+
+Extension API targets are restricted to the configured production origin or an
+explicit loopback development origin (`http://localhost[:port]` or
+`http://127.0.0.1[:port]`). The page command bar only displays the active
+target: it cannot replace it in a runtime message. The service worker validates
+the sender and stored target before reading or attaching the API key.
+
+The lightweight health endpoints are:
+
+- `GET /healthz`: process liveness without a database scan.
+- `GET /readyz`: database connectivity through `SELECT 1`.
+
+### Data Asset History
+
+The backend persists collection runs, raw source items, and canonical VOC in one
+transaction. Operators can inspect aggregate and run-level history without
+returning raw payloads:
+
+- `GET /api/data-assets/summary`
+- `GET /api/data-assets/runs`
+- `GET /api/voc-units?limit=100&offset=0`
+
+Reddit `more` nodes remain preserved in raw/canonical history but are excluded
+from analysis-eligible evidence metrics and read-time insight generation.
+
+The read-time insight endpoints remain available, but immutable history is
+created only through explicit snapshot writes:
+
+- `POST /api/insights/snapshots`
+- `GET /api/insights/snapshots`
+- `GET /api/insights/snapshots/{analysis_run_id}`
+
+Each snapshot fixes the collection-run set, input digest, generation/template
+contract, Chinese output payloads, per-artifact digest, and aggregate output
+digest. Database triggers reject update and delete operations. Repeating the
+same platform/language snapshot against unchanged inputs returns the existing
+deterministic analysis run instead of duplicating it.
+
+Snapshot tables are not created by application startup. Apply the explicit
+migration only after copied-database dry-run, online backup, and authorization:
+
+```bash
+uv --directory apps/api run python -m plugin_hub_api.migration_cli status
+uv --directory apps/api run python -m plugin_hub_api.migration_cli up
+```
+
+`down` is permitted only while both snapshot tables are empty. Never label a
+new baseline snapshot as historical output from before its `created_at` time.
+Use `scripts/dry-run-insight-snapshot-migration.py --copied-database` against a
+verified database copy before a production migration.
+
+### Verified SQLite Backups
+
+Create a consistent backup with SQLite's online Backup API:
+
+```bash
+uv --directory apps/api run python -m plugin_hub_api.backup_cli \
+  --source /path/to/plugin_hub.db \
+  --destination-dir /path/to/backups \
+  --retention-count 14
+```
+
+The command verifies `PRAGMA quick_check`, writes table counts and SHA-256 to a
+manifest, atomically publishes the backup, and only counts an older copy toward
+retention after rechecking its size, digest, integrity, and table counts.
+SQLite database and active WAL/SHM files are restricted to mode `0600` during
+application initialization. Production data and backup directories must also
+be owned by the service account and set to `0700` during an approved deployment.
+The systemd service/timer templates under
+`deploy/tencent-lighthouse/systemd/` are deployment artifacts; adding them to
+the repository does not mean they are installed in production.
+
+For a second-host encrypted copy, `scripts/pull-offhost-backup.zsh` verifies the
+latest remote manifest/database, streams them through SSH directly into an age
+encrypted archive, decrypts into a temporary directory for recovery checks,
+and retains 30 encrypted archives. The age identity must remain in Keychain;
+only its recipient public key belongs in the runtime configuration. The local
+LaunchAgent installation is machine-specific and must not be inferred from the
+presence of the script in the repository.
+
 ## Chrome Extensions
 
 Plugin Hub ships one browser plugin per platform while keeping one shared backend and VOC Hub:
@@ -128,7 +224,7 @@ Use the extensions:
 1. Start the backend.
 2. Open an Amazon product/review page for the Amazon plugin, or a Reddit thread page for the Reddit plugin.
 3. Open the matching Plugin Hub popup.
-4. Confirm the API URL.
+4. Confirm the trusted API URL and write key in the popup.
 5. Click `采集并回传`.
 
 The Amazon extension follows Amazon next-page links up to the current page budget and records `stop_reason`. The Reddit extension uses the `.json?raw_json=1` thread payload and records `more` node gaps.

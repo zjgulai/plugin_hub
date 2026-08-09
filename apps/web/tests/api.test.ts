@@ -37,7 +37,9 @@ describe("fetchVocUnits", () => {
 
     const result = await fetchVocUnits("http://localhost:8000", "amazon", fetcher);
 
-    expect(fetcher).toHaveBeenCalledWith("http://localhost:8000/api/voc-units?platform=amazon");
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8000/api/voc-units?limit=500&offset=0&platform=amazon"
+    );
     expect(result.items[0]?.source_object_id).toBe("R123");
   });
 
@@ -73,7 +75,7 @@ describe("fetchVocUnits", () => {
     const result = await fetchVocUnits("http://localhost:8000", "instagram", fetcher);
 
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8000/api/voc-units?platform=instagram"
+      "http://localhost:8000/api/voc-units?limit=500&offset=0&platform=instagram"
     );
     expect(result.items[0]?.platform).toBe("instagram");
     expect(result.items[0]?.platform_extension.media_id).toBe("17900000000000001");
@@ -88,7 +90,50 @@ describe("fetchVocUnits", () => {
 
     await fetchVocUnits("http://localhost:8000", "all", fetcher);
 
-    expect(fetcher).toHaveBeenCalledWith("http://localhost:8000/api/voc-units");
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8000/api/voc-units?limit=500&offset=0"
+    );
+  });
+
+  it("bounds dashboard evidence to the latest 100 VOC units", async () => {
+    const items = Array.from({ length: 100 }, (_, index) => ({
+      source_object_id: `R${index + 1}`,
+      platform: "amazon",
+      source_kind: "amazon_review",
+      source_url: `https://www.amazon.com/review/R${index + 1}`,
+      captured_at: "2026-07-28T00:00:00.000Z",
+      body: "Evidence",
+      quality_flags: [],
+      coverage_confidence: 0.88,
+      platform_extension: {}
+    }));
+    const fetcher = vi.fn(async () => {
+      if (fetcher.mock.calls.length > 1) {
+        throw new Error("dashboard_voc_limit_exceeded");
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          items,
+          total: 101,
+          limit: 100,
+          offset: 0,
+          snapshot_max_id: 101
+        })
+      };
+    });
+
+    const result = await fetchVocUnits("http://localhost:8000", "all", fetcher, {
+      maxItems: 100
+    });
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8000/api/voc-units?limit=100&offset=0"
+    );
+    expect(result.items).toHaveLength(100);
+    expect(result.total).toBe(101);
   });
 
   it("removes multiple trailing slashes from the base URL", async () => {
@@ -100,7 +145,147 @@ describe("fetchVocUnits", () => {
 
     await fetchVocUnits("http://localhost:8000///", "reddit", fetcher);
 
-    expect(fetcher).toHaveBeenCalledWith("http://localhost:8000/api/voc-units?platform=reddit");
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8000/api/voc-units?limit=500&offset=0&platform=reddit"
+    );
+  });
+
+  it("loads every VOC page before returning dashboard evidence", async () => {
+    const item = (sourceObjectId: string) => ({
+      source_object_id: sourceObjectId,
+      platform: "amazon",
+      source_kind: "amazon_review",
+      source_url: "https://www.amazon.com/product-reviews/B000000001",
+      captured_at: "2026-06-05T00:00:00.000Z",
+      body: "Evidence",
+      quality_flags: [],
+      coverage_confidence: 0.88,
+      platform_extension: {}
+    });
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          items: [item("R1"), item("R2")],
+          total: 3,
+          limit: 2,
+          offset: 0,
+          snapshot_max_id: 42
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          items: [item("R3")],
+          total: 3,
+          limit: 2,
+          offset: 2,
+          snapshot_max_id: 42
+        })
+      });
+
+    const result = await fetchVocUnits("http://localhost:8000", "all", fetcher);
+
+    expect(fetcher).toHaveBeenNthCalledWith(
+      2,
+      "http://localhost:8000/api/voc-units?limit=500&offset=2&snapshot_max_id=42"
+    );
+    expect(result.items.map((unit) => unit.source_object_id)).toEqual(["R1", "R2", "R3"]);
+    expect(result.total).toBe(3);
+  });
+
+  it("accepts the zero snapshot boundary for an empty database", async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        items: [],
+        total: 0,
+        limit: 500,
+        offset: 0,
+        snapshot_max_id: 0
+      })
+    });
+
+    const result = await fetchVocUnits("http://localhost:8000", "all", fetcher);
+
+    expect(result.snapshot_max_id).toBe(0);
+    expect(result.items).toEqual([]);
+  });
+
+  it("keeps every page on the server-provided stable snapshot boundary", async () => {
+    const item = (sourceObjectId: string, collectionRunId: string) => ({
+      source_object_id: sourceObjectId,
+      collection_run_id: collectionRunId,
+      platform: "amazon",
+      source_kind: "amazon_review",
+      source_url: `https://www.amazon.com/review/${sourceObjectId}`,
+      captured_at: "2026-07-28T00:00:00.000Z",
+      body: "Evidence",
+      quality_flags: [],
+      coverage_confidence: 0.88,
+      platform_extension: {}
+    });
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          items: [item("R4", "run-4"), item("R3", "run-3")],
+          total: 4,
+          limit: 2,
+          offset: 0,
+          snapshot_max_id: 104
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          items: [item("R2", "run-2"), item("R1", "run-1")],
+          total: 4,
+          limit: 2,
+          offset: 2,
+          snapshot_max_id: 104
+        })
+      });
+
+    const result = await fetchVocUnits("http://localhost:8000", "all", fetcher);
+
+    expect(fetcher).toHaveBeenNthCalledWith(
+      2,
+      "http://localhost:8000/api/voc-units?limit=500&offset=2&snapshot_max_id=104"
+    );
+    expect(result.items.map((unit) => unit.source_object_id)).toEqual(["R4", "R3", "R2", "R1"]);
+    expect(result.total).toBe(4);
+    expect(result.snapshot_max_id).toBe(104);
+  });
+
+  it("refuses multi-page responses without a stable snapshot boundary", async () => {
+    const item = {
+      source_object_id: "R1",
+      platform: "amazon",
+      source_kind: "amazon_review",
+      source_url: "https://www.amazon.com/review/R1",
+      captured_at: "2026-07-28T00:00:00.000Z",
+      body: "Evidence",
+      quality_flags: [],
+      coverage_confidence: 0.88,
+      platform_extension: {}
+    };
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ items: [item], total: 2, limit: 1, offset: 0 })
+    });
+
+    await expect(fetchVocUnits("http://localhost:8000", "all", fetcher)).rejects.toThrow(
+      "voc_units_invalid_response:snapshot_boundary_required"
+    );
   });
 
   it("throws a status-keyed error for non-ok responses", async () => {
@@ -455,6 +640,12 @@ describe("fetchCollectionTasks", () => {
       ok: true,
       status: 200,
       json: async () => ({
+        open_total: 137,
+        open_totals: {
+          amazon: 3,
+          reddit: 133,
+          instagram: 1
+        },
         items: [
           {
             collection_task_id: "task_123",
@@ -481,6 +672,8 @@ describe("fetchCollectionTasks", () => {
       platform: "reddit",
       status: "retry_scheduled"
     });
+    expect(result.open_total).toBe(137);
+    expect(result.open_totals).toEqual({ amazon: 3, reddit: 133, instagram: 1 });
   });
 
   it("rejects invalid task status values", async () => {

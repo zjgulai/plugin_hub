@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from plugin_hub_api.source_urls import validate_platform_source_url
 
 type JsonScalar = str | int | float | bool | None
 type JsonValue = JsonScalar | list[JsonValue] | dict[str, JsonValue]
@@ -47,6 +50,39 @@ class Platform(StrEnum):
     AMAZON = "amazon"
     REDDIT = "reddit"
     INSTAGRAM = "instagram"
+
+
+class DataAssetSummary(StrictBaseModel):
+    collection_run_count: int = Field(ge=0)
+    raw_item_count: int = Field(ge=0)
+    canonical_voc_count: int = Field(ge=0)
+    analysis_eligible_voc_count: int = Field(ge=0)
+    placeholder_voc_count: int = Field(ge=0)
+    flagged_voc_count: int = Field(ge=0)
+    low_confidence_voc_count: int = Field(ge=0)
+    average_coverage_confidence: float = Field(ge=0.0, le=1.0)
+    runs_with_count_mismatch: int = Field(ge=0)
+    orphan_raw_count: int = Field(ge=0)
+    orphan_voc_count: int = Field(ge=0)
+    platform_counts: dict[str, int]
+    latest_run_at: datetime | None
+    latest_capture_at: datetime | None
+
+
+class DataAssetRun(StrictBaseModel):
+    collection_run_id: str
+    platform: Platform
+    capture_method: str
+    stop_reason: str | None
+    coverage_confidence: float = Field(ge=0.0, le=1.0)
+    created_at: datetime
+    first_captured_at: datetime | None
+    last_captured_at: datetime | None
+    raw_item_count: int = Field(ge=0)
+    canonical_voc_count: int = Field(ge=0)
+    analysis_eligible_voc_count: int = Field(ge=0)
+    placeholder_voc_count: int = Field(ge=0)
+    asset_state: Literal["complete", "empty", "mismatch"]
 
 
 class SourceKind(StrEnum):
@@ -137,15 +173,20 @@ class PlatformSettingAuditEventsResponse(StrictBaseModel):
 class CollectionRunCreate(StrictBaseModel):
     platform: Platform
     source_url: AnyHttpUrl
-    capture_method: str
+    capture_method: str = Field(min_length=1, max_length=128)
     coverage_scope: dict[str, JsonValue] = Field(default_factory=dict)
-    stop_reason: str | None = None
+    stop_reason: str | None = Field(default=None, max_length=128)
     coverage_confidence: float = Field(ge=0.0, le=1.0, strict=True)
 
     @field_validator("coverage_scope", mode="before")
     @classmethod
     def validate_coverage_scope(cls, value: object) -> dict[str, JsonValue]:
         return ensure_json_object(value)
+
+    @model_validator(mode="after")
+    def validate_source_provenance(self) -> CollectionRunCreate:
+        validate_platform_source_url(self.platform.value, str(self.source_url))
+        return self
 
 
 class CollectionRun(CollectionRunCreate):
@@ -165,6 +206,11 @@ class CollectionTaskCreate(StrictBaseModel):
     def validate_context(cls, value: object) -> dict[str, JsonValue]:
         return ensure_json_object(value)
 
+    @model_validator(mode="after")
+    def validate_source_target(self) -> CollectionTaskCreate:
+        validate_platform_source_url(self.platform.value, str(self.source_url))
+        return self
+
 
 class CollectionTask(CollectionTaskCreate):
     collection_task_id: str
@@ -176,17 +222,36 @@ class CollectionTask(CollectionTaskCreate):
 class RawSourceItem(StrictBaseModel):
     platform: Platform
     source_kind: SourceKind
-    source_object_id: str
-    raw_schema_version: str
-    parser_version: str
+    source_object_id: str = Field(min_length=1, max_length=256)
+    raw_schema_version: str = Field(min_length=1, max_length=128)
+    parser_version: str = Field(min_length=1, max_length=128)
     raw_payload: dict[str, JsonValue]
-    raw_payload_hash: str
+    raw_payload_hash: str = Field(min_length=1, max_length=256)
     captured_at: datetime
 
     @field_validator("raw_payload", mode="before")
     @classmethod
     def validate_raw_payload(cls, value: object) -> dict[str, JsonValue]:
         return ensure_json_object(value)
+
+    @field_validator("captured_at")
+    @classmethod
+    def normalize_captured_at(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+
+    @model_validator(mode="after")
+    def validate_source_kind_platform(self) -> RawSourceItem:
+        expected_platform = {
+            SourceKind.AMAZON_REVIEW: Platform.AMAZON,
+            SourceKind.REDDIT_THREAD: Platform.REDDIT,
+            SourceKind.REDDIT_COMMENT: Platform.REDDIT,
+            SourceKind.INSTAGRAM_COMMENT: Platform.INSTAGRAM,
+        }[self.source_kind]
+        if self.platform != expected_platform:
+            raise ValueError("source_kind_platform_mismatch")
+        return self
 
 
 class CanonicalVocUnit(StrictBaseModel):
@@ -228,6 +293,7 @@ class RelationEdge(StrictBaseModel):
     source_platform: Platform
     source_kind: SourceKind
     source_object_id: str
+    collection_run_id: str
     relation_type: str = Field(min_length=1, max_length=128)
     from_type: str = Field(min_length=1, max_length=128)
     from_id: str = Field(min_length=1, max_length=512)
@@ -372,3 +438,54 @@ class InsightBrief(StrictBaseModel):
     data_gaps: list[DataGap]
     generation_method: str = Field(min_length=1, max_length=128)
     created_at: datetime
+
+
+class AnalysisArtifactType(StrEnum):
+    RELATION_EDGE = "relation_edge"
+    ENRICHED_VOC_SIGNAL = "enriched_voc_signal"
+    STRATEGY_NOTE = "strategy_note"
+    INSIGHT_BRIEF = "insight_brief"
+
+
+class AnalysisRunSnapshot(StrictBaseModel):
+    analysis_run_id: str = Field(min_length=1, max_length=128)
+    platform: Platform
+    language: str = Field(min_length=2, max_length=16)
+    scope: dict[str, JsonValue]
+    collection_run_ids: list[str]
+    input_digest: str = Field(min_length=1, max_length=128)
+    template_contract: dict[str, JsonValue]
+    snapshot_schema_version: str = Field(min_length=1, max_length=64)
+    generation_method: str = Field(min_length=1, max_length=128)
+    source_unit_count: int = Field(ge=0)
+    analysis_unit_count: int = Field(ge=0)
+    truncated: bool
+    artifact_count: int = Field(ge=0)
+    output_digest: str = Field(min_length=1, max_length=128)
+    created_at: datetime
+
+    @field_validator("scope", "template_contract", mode="before")
+    @classmethod
+    def validate_json_objects(cls, value: object) -> dict[str, JsonValue]:
+        return ensure_json_object(value)
+
+
+class AnalysisArtifactSnapshot(StrictBaseModel):
+    analysis_snapshot_id: str = Field(min_length=1, max_length=128)
+    analysis_run_id: str = Field(min_length=1, max_length=128)
+    artifact_type: AnalysisArtifactType
+    artifact_key: str = Field(min_length=1, max_length=256)
+    schema_version: str = Field(min_length=1, max_length=64)
+    payload: dict[str, JsonValue]
+    payload_digest: str = Field(min_length=1, max_length=128)
+    created_at: datetime
+
+    @field_validator("payload", mode="before")
+    @classmethod
+    def validate_payload(cls, value: object) -> dict[str, JsonValue]:
+        return ensure_json_object(value)
+
+
+class AnalysisSnapshotDetail(StrictBaseModel):
+    run: AnalysisRunSnapshot
+    artifacts: list[AnalysisArtifactSnapshot]

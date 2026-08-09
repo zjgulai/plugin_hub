@@ -13,6 +13,11 @@ services:
     restart: unless-stopped
     environment:
       PLUGIN_HUB_DATABASE_URL: sqlite+pysqlite:////data/plugin_hub.db
+      PLUGIN_HUB_SQLITE_BUSY_TIMEOUT_MS: ${PLUGIN_HUB_SQLITE_BUSY_TIMEOUT_MS:-15000}
+      PLUGIN_HUB_SQLITE_WAL_ENABLED: ${PLUGIN_HUB_SQLITE_WAL_ENABLED:-true}
+      PLUGIN_HUB_API_AUTH_MODE: required
+      PLUGIN_HUB_API_READ_KEY: ${PLUGIN_HUB_API_READ_KEY:?PLUGIN_HUB_API_READ_KEY is required}
+      PLUGIN_HUB_API_WRITE_KEY: ${PLUGIN_HUB_API_WRITE_KEY:?PLUGIN_HUB_API_WRITE_KEY is required}
       PLUGIN_HUB_COLLECTION_TASK_WORKER_ID: plugin-hub-api
       PLUGIN_HUB_COLLECTION_TASK_MAX_ATTEMPTS: ${PLUGIN_HUB_COLLECTION_TASK_MAX_ATTEMPTS:-3}
       PLUGIN_HUB_COLLECTION_TASK_RETRY_DELAY_SECONDS: ${PLUGIN_HUB_COLLECTION_TASK_RETRY_DELAY_SECONDS:-300}
@@ -30,7 +35,7 @@ services:
         aliases:
           - plugin-hub-api
     healthcheck:
-      test: ["CMD-SHELL", "python - <<'PY'\nfrom urllib.request import urlopen\nurlopen('http://127.0.0.1:8000/api/voc-units', timeout=5).read()\nPY"]
+      test: ["CMD-SHELL", "python - <<'PY'\nfrom urllib.request import urlopen\nurlopen('http://127.0.0.1:8000/readyz', timeout=5).read()\nPY"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -46,9 +51,13 @@ services:
     container_name: plugin-hub-web
     restart: unless-stopped
     environment:
-      PLUGIN_HUB_API_URL: ${PLUGIN_HUB_API_URL:-https://plugin.lute-tlz-dddd.top}
+      # Server Components and actions use the internal Docker route, avoiding
+      # the public per-IP Nginx bucket used by browser-extension clients.
+      PLUGIN_HUB_API_URL: ${PLUGIN_HUB_API_URL:-http://plugin-hub-api:8000}
+      PLUGIN_HUB_API_READ_KEY: ${PLUGIN_HUB_API_READ_KEY:?PLUGIN_HUB_API_READ_KEY is required}
+      PLUGIN_HUB_API_WRITE_KEY: ${PLUGIN_HUB_API_WRITE_KEY:?PLUGIN_HUB_API_WRITE_KEY is required}
       PLUGIN_HUB_SITE_ENV: production
-      PLUGIN_HUB_REFRESH_SECONDS: ${PLUGIN_HUB_REFRESH_SECONDS:-30}
+      PLUGIN_HUB_REFRESH_SECONDS: ${PLUGIN_HUB_REFRESH_SECONDS:-60}
       PLUGIN_HUB_ENABLED_PLATFORMS: ${PLUGIN_HUB_ENABLED_PLATFORMS:-amazon,reddit}
     expose:
       - "3000"
@@ -74,6 +83,8 @@ services:
     command: [".venv/bin/python", "-m", "plugin_hub_api.worker_cli", "--poll-interval-seconds", "10"]
     environment:
       PLUGIN_HUB_DATABASE_URL: sqlite+pysqlite:////data/plugin_hub.db
+      PLUGIN_HUB_SQLITE_BUSY_TIMEOUT_MS: ${PLUGIN_HUB_SQLITE_BUSY_TIMEOUT_MS:-15000}
+      PLUGIN_HUB_SQLITE_WAL_ENABLED: ${PLUGIN_HUB_SQLITE_WAL_ENABLED:-true}
       PLUGIN_HUB_COLLECTION_TASK_WORKER_ID: plugin-hub-worker
       PLUGIN_HUB_COLLECTION_TASK_MAX_ATTEMPTS: ${PLUGIN_HUB_COLLECTION_TASK_MAX_ATTEMPTS:-3}
       PLUGIN_HUB_COLLECTION_TASK_RETRY_DELAY_SECONDS: ${PLUGIN_HUB_COLLECTION_TASK_RETRY_DELAY_SECONDS:-300}
@@ -88,6 +99,36 @@ services:
         condition: service_healthy
     networks:
       - plugin-hub-net
+
+  backup:
+    image: plugin-hub-api:latest
+    pull_policy: never
+    profiles:
+      - maintenance
+    restart: "no"
+    command:
+      - .venv/bin/python
+      - -m
+      - plugin_hub_api.backup_cli
+      - --source
+      - /data/plugin_hub.db
+      - --destination-dir
+      - /backups
+      - --retention-count
+      - "14"
+    network_mode: none
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    volumes:
+      # This isolated one-shot gets source write access only so SQLite can
+      # recover a hot journal or WAL index before taking the online backup.
+      - /opt/plugin-hub/data:/data
+      - /opt/plugin-hub/backups:/backups
 
 networks:
   plugin-hub-net:
