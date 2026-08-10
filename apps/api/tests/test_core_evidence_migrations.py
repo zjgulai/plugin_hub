@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import re
 import sqlite3
+import sys
+from collections.abc import Iterable
 from hashlib import sha256
 from pathlib import Path
 
@@ -9,18 +12,28 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import DatabaseError
 
+import plugin_hub_api.migration_cli as migration_cli_module
 import plugin_hub_api.migrations as migration_module
 import plugin_hub_api.models  # noqa: F401
-from plugin_hub_api.db import Base, build_engine, init_database
+from plugin_hub_api.db import (
+    MIGRATED_CORE_EVIDENCE_TABLES,
+    Base,
+    build_engine,
+    init_database,
+)
 from plugin_hub_api.migration_cli import _read_migration_status
 from plugin_hub_api.migrations import (
     ANALYSIS_SNAPSHOT_INSERT_GUARDS_MIGRATION,
     ANALYSIS_SNAPSHOT_INSERT_GUARDS_MIGRATION_VERSION,
     ANALYSIS_SNAPSHOT_MIGRATION,
     ANALYSIS_SNAPSHOT_MIGRATION_VERSION,
-    CORE_EVIDENCE_BASELINE_MIGRATION,
+    CORE_BASE_INDEX_DDL,
     CORE_EVIDENCE_BASELINE_MIGRATION_VERSION,
+    CORE_EVIDENCE_IMMUTABILITY_MIGRATION,
     CORE_EVIDENCE_IMMUTABILITY_MIGRATION_VERSION,
+    CORE_TABLE_DDL,
+    CORE_TABLE_NAMES,
+    CORE_UNIQUE_INDEX_DDL,
     Migration,
     MigrationContractMismatch,
     MigrationError,
@@ -63,6 +76,9 @@ def test_legacy_snapshot_migration_checksums_remain_stable() -> None:
     assert ANALYSIS_SNAPSHOT_MIGRATION.checksum == (
         "cf0a110bb9230d49c01a9ce4f36d9f403d36ba4502a2bffd313a65773c189695"
     )
+    assert ANALYSIS_SNAPSHOT_INSERT_GUARDS_MIGRATION.checksum == (
+        "6d4690f789c2ed18bd661faeea8f1216117496c77e23647cf8e213274f3288ab"
+    )
 
 
 def test_contract_bearing_migration_without_validator_fails_closed(
@@ -86,8 +102,30 @@ def test_contract_bearing_migration_without_validator_fails_closed(
             validate_sqlite_applied_migration_contracts(connection, [version])
     finally:
         connection.close()
-    assert ANALYSIS_SNAPSHOT_INSERT_GUARDS_MIGRATION.checksum == (
-        "6d4690f789c2ed18bd661faeea8f1216117496c77e23647cf8e213274f3288ab"
+
+
+def test_runtime_core_table_exclusions_match_migration_ownership() -> None:
+    assert frozenset(CORE_TABLE_NAMES) == MIGRATED_CORE_EVIDENCE_TABLES
+
+
+def test_break_glass_runbook_triggers_match_immutability_migration() -> None:
+    repository_root = Path(__file__).parents[3]
+    runbook = (
+        repository_root
+        / "docs/workflows/plugin-hub-core-evidence-break-glass-runbook-draft-20260809.md"
+    ).read_text(encoding="utf-8")
+    repair_section = runbook.split("## 4. Exact repair transaction template", 1)[1].split(
+        "## 5.",
+        1,
+    )[0]
+    runbook_statements = re.findall(
+        r"CREATE TRIGGER\s+.*?\nEND;",
+        repair_section,
+        flags=re.DOTALL,
+    )
+
+    assert _trigger_contracts(runbook_statements) == _trigger_contracts(
+        CORE_EVIDENCE_IMMUTABILITY_MIGRATION.up_statements
     )
 
 
@@ -142,15 +180,15 @@ def test_compatible_populated_legacy_schema_upgrades_without_row_drift(
 
 
 @pytest.mark.parametrize(
-    ("table_index", "needle", "replacement"),
+    ("table_name", "needle", "replacement"),
     [
         (
-            0,
+            "collection_runs",
             "platform VARCHAR(32) NOT NULL,",
             "platform VARCHAR(32) NOT NULL CHECK (platform = 'amazon'),",
         ),
         (
-            1,
+            "raw_source_items",
             "PRIMARY KEY (id),",
             "PRIMARY KEY (id), UNIQUE (raw_payload_hash),",
         ),
@@ -158,25 +196,45 @@ def test_compatible_populated_legacy_schema_upgrades_without_row_drift(
 )
 def test_legacy_schema_with_unexpected_table_constraint_is_not_certified(
     tmp_path: Path,
-    table_index: int,
+    table_name: str,
     needle: str,
     replacement: str,
 ) -> None:
     database_path = tmp_path / "plugin_hub.db"
     engine = build_engine(f"sqlite+pysqlite:///{database_path}")
-    statements = list(CORE_EVIDENCE_BASELINE_MIGRATION.up_statements)
-    statements[table_index] = statements[table_index].replace(needle, replacement, 1)
+    table_statements = dict(CORE_TABLE_DDL)
+    table_statements[table_name] = table_statements[table_name].replace(
+        needle,
+        replacement,
+        1,
+    )
     with engine.begin() as connection:
-        for statement in statements[:3]:
+        for statement in table_statements.values():
             connection.exec_driver_sql(statement)
-        for statement in statements[3:-2]:
+        for statement in CORE_BASE_INDEX_DDL:
             connection.exec_driver_sql(statement)
 
-    with pytest.raises(MigrationError, match="core_evidence_schema_mismatch"):
+    with pytest.raises(MigrationError, match="core_evidence_schema_mismatch") as error:
         apply_pending_migrations(engine)
 
+    assert type(error.value) is MigrationError
     assert "schema_migrations" not in _sqlite_names(engine, "table")
     assert _sqlite_names(engine, "trigger").isdisjoint(CORE_GUARDS)
+    engine.dispose()
+
+
+def test_legacy_schema_index_mismatch_uses_precondition_error_type(tmp_path: Path) -> None:
+    database_path = tmp_path / "plugin_hub.db"
+    engine = build_engine(f"sqlite+pysqlite:///{database_path}")
+    _create_legacy_schema(engine)
+    with engine.begin() as connection:
+        connection.exec_driver_sql("DROP INDEX ix_collection_runs_platform")
+
+    with pytest.raises(MigrationError, match="core_evidence_schema_mismatch:indexes") as error:
+        apply_pending_migrations(engine)
+
+    assert type(error.value) is MigrationError
+    assert "schema_migrations" not in _sqlite_names(engine, "table")
     engine.dispose()
 
 
@@ -277,6 +335,99 @@ def test_applied_contract_drift_is_refused_by_engine_and_read_only_status(
 
 
 @pytest.mark.parametrize(
+    ("table_name", "needle", "replacement"),
+    [
+        (
+            "collection_runs",
+            "platform VARCHAR(32) NOT NULL,",
+            "platform VARCHAR(32) NOT NULL CHECK (platform = 'amazon'),",
+        ),
+        (
+            "collection_runs",
+            "platform VARCHAR(32) NOT NULL,",
+            "platform TEXT NOT NULL,",
+        ),
+        (
+            "raw_source_items",
+            "FOREIGN KEY(collection_run_id) "
+            "REFERENCES collection_runs (collection_run_id)",
+            "FOREIGN KEY(collection_run_id) "
+            "REFERENCES collection_runs (collection_run_id) ON DELETE CASCADE",
+        ),
+    ],
+    ids=("table-definition", "column", "foreign-key"),
+)
+def test_applied_table_contract_drift_uses_exact_engine_and_cli_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    table_name: str,
+    needle: str,
+    replacement: str,
+) -> None:
+    database_path = tmp_path / "plugin_hub.db"
+    database_url = f"sqlite+pysqlite:///{database_path}"
+    engine = build_engine(database_url)
+    apply_pending_migrations(engine)
+    _replace_core_schema_with_drift(
+        engine,
+        table_name=table_name,
+        needle=needle,
+        replacement=replacement,
+    )
+    expected_error = (
+        "migration_contract_mismatch:"
+        f"{CORE_EVIDENCE_BASELINE_MIGRATION_VERSION}"
+    )
+
+    with pytest.raises(MigrationContractMismatch) as error:
+        applied_migration_versions(engine)
+
+    assert str(error.value) == expected_error
+    engine.dispose()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["plugin-hub-migrate", "status", "--database-url", database_url],
+    )
+
+    with pytest.raises(SystemExit) as cli_error:
+        migration_cli_module.main()
+
+    assert cli_error.value.code == 2
+    stderr = capsys.readouterr().err
+    assert stderr.endswith(f"plugin-hub-migrate: error: {expected_error}\n")
+    assert "Traceback" not in stderr
+
+
+def test_migration_cli_status_reports_contract_drift_without_traceback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    database_path = tmp_path / "plugin_hub.db"
+    database_url = f"sqlite+pysqlite:///{database_path}"
+    engine = build_engine(database_url)
+    apply_pending_migrations(engine)
+    with engine.begin() as connection:
+        connection.exec_driver_sql("DROP INDEX ix_collection_runs_platform")
+    engine.dispose()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["plugin-hub-migrate", "status", "--database-url", database_url],
+    )
+
+    with pytest.raises(SystemExit) as error:
+        migration_cli_module.main()
+
+    assert error.value.code == 2
+    stderr = capsys.readouterr().err
+    assert "migration_contract_mismatch:0003_core_evidence_baseline" in stderr
+    assert "Traceback" not in stderr
+
+
+@pytest.mark.parametrize(
     "replacement_statement",
     [
         """
@@ -350,7 +501,10 @@ def test_legacy_schema_with_orphan_evidence_is_not_certified(tmp_path: Path) -> 
         connection.close()
 
     engine = build_engine(f"sqlite+pysqlite:///{database_path}")
-    with pytest.raises(MigrationError, match="core_evidence_schema_mismatch"):
+    with pytest.raises(
+        MigrationError,
+        match="core_evidence_orphan_evidence:raw_source_items",
+    ):
         apply_pending_migrations(engine)
 
     assert "schema_migrations" not in _sqlite_names(engine, "table")
@@ -384,9 +538,15 @@ def test_applied_contract_status_rejects_orphan_evidence(tmp_path: Path) -> None
         connection.close()
 
     engine = build_engine(f"sqlite+pysqlite:///{database_path}")
-    with pytest.raises(MigrationContractMismatch, match="migration_contract_mismatch"):
+    with pytest.raises(
+        MigrationContractMismatch,
+        match="core_evidence_orphan_evidence:raw_source_items",
+    ):
         applied_migration_versions(engine)
-    with pytest.raises(MigrationContractMismatch, match="migration_contract_mismatch"):
+    with pytest.raises(
+        MigrationContractMismatch,
+        match="core_evidence_orphan_evidence:raw_source_items",
+    ):
         _read_migration_status(
             f"sqlite+pysqlite:///{database_path}",
             sqlite_busy_timeout_ms=10_000,
@@ -548,6 +708,29 @@ def _create_legacy_schema(engine: Engine) -> None:
     Base.metadata.create_all(bind=engine)
 
 
+def _replace_core_schema_with_drift(
+    engine: Engine,
+    *,
+    table_name: str,
+    needle: str,
+    replacement: str,
+) -> None:
+    table_statements = dict(CORE_TABLE_DDL)
+    original_statement = table_statements[table_name]
+    table_statements[table_name] = original_statement.replace(needle, replacement, 1)
+    assert table_statements[table_name] != original_statement
+
+    with engine.begin() as connection:
+        for core_table_name in reversed(CORE_TABLE_NAMES):
+            connection.exec_driver_sql(f'DROP TABLE "{core_table_name}"')
+        for statement in table_statements.values():
+            connection.exec_driver_sql(statement)
+        for statement in (*CORE_BASE_INDEX_DDL, *CORE_UNIQUE_INDEX_DDL):
+            connection.exec_driver_sql(statement)
+        for statement in CORE_EVIDENCE_IMMUTABILITY_MIGRATION.up_statements:
+            connection.exec_driver_sql(statement)
+
+
 def _insert_evidence(engine: Engine) -> None:
     with engine.begin() as connection:
         connection.execute(
@@ -638,3 +821,12 @@ def _assert_database_rejects(engine: Engine, statement: str, message: str) -> No
         engine.begin() as connection,
     ):
         connection.exec_driver_sql(statement)
+
+
+def _trigger_contracts(statements: Iterable[str]) -> dict[str, str]:
+    contracts: dict[str, str] = {}
+    for statement in statements:
+        match = re.search(r"CREATE TRIGGER\s+([a-z0-9_]+)", statement)
+        assert match is not None
+        contracts[match.group(1)] = " ".join(statement.split()).rstrip(";")
+    return contracts

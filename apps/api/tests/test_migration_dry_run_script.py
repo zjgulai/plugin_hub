@@ -71,6 +71,38 @@ def test_dry_run_allows_database_copy_outside_live_roots(tmp_path: Path) -> None
     script.refuse_live_database_path(tmp_path / "plugin_hub-copy.db")
 
 
+def test_snapshot_rollback_probe_closes_source_when_destination_connect_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = _load_script()
+
+    class TrackedSource:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    source = TrackedSource()
+    connect_calls = 0
+
+    def failing_connect(*args: object, **kwargs: object) -> TrackedSource:
+        nonlocal connect_calls
+        connect_calls += 1
+        if connect_calls == 1:
+            return source
+        raise sqlite3.OperationalError("synthetic_destination_connect_failure")
+
+    monkeypatch.setattr(script.sqlite3, "connect", failing_connect)
+
+    with pytest.raises(sqlite3.OperationalError, match="synthetic_destination_connect_failure"):
+        script._snapshot_rollback_blocked_reason(tmp_path / "source.db")
+
+    assert connect_calls == 2
+    assert source.closed is True
+
+
 def test_dry_run_acceptance_gate_fails_closed_under_python_optimization() -> None:
     result = subprocess.run(
         [

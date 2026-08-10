@@ -17,6 +17,19 @@ ANALYSIS_SNAPSHOT_INSERT_GUARDS_MIGRATION_VERSION = (
 CORE_EVIDENCE_BASELINE_MIGRATION_VERSION = "0003_core_evidence_baseline"
 CORE_EVIDENCE_IMMUTABILITY_MIGRATION_VERSION = "0004_core_evidence_immutability"
 
+CORE_EVIDENCE_SCHEMA_MISMATCH_CODE = "core_evidence_schema_mismatch"
+CORE_EVIDENCE_INDEX_MISMATCH_CODE = "core_evidence_schema_mismatch:indexes"
+CORE_EVIDENCE_ORPHAN_CODE = "core_evidence_orphan_evidence"
+MIGRATION_CONTRACT_MISMATCH_CODE = "migration_contract_mismatch"
+MIGRATION_CONTRACT_VALIDATOR_MISSING_CODE = "migration_contract_validator_missing"
+
+_TABLE_SCOPED_CORE_EVIDENCE_ERROR_CODES = frozenset(
+    {
+        CORE_EVIDENCE_SCHEMA_MISMATCH_CODE,
+        CORE_EVIDENCE_ORPHAN_CODE,
+    }
+)
+
 
 class MigrationError(RuntimeError):
     pass
@@ -218,10 +231,8 @@ unique-identities:
   canonical_voc_units(collection_run_id,source_kind,source_object_id)
 """.strip()
 
-CORE_EVIDENCE_BASELINE_MIGRATION = Migration(
-    version=CORE_EVIDENCE_BASELINE_MIGRATION_VERSION,
-    up_statements=(
-        """
+CORE_TABLE_DDL = {
+    "collection_runs": """
         CREATE TABLE IF NOT EXISTS collection_runs (
             collection_run_id VARCHAR(64) NOT NULL,
             platform VARCHAR(32) NOT NULL,
@@ -234,7 +245,7 @@ CORE_EVIDENCE_BASELINE_MIGRATION = Migration(
             PRIMARY KEY (collection_run_id)
         )
         """,
-        """
+    "raw_source_items": """
         CREATE TABLE IF NOT EXISTS raw_source_items (
             id INTEGER NOT NULL,
             collection_run_id VARCHAR(64) NOT NULL,
@@ -250,7 +261,7 @@ CORE_EVIDENCE_BASELINE_MIGRATION = Migration(
             FOREIGN KEY(collection_run_id) REFERENCES collection_runs (collection_run_id)
         )
         """,
-        """
+    "canonical_voc_units": """
         CREATE TABLE IF NOT EXISTS canonical_voc_units (
             id INTEGER NOT NULL,
             platform VARCHAR(32) NOT NULL,
@@ -284,22 +295,36 @@ CORE_EVIDENCE_BASELINE_MIGRATION = Migration(
             FOREIGN KEY(collection_run_id) REFERENCES collection_runs (collection_run_id)
         )
         """,
-        "CREATE INDEX IF NOT EXISTS ix_collection_runs_platform "
-        "ON collection_runs (platform)",
-        "CREATE INDEX IF NOT EXISTS ix_raw_source_items_collection_run_id "
-        "ON raw_source_items (collection_run_id)",
-        "CREATE INDEX IF NOT EXISTS ix_raw_source_items_platform "
-        "ON raw_source_items (platform)",
-        "CREATE INDEX IF NOT EXISTS ix_canonical_voc_units_collection_run_id "
-        "ON canonical_voc_units (collection_run_id)",
-        "CREATE INDEX IF NOT EXISTS ix_canonical_voc_units_platform "
-        "ON canonical_voc_units (platform)",
-        "CREATE INDEX IF NOT EXISTS ix_canonical_voc_units_thread_id "
-        "ON canonical_voc_units (thread_id)",
-        "CREATE UNIQUE INDEX uq_raw_source_items_run_source "
-        "ON raw_source_items (collection_run_id, source_kind, source_object_id)",
-        "CREATE UNIQUE INDEX uq_canonical_voc_units_run_source "
-        "ON canonical_voc_units (collection_run_id, source_kind, source_object_id)",
+}
+
+CORE_BASE_INDEX_DDL = (
+    "CREATE INDEX IF NOT EXISTS ix_collection_runs_platform "
+    "ON collection_runs (platform)",
+    "CREATE INDEX IF NOT EXISTS ix_raw_source_items_collection_run_id "
+    "ON raw_source_items (collection_run_id)",
+    "CREATE INDEX IF NOT EXISTS ix_raw_source_items_platform "
+    "ON raw_source_items (platform)",
+    "CREATE INDEX IF NOT EXISTS ix_canonical_voc_units_collection_run_id "
+    "ON canonical_voc_units (collection_run_id)",
+    "CREATE INDEX IF NOT EXISTS ix_canonical_voc_units_platform "
+    "ON canonical_voc_units (platform)",
+    "CREATE INDEX IF NOT EXISTS ix_canonical_voc_units_thread_id "
+    "ON canonical_voc_units (thread_id)",
+)
+
+CORE_UNIQUE_INDEX_DDL = (
+    "CREATE UNIQUE INDEX uq_raw_source_items_run_source "
+    "ON raw_source_items (collection_run_id, source_kind, source_object_id)",
+    "CREATE UNIQUE INDEX uq_canonical_voc_units_run_source "
+    "ON canonical_voc_units (collection_run_id, source_kind, source_object_id)",
+)
+
+CORE_EVIDENCE_BASELINE_MIGRATION = Migration(
+    version=CORE_EVIDENCE_BASELINE_MIGRATION_VERSION,
+    up_statements=(
+        *CORE_TABLE_DDL.values(),
+        *CORE_BASE_INDEX_DDL,
+        *CORE_UNIQUE_INDEX_DDL,
     ),
     down_statements=(
         "DROP TABLE IF EXISTS canonical_voc_units",
@@ -400,11 +425,7 @@ MIGRATIONS_BY_VERSION = {migration.version: migration for migration in MIGRATION
 
 SqliteQuery = Callable[[str], list[tuple[object, ...]]]
 
-CORE_TABLE_NAMES = (
-    "collection_runs",
-    "raw_source_items",
-    "canonical_voc_units",
-)
+CORE_TABLE_NAMES = tuple(CORE_TABLE_DDL)
 
 CORE_TABLE_COLUMNS: dict[str, tuple[tuple[str, str, int, int], ...]] = {
     "collection_runs": (
@@ -676,18 +697,24 @@ def _validate_migration_preconditions(connection: Connection, migration: Migrati
         if present and present != set(CORE_TABLE_NAMES):
             raise MigrationError("core_evidence_schema_partial")
         if present:
-            _validate_core_tables(query, error_code="core_evidence_schema_mismatch")
+            _validate_core_tables(
+                query,
+                error_code=CORE_EVIDENCE_SCHEMA_MISMATCH_CODE,
+                error_type=MigrationError,
+            )
             _validate_core_indexes(
                 query,
                 expected=CORE_BASE_INDEXES,
-                error_code="core_evidence_schema_mismatch:indexes",
+                error_code=CORE_EVIDENCE_INDEX_MISMATCH_CODE,
+                error_type=MigrationError,
             )
             _refuse_duplicate_core_identities(query)
     elif migration.version == CORE_EVIDENCE_IMMUTABILITY_MIGRATION_VERSION:
         _validate_core_baseline_contract(
             query,
             error_code=(
-                f"migration_contract_mismatch:{CORE_EVIDENCE_BASELINE_MIGRATION_VERSION}"
+                f"{MIGRATION_CONTRACT_MISMATCH_CODE}:"
+                f"{CORE_EVIDENCE_BASELINE_MIGRATION_VERSION}"
             ),
         )
 
@@ -715,40 +742,48 @@ def _validate_contract_for_version(query: SqliteQuery, version: str) -> None:
     migration = MIGRATIONS_BY_VERSION[version]
     if migration.contract_payload is None:
         return
-    error_code = f"migration_contract_mismatch:{version}"
+    error_code = f"{MIGRATION_CONTRACT_MISMATCH_CODE}:{version}"
     if version == CORE_EVIDENCE_BASELINE_MIGRATION_VERSION:
         _validate_core_baseline_contract(query, error_code=error_code)
     elif version == CORE_EVIDENCE_IMMUTABILITY_MIGRATION_VERSION:
         _validate_core_baseline_contract(
             query,
             error_code=(
-                f"migration_contract_mismatch:{CORE_EVIDENCE_BASELINE_MIGRATION_VERSION}"
+                f"{MIGRATION_CONTRACT_MISMATCH_CODE}:"
+                f"{CORE_EVIDENCE_BASELINE_MIGRATION_VERSION}"
             ),
         )
         _validate_core_guards(query, error_code=error_code)
     else:
-        raise MigrationContractMismatch(f"migration_contract_validator_missing:{version}")
+        raise MigrationContractMismatch(
+            f"{MIGRATION_CONTRACT_VALIDATOR_MISSING_CODE}:{version}"
+        )
 
 
 def _validate_core_baseline_contract(query: SqliteQuery, *, error_code: str) -> None:
     if any(not _query_table_exists(query, table_name) for table_name in CORE_TABLE_NAMES):
         raise MigrationContractMismatch(error_code)
-    _validate_core_tables(query, error_code=error_code)
+    _validate_core_tables(
+        query,
+        error_code=error_code,
+        error_type=MigrationContractMismatch,
+    )
     _validate_core_indexes(
         query,
         expected={**CORE_BASE_INDEXES, **CORE_UNIQUE_INDEXES},
         error_code=error_code,
+        error_type=MigrationContractMismatch,
     )
 
 
-def _validate_core_tables(query: SqliteQuery, *, error_code: str) -> None:
-    table_statements = CORE_EVIDENCE_BASELINE_MIGRATION.up_statements[:3]
-    for table_name, expected_columns, expected_statement in zip(
-        CORE_TABLE_NAMES,
-        CORE_TABLE_COLUMNS.values(),
-        table_statements,
-        strict=True,
-    ):
+def _validate_core_tables(
+    query: SqliteQuery,
+    *,
+    error_code: str,
+    error_type: type[MigrationError],
+) -> None:
+    for table_name, expected_columns in CORE_TABLE_COLUMNS.items():
+        expected_statement = CORE_TABLE_DDL[table_name]
         definition_rows = query(
             "SELECT sql FROM sqlite_master "
             f"WHERE type = 'table' AND name = '{table_name}'"
@@ -756,7 +791,11 @@ def _validate_core_tables(query: SqliteQuery, *, error_code: str) -> None:
         if len(definition_rows) != 1 or _normalize_table_sql(
             str(definition_rows[0][0])
         ) != _normalize_table_sql(expected_statement):
-            _raise_contract_mismatch(error_code, table_name)
+            _raise_contract_mismatch(
+                error_code,
+                error_type=error_type,
+                detail=table_name,
+            )
 
         column_rows = query(f'PRAGMA table_info("{table_name}")')
         actual_columns = tuple(
@@ -769,7 +808,11 @@ def _validate_core_tables(query: SqliteQuery, *, error_code: str) -> None:
             for row in column_rows
         )
         if actual_columns != expected_columns:
-            _raise_contract_mismatch(error_code, table_name)
+            _raise_contract_mismatch(
+                error_code,
+                error_type=error_type,
+                detail=table_name,
+            )
 
         foreign_key_rows = query(f'PRAGMA foreign_key_list("{table_name}")')
         actual_foreign_keys = tuple(
@@ -790,9 +833,17 @@ def _validate_core_tables(query: SqliteQuery, *, error_code: str) -> None:
                 ),
             )
         if actual_foreign_keys != expected_foreign_keys:
-            _raise_contract_mismatch(error_code, table_name)
+            _raise_contract_mismatch(
+                error_code,
+                error_type=error_type,
+                detail=table_name,
+            )
         if foreign_key_rows and query(f'PRAGMA foreign_key_check("{table_name}")'):
-            _raise_contract_mismatch(error_code, table_name)
+            _raise_contract_mismatch(
+                CORE_EVIDENCE_ORPHAN_CODE,
+                error_type=error_type,
+                detail=table_name,
+            )
 
 
 def _validate_core_indexes(
@@ -800,6 +851,7 @@ def _validate_core_indexes(
     *,
     expected: dict[str, IndexContract],
     error_code: str,
+    error_type: type[MigrationError],
 ) -> None:
     actual: dict[str, IndexContract] = {}
     for table_name in CORE_TABLE_NAMES:
@@ -821,7 +873,7 @@ def _validate_core_indexes(
                 columns,
             )
     if actual != expected:
-        raise MigrationContractMismatch(error_code)
+        _raise_contract_mismatch(error_code, error_type=error_type)
 
 
 def _validate_core_guards(query: SqliteQuery, *, error_code: str) -> None:
@@ -895,10 +947,15 @@ def _normalize_table_sql(statement: str) -> str:
     )
 
 
-def _raise_contract_mismatch(error_code: str, table_name: str) -> None:
-    if error_code == "core_evidence_schema_mismatch":
-        raise MigrationError(f"{error_code}:{table_name}")
-    raise MigrationContractMismatch(error_code)
+def _raise_contract_mismatch(
+    error_code: str,
+    *,
+    error_type: type[MigrationError],
+    detail: str | None = None,
+) -> None:
+    if detail is not None and error_code in _TABLE_SCOPED_CORE_EVIDENCE_ERROR_CODES:
+        error_code = f"{error_code}:{detail}"
+    raise error_type(error_code)
 
 
 def _begin_sqlite_ddl_transaction(connection: Connection) -> None:

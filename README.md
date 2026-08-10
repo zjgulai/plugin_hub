@@ -110,8 +110,8 @@ verifies the recorded checksums plus the core table, index, foreign-key, and
 immutability-trigger contracts:
 
 ```bash
-uv --directory apps/api run python -m plugin_hub_api.migration_cli status
 uv --directory apps/api run python -m plugin_hub_api.migration_cli up
+uv --directory apps/api run python -m plugin_hub_api.migration_cli status
 ```
 
 The core migrations add run-scoped source-identity uniqueness and reject

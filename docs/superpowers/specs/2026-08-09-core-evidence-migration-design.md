@@ -278,8 +278,12 @@ Expected fail-closed errors use stable, non-sensitive codes:
 - `migration_checksum_mismatch:<version>`;
 - `core_evidence_schema_partial`;
 - `core_evidence_schema_mismatch:<table>`;
+- `core_evidence_schema_mismatch:indexes`;
+- `core_evidence_orphan_evidence:<table>`;
 - `core_evidence_duplicate_identity:<table>:<group_count>`;
 - `core_evidence_rows_exist`;
+- `migration_contract_mismatch:<version>`;
+- `migration_contract_validator_missing:<version>`;
 - `raw_source_items_append_only`;
 - `canonical_voc_units_append_only`.
 

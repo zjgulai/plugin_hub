@@ -319,11 +319,13 @@ def _snapshot_rollback_blocked_reason(database_path: Path) -> str | None:
     with TemporaryDirectory(prefix="plugin-hub-snapshot-rollback-") as directory:
         probe_path = Path(directory) / "rollback-probe.db"
         source = sqlite3.connect(f"{database_path.as_uri()}?mode=ro", uri=True)
-        destination = sqlite3.connect(probe_path)
         try:
-            source.backup(destination)
+            destination = sqlite3.connect(probe_path)
+            try:
+                source.backup(destination)
+            finally:
+                destination.close()
         finally:
-            destination.close()
             source.close()
 
         connection = sqlite3.connect(probe_path)

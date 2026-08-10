@@ -12,6 +12,7 @@ from sqlalchemy.engine import make_url
 from plugin_hub_api.config import Settings
 from plugin_hub_api.db import build_engine
 from plugin_hub_api.migrations import (
+    MigrationError,
     applied_migration_versions,
     apply_pending_migrations,
     migration_contract_versions,
@@ -35,7 +36,7 @@ def main() -> None:
                 database_url,
                 sqlite_busy_timeout_ms=settings.sqlite_busy_timeout_ms,
             )
-        except FileNotFoundError as error:
+        except (FileNotFoundError, MigrationError) as error:
             parser.error(str(error))
         _print_status(action=args.action, applied_versions=applied_versions, changed=[])
         return
