@@ -129,6 +129,12 @@ recorded core index or guard is missing instead of reporting only that the
 version row exists. SQLite status keeps its current read-only connection and
 must not enable WAL or create a missing database file.
 
+The migration runner is SQLite-only. Every public migration operation
+(`apply_pending_migrations`, `applied_migration_versions`, and
+`rollback_latest_migration`) refuses a non-SQLite engine before opening any
+connection or executing any SQL, with the stable error
+`migration_dialect_unsupported:<dialect>`.
+
 ### 6.2 `0003_core_evidence_baseline`
 
 The migration explicitly defines the current SQLite schema for:
@@ -284,6 +290,7 @@ Expected fail-closed errors use stable, non-sensitive codes:
 - `core_evidence_rows_exist`;
 - `migration_contract_mismatch:<version>`;
 - `migration_contract_validator_missing:<version>`;
+- `migration_dialect_unsupported:<dialect>`;
 - `raw_source_items_append_only`;
 - `canonical_voc_units_append_only`.
 

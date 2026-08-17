@@ -22,6 +22,9 @@ CORE_EVIDENCE_INDEX_MISMATCH_CODE = "core_evidence_schema_mismatch:indexes"
 CORE_EVIDENCE_ORPHAN_CODE = "core_evidence_orphan_evidence"
 MIGRATION_CONTRACT_MISMATCH_CODE = "migration_contract_mismatch"
 MIGRATION_CONTRACT_VALIDATOR_MISSING_CODE = "migration_contract_validator_missing"
+MIGRATION_DIALECT_UNSUPPORTED_CODE = "migration_dialect_unsupported"
+
+SUPPORTED_MIGRATION_DIALECTS = ("sqlite",)
 
 _TABLE_SCOPED_CORE_EVIDENCE_ERROR_CODES = frozenset(
     {
@@ -45,6 +48,20 @@ class MigrationRollbackBlocked(MigrationError):
 
 class MigrationContractMismatch(MigrationError):
     pass
+
+
+def _require_sqlite_dialect(engine: Engine) -> None:
+    """Refuse non-SQLite engines before any connection or SQL is attempted.
+
+    The migration runner, DDL, and contract validation are SQLite-only. This
+    guard must run as the first operation of every public migration entrypoint
+    so that an unsupported dialect fails closed with a stable error code
+    instead of reaching SQLite-specific metadata queries.
+    """
+
+    dialect_name = engine.dialect.name
+    if dialect_name not in SUPPORTED_MIGRATION_DIALECTS:
+        raise MigrationError(f"{MIGRATION_DIALECT_UNSUPPORTED_CODE}:{dialect_name}")
 
 
 @dataclass(frozen=True)
@@ -566,6 +583,7 @@ CORE_GUARD_NAMES = (
 
 
 def apply_pending_migrations(engine: Engine) -> list[str]:
+    _require_sqlite_dialect(engine)
     applied_now: list[str] = []
     with engine.begin() as connection:
         _begin_sqlite_ddl_transaction(connection)
@@ -599,6 +617,7 @@ def apply_pending_migrations(engine: Engine) -> list[str]:
 
 
 def applied_migration_versions(engine: Engine) -> list[str]:
+    _require_sqlite_dialect(engine)
     with engine.connect() as connection:
         if not _table_exists(connection, "schema_migrations"):
             return []
@@ -609,6 +628,7 @@ def applied_migration_versions(engine: Engine) -> list[str]:
 
 
 def rollback_latest_migration(engine: Engine) -> str | None:
+    _require_sqlite_dialect(engine)
     with engine.begin() as connection:
         _begin_sqlite_ddl_transaction(connection)
         if not _table_exists(connection, "schema_migrations"):

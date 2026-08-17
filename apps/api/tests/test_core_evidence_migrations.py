@@ -3,9 +3,10 @@ from __future__ import annotations
 import re
 import sqlite3
 import sys
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from hashlib import sha256
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import text
@@ -424,6 +425,72 @@ def test_migration_cli_status_reports_contract_drift_without_traceback(
     assert error.value.code == 2
     stderr = capsys.readouterr().err
     assert "migration_contract_mismatch:0003_core_evidence_baseline" in stderr
+    assert "Traceback" not in stderr
+
+
+class _NonSqliteFakeEngine:
+    """Engine stand-in that forbids any connection or SQL attempt.
+
+    Any `begin`/`connect` call proves the dialect guard did not run first,
+    so these methods raise instead of returning a connection.
+    """
+
+    def __init__(self, dialect_name: str = "postgresql") -> None:
+        self.dialect = SimpleNamespace(name=dialect_name)
+
+    def begin(self) -> object:
+        raise AssertionError("dialect guard must run before any connection is opened")
+
+    def connect(self) -> object:
+        raise AssertionError("dialect guard must run before any connection is opened")
+
+    def dispose(self) -> None:
+        pass
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        apply_pending_migrations,
+        applied_migration_versions,
+        rollback_latest_migration,
+    ],
+    ids=("apply-pending", "applied-versions", "rollback-latest"),
+)
+def test_public_migration_operations_refuse_non_sqlite_dialect_before_any_connection(
+    operation: Callable[[Engine], object],
+) -> None:
+    engine = _NonSqliteFakeEngine()
+
+    with pytest.raises(MigrationError) as error:
+        operation(engine)
+
+    assert str(error.value) == "migration_dialect_unsupported:postgresql"
+
+
+def test_migration_cli_status_refuses_non_sqlite_database_url_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        migration_cli_module,
+        "build_engine",
+        lambda _database_url: _NonSqliteFakeEngine(),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["plugin-hub-migrate", "status", "--database-url", "postgresql://example/db"],
+    )
+
+    with pytest.raises(SystemExit) as error:
+        migration_cli_module.main()
+
+    assert error.value.code == 2
+    stderr = capsys.readouterr().err
+    assert stderr.endswith(
+        "plugin-hub-migrate: error: migration_dialect_unsupported:postgresql\n"
+    )
     assert "Traceback" not in stderr
 
 
