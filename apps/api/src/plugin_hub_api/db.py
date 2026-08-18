@@ -14,6 +14,15 @@ class Base(DeclarativeBase):
     pass
 
 
+MIGRATED_CORE_EVIDENCE_TABLES = frozenset(
+    {
+        "collection_runs",
+        "raw_source_items",
+        "canonical_voc_units",
+    }
+)
+
+
 def build_engine(
     database_url: str,
     *,
@@ -73,7 +82,12 @@ def make_session_factory(engine: Engine) -> Callable[[], Session]:
 
 
 def init_database(engine: Engine) -> None:
-    Base.metadata.create_all(bind=engine)
+    operational_tables = [
+        table
+        for table in Base.metadata.sorted_tables
+        if table.name not in MIGRATED_CORE_EVIDENCE_TABLES
+    ]
+    Base.metadata.create_all(bind=engine, tables=operational_tables)
     _restrict_sqlite_file_permissions(engine)
 
 

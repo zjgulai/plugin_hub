@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from plugin_hub_api.config import Settings
 from plugin_hub_api.main import create_app
+from plugin_hub_api.migrations import apply_pending_migrations
 from plugin_hub_api.security import _matches, require_api_access
 
 READ_KEY = "r" * 32
@@ -31,9 +32,9 @@ def protected_client() -> Generator[TestClient]:
         api_write_key=WRITE_KEY,
         trusted_hosts=["testserver"],
     )
-    with TestClient(
-        create_app(database_url="sqlite+pysqlite:///:memory:", settings=settings)
-    ) as client:
+    app = create_app(database_url="sqlite+pysqlite:///:memory:", settings=settings)
+    apply_pending_migrations(app.state.engine)
+    with TestClient(app) as client:
         yield client
 
 
@@ -123,9 +124,9 @@ def test_required_auth_normalizes_surrounding_whitespace_in_configured_keys() ->
         trusted_hosts=["testserver"],
     )
 
-    with TestClient(
-        create_app(database_url="sqlite+pysqlite:///:memory:", settings=settings)
-    ) as client:
+    app = create_app(database_url="sqlite+pysqlite:///:memory:", settings=settings)
+    apply_pending_migrations(app.state.engine)
+    with TestClient(app) as client:
         read_response = client.get(
             "/api/voc-units",
             headers={API_KEY_HEADER: READ_KEY},

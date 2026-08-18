@@ -16,6 +16,8 @@ from plugin_hub_api.migrations import (
     ANALYSIS_SNAPSHOT_INSERT_GUARDS_MIGRATION_VERSION,
     ANALYSIS_SNAPSHOT_MIGRATION,
     ANALYSIS_SNAPSHOT_MIGRATION_VERSION,
+    CORE_EVIDENCE_BASELINE_MIGRATION_VERSION,
+    CORE_EVIDENCE_IMMUTABILITY_MIGRATION_VERSION,
     MIGRATION_TABLE_SQL,
     MIGRATIONS,
     MIGRATIONS_BY_VERSION,
@@ -26,6 +28,13 @@ from plugin_hub_api.migrations import (
     apply_pending_migrations,
     rollback_latest_migration,
 )
+
+ALL_MIGRATION_VERSIONS = [
+    ANALYSIS_SNAPSHOT_MIGRATION_VERSION,
+    ANALYSIS_SNAPSHOT_INSERT_GUARDS_MIGRATION_VERSION,
+    CORE_EVIDENCE_BASELINE_MIGRATION_VERSION,
+    CORE_EVIDENCE_IMMUTABILITY_MIGRATION_VERSION,
+]
 
 
 def test_analysis_snapshot_migration_is_idempotent_and_reversible_when_empty(
@@ -38,19 +47,17 @@ def test_analysis_snapshot_migration_is_idempotent_and_reversible_when_empty(
     first = apply_pending_migrations(engine)
     second = apply_pending_migrations(engine)
 
-    assert first == [
-        ANALYSIS_SNAPSHOT_MIGRATION_VERSION,
-        ANALYSIS_SNAPSHOT_INSERT_GUARDS_MIGRATION_VERSION,
-    ]
+    assert first == ALL_MIGRATION_VERSIONS
     assert second == []
-    assert applied_migration_versions(engine) == [
-        ANALYSIS_SNAPSHOT_MIGRATION_VERSION,
-        ANALYSIS_SNAPSHOT_INSERT_GUARDS_MIGRATION_VERSION,
-    ]
+    assert applied_migration_versions(engine) == ALL_MIGRATION_VERSIONS
 
+    immutability_rolled_back = rollback_latest_migration(engine)
+    baseline_rolled_back = rollback_latest_migration(engine)
     guards_rolled_back = rollback_latest_migration(engine)
     schema_rolled_back = rollback_latest_migration(engine)
 
+    assert immutability_rolled_back == CORE_EVIDENCE_IMMUTABILITY_MIGRATION_VERSION
+    assert baseline_rolled_back == CORE_EVIDENCE_BASELINE_MIGRATION_VERSION
     assert guards_rolled_back == ANALYSIS_SNAPSHOT_INSERT_GUARDS_MIGRATION_VERSION
     assert schema_rolled_back == ANALYSIS_SNAPSHOT_MIGRATION_VERSION
     assert applied_migration_versions(engine) == []
@@ -81,12 +88,11 @@ def test_existing_0001_database_upgrades_without_checksum_drift(tmp_path: Path) 
         )
 
     assert apply_pending_migrations(engine) == [
-        ANALYSIS_SNAPSHOT_INSERT_GUARDS_MIGRATION_VERSION
-    ]
-    assert applied_migration_versions(engine) == [
-        ANALYSIS_SNAPSHOT_MIGRATION_VERSION,
         ANALYSIS_SNAPSHOT_INSERT_GUARDS_MIGRATION_VERSION,
+        CORE_EVIDENCE_BASELINE_MIGRATION_VERSION,
+        CORE_EVIDENCE_IMMUTABILITY_MIGRATION_VERSION,
     ]
+    assert applied_migration_versions(engine) == ALL_MIGRATION_VERSIONS
     engine.dispose()
 
 
@@ -218,6 +224,8 @@ def test_analysis_snapshot_tables_reject_update_delete_and_nonempty_rollback(
             "DELETE FROM analysis_runs WHERE analysis_run_id = 'analysis_test'"
         )
 
+    assert rollback_latest_migration(engine) == CORE_EVIDENCE_IMMUTABILITY_MIGRATION_VERSION
+    assert rollback_latest_migration(engine) == CORE_EVIDENCE_BASELINE_MIGRATION_VERSION
     with pytest.raises(MigrationRollbackBlocked, match="analysis_snapshot_rows_exist"):
         rollback_latest_migration(engine)
     engine.dispose()
@@ -363,8 +371,5 @@ def test_sqlite_migration_ddl_rolls_back_as_one_transaction(
 
     monkeypatch.setattr(migration_module, "MIGRATIONS", original_migrations)
     monkeypatch.setattr(migration_module, "MIGRATIONS_BY_VERSION", original_by_version)
-    assert apply_pending_migrations(engine) == [
-        ANALYSIS_SNAPSHOT_MIGRATION_VERSION,
-        ANALYSIS_SNAPSHOT_INSERT_GUARDS_MIGRATION_VERSION,
-    ]
+    assert apply_pending_migrations(engine) == ALL_MIGRATION_VERSIONS
     engine.dispose()

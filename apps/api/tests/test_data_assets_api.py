@@ -5,13 +5,20 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from plugin_hub_api.db import build_engine, init_database, make_session_factory
+from plugin_hub_api.migrations import apply_pending_migrations
 from plugin_hub_api.payload_hashes import fnv1a64_payload_hash
 from plugin_hub_api.repositories import SqlAlchemyRepository
 from plugin_hub_api.routes.data_assets import list_data_asset_runs
 from plugin_hub_api.schemas import DataAssetRun, JsonValue
+
+
+def _init_migrated_database(engine: Engine) -> None:
+    init_database(engine)
+    apply_pending_migrations(engine)
 
 
 def test_data_asset_summary_reports_durable_counts_without_payloads(client: TestClient) -> None:
@@ -104,7 +111,7 @@ def test_begin_read_snapshot_refuses_existing_transaction_without_rollback(
 ) -> None:
     database_path = tmp_path / "plugin_hub.db"
     engine = build_engine(f"sqlite+pysqlite:///{database_path}")
-    init_database(engine)
+    _init_migrated_database(engine)
     session_factory = make_session_factory(engine)
 
     with session_factory() as session:
@@ -136,7 +143,7 @@ def test_begin_read_snapshot_refuses_existing_transaction_without_rollback(
 def test_data_asset_runs_route_ends_read_snapshot(tmp_path: Path) -> None:
     database_path = tmp_path / "plugin_hub.db"
     engine = build_engine(f"sqlite+pysqlite:///{database_path}")
-    init_database(engine)
+    _init_migrated_database(engine)
     session_factory = make_session_factory(engine)
 
     with session_factory() as session:
@@ -155,7 +162,7 @@ def test_data_asset_runs_route_ends_read_snapshot(tmp_path: Path) -> None:
 def test_data_asset_summary_ends_read_snapshot_after_error(tmp_path: Path) -> None:
     database_path = tmp_path / "plugin_hub.db"
     engine = build_engine(f"sqlite+pysqlite:///{database_path}")
-    init_database(engine)
+    _init_migrated_database(engine)
     session_factory = make_session_factory(engine)
 
     class FailingSummaryRepository(SqlAlchemyRepository):
@@ -176,7 +183,7 @@ def test_data_asset_summary_ends_read_snapshot_after_error(tmp_path: Path) -> No
 def test_data_asset_runs_route_ends_read_snapshot_after_error(tmp_path: Path) -> None:
     database_path = tmp_path / "plugin_hub.db"
     engine = build_engine(f"sqlite+pysqlite:///{database_path}")
-    init_database(engine)
+    _init_migrated_database(engine)
     session_factory = make_session_factory(engine)
 
     class FailingRunsRepository(SqlAlchemyRepository):
@@ -200,7 +207,7 @@ def test_data_asset_summary_uses_one_snapshot_during_concurrent_insert(tmp_path:
         f"sqlite+pysqlite:///{database_path}",
         sqlite_wal_enabled=True,
     )
-    init_database(engine)
+    _init_migrated_database(engine)
     session_factory = make_session_factory(engine)
     with engine.begin() as connection:
         connection.execute(

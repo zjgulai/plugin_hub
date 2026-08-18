@@ -102,18 +102,30 @@ digest. Database triggers reject update and delete operations. Repeating the
 same platform/language snapshot against unchanged inputs returns the existing
 deterministic analysis run instead of duplicating it.
 
-Snapshot tables are not created by application startup. Apply the explicit
-migration only after copied-database dry-run, online backup, and authorization:
+Snapshot tables and the three core evidence tables (`collection_runs`,
+`raw_source_items`, and `canonical_voc_units`) are owned by explicit migrations
+and are not created by application startup. A fresh local database must run
+`up` before routes or workers that use those tables. `status` is read-only and
+verifies the recorded checksums plus the core table, index, foreign-key, and
+immutability-trigger contracts:
 
 ```bash
-uv --directory apps/api run python -m plugin_hub_api.migration_cli status
 uv --directory apps/api run python -m plugin_hub_api.migration_cli up
+uv --directory apps/api run python -m plugin_hub_api.migration_cli status
 ```
 
-`down` is permitted only while both snapshot tables are empty. Never label a
-new baseline snapshot as historical output from before its `created_at` time.
-Use `scripts/dry-run-insight-snapshot-migration.py --copied-database` against a
-verified database copy before a production migration.
+The core migrations add run-scoped source-identity uniqueness and reject
+UPDATE, DELETE, and replacement-style overwrite of raw/canonical evidence.
+`down` is permitted only while the tables owned by the latest migration are
+empty; populated core evidence fails closed with `core_evidence_rows_exist`.
+Never label a new baseline snapshot as historical output from before its
+`created_at` time.
+
+Any copied-production rehearsal, backup, production migration, deployment, or
+break-glass repair requires separate authorization. The snapshot copy rehearsal
+tool is `scripts/dry-run-insight-snapshot-migration.py --copied-database`; the
+core-evidence emergency boundary is documented in
+`docs/workflows/plugin-hub-core-evidence-break-glass-runbook-draft-20260809.md`.
 
 ### Verified SQLite Backups
 
