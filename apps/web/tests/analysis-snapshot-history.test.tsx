@@ -24,7 +24,7 @@ const PRIOR_RUN: AnalysisRunSnapshot = {
   source_unit_count: 7,
   analysis_unit_count: 7,
   truncated: false,
-  artifact_count: 18,
+  artifact_count: 3,
   output_digest: "sha256:output-prior",
   created_at: "2026-08-20T02:39:26+00:00"
 };
@@ -36,7 +36,7 @@ const CURRENT_RUN: AnalysisRunSnapshot = {
   input_digest: "sha256:input-current",
   source_unit_count: 10,
   analysis_unit_count: 10,
-  artifact_count: 25,
+  artifact_count: 4,
   output_digest: "sha256:output-current",
   created_at: "2026-08-21T02:39:26+00:00"
 };
@@ -126,7 +126,7 @@ describe("AnalysisSnapshotHistory", () => {
     expect(html).toContain("1 / 3 loaded");
     expect(html).toContain("比较窗口不完整");
     expect(html).toContain("predecessor unknown beyond loaded window");
-    expect(html).toContain("unknown");
+    expect(html.match(/>unknown</g)).toHaveLength(4);
     expect(html).not.toContain("首个可比较快照");
     expect(html).not.toContain("no prior run");
     expect(html).not.toContain(">baseline<");

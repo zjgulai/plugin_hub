@@ -126,4 +126,30 @@ describe("analysis snapshot API", () => {
       )
     ).rejects.toThrow("analysis_snapshot_detail_invalid_response:artifact_count_mismatch");
   });
+
+  it("fails closed when the returned run does not match the selected run", async () => {
+    await expect(
+      fetchAnalysisSnapshotDetail(
+        "http://localhost:8000",
+        "analysis_amazon_other",
+        fetcherFor({ run: RUN, artifacts: ARTIFACTS })
+      )
+    ).rejects.toThrow("analysis_snapshot_detail_invalid_response:selected_run_mismatch");
+  });
+
+  it("fails closed on duplicate artifact identities", async () => {
+    await expect(
+      fetchAnalysisSnapshotDetail(
+        "http://localhost:8000",
+        RUN.analysis_run_id,
+        fetcherFor({ run: RUN, artifacts: [ARTIFACTS[0], ARTIFACTS[0]] })
+      )
+    ).rejects.toThrow("analysis_snapshot_detail_invalid_response:duplicate_artifact_identity");
+  });
+
+  it("fails closed on a non-2xx snapshot list response", async () => {
+    await expect(
+      fetchAnalysisSnapshots("http://localhost:8000", fetcherFor({}, 503))
+    ).rejects.toThrow("analysis_snapshots_fetch_failed:503");
+  });
 });
