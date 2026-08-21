@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { DashboardAutoRefresh } from "../src/components/DashboardAutoRefresh";
+import { AnalysisSnapshotHistory } from "../src/components/AnalysisSnapshotHistory";
 import { DataAssetRunTable } from "../src/components/DataAssetRunTable";
 import { InsightBriefPanel } from "../src/components/InsightBriefPanel";
 import { PlatformWorkspace } from "../src/components/operations/PlatformWorkspace";
@@ -9,6 +10,8 @@ import { RedditCaptureSubmitButton } from "../src/components/RedditCaptureSubmit
 import { VocEvidenceTable } from "../src/components/VocEvidenceTable";
 import {
   captureRedditThreadByUrl,
+  fetchAnalysisSnapshotDetail,
+  fetchAnalysisSnapshots,
   fetchCaptureCapabilities,
   fetchCollectionTasks,
   fetchDataAssetSummary,
@@ -20,6 +23,8 @@ import {
   fetchVocUnits,
   updatePlatformSetting,
   type ApiFetcher,
+  type AnalysisRunSnapshot,
+  type AnalysisSnapshotDetail,
   type CaptureCapability,
   type CollectionTask,
   type DataAssetSummary,
@@ -58,6 +63,9 @@ type DashboardData = {
   strategyNotes: StrategyNote[];
   assetSummary: DataAssetSummary | null;
   assetRuns: DataAssetRun[];
+  analysisSnapshots: AnalysisRunSnapshot[];
+  analysisSnapshotTotal: number;
+  analysisSnapshotDetail: AnalysisSnapshotDetail | null;
   vocError: string | null;
   taskError: string | null;
   capabilityError: string | null;
@@ -67,6 +75,8 @@ type DashboardData = {
   strategyError: string | null;
   assetSummaryError: string | null;
   assetRunsError: string | null;
+  analysisSnapshotsError: string | null;
+  analysisSnapshotDetailError: string | null;
   loadedAt: string;
 };
 
@@ -102,9 +112,12 @@ type PlatformSettingsStatus = {
 export default async function Page({ searchParams }: PageProps) {
   const config = loadDashboardConfig();
   const accessKeys = loadApiAccessKeys();
+  const resolvedSearchParams = await resolveSearchParams(searchParams);
+  const snapshotSelection = getSnapshotSelection(resolvedSearchParams);
   const data = await loadDashboardData(
     config,
-    apiFetcherWithKey(accessKeys.readKey)
+    apiFetcherWithKey(accessKeys.readKey),
+    snapshotSelection.analysisRunId
   );
   const metrics = getMetrics(
     data.units,
@@ -116,7 +129,6 @@ export default async function Page({ searchParams }: PageProps) {
   const integrityMetric = getIntegrityMetricDisplay(metrics.integrityIssueCount);
   const analysisUnits = data.units.filter(isAnalysisEligibleUnit);
   const apiState = getApiState(data);
-  const resolvedSearchParams = await resolveSearchParams(searchParams);
   const redditCaptureStatus = getRedditCaptureStatus(resolvedSearchParams);
   const platformSettingsStatus = getPlatformSettingsStatus(resolvedSearchParams);
 
@@ -195,6 +207,15 @@ export default async function Page({ searchParams }: PageProps) {
         <InsightBriefPanel briefs={data.insightBriefs} error={data.insightError} />
         <StrategyPanel notes={data.strategyNotes} error={data.strategyError} />
       </section>
+
+      <AnalysisSnapshotHistory
+        snapshots={data.analysisSnapshots}
+        total={data.analysisSnapshotTotal}
+        selectedRunId={snapshotSelection.analysisRunId}
+        detail={data.analysisSnapshotDetail}
+        listError={data.analysisSnapshotsError}
+        detailError={snapshotSelection.error ?? data.analysisSnapshotDetailError}
+      />
 
       {data.vocError ? <ErrorNotice title="VOC 数据拉取失败" error={data.vocError} /> : null}
       {data.assetSummaryError ? (
@@ -307,7 +328,8 @@ async function updatePlatformSettingAction(formData: FormData) {
 
 async function loadDashboardData(
   config: DashboardConfig,
-  fetcher: ApiFetcher
+  fetcher: ApiFetcher,
+  selectedAnalysisRunId: string | null
 ): Promise<DashboardData> {
   const apiBaseUrl = config.apiBaseUrl;
   const [
@@ -319,7 +341,9 @@ async function loadDashboardData(
     platformSettingsResult,
     platformSettingAuditResult,
     insightResult,
-    strategyResult
+    strategyResult,
+    analysisSnapshotsResult,
+    analysisSnapshotDetailResult
   ] = await Promise.allSettled([
     fetchVocUnits(apiBaseUrl, "all", fetcher, {
       maxItems: DASHBOARD_RECENT_VOC_LIMIT
@@ -331,7 +355,11 @@ async function loadDashboardData(
     fetchPlatformSettings(apiBaseUrl, fetcher),
     fetchPlatformSettingAuditEventsForActivePlatforms(apiBaseUrl, fetcher),
     fetchInsightBriefs(apiBaseUrl, "all", fetcher),
-    fetchStrategyNotes(apiBaseUrl, "all", fetcher)
+    fetchStrategyNotes(apiBaseUrl, "all", fetcher),
+    fetchAnalysisSnapshots(apiBaseUrl, fetcher),
+    selectedAnalysisRunId
+      ? fetchAnalysisSnapshotDetail(apiBaseUrl, selectedAnalysisRunId, fetcher)
+      : Promise.resolve(null)
   ]);
 
   return {
@@ -339,6 +367,14 @@ async function loadDashboardData(
     assetSummary:
       assetSummaryResult.status === "fulfilled" ? assetSummaryResult.value : null,
     assetRuns: assetRunsResult.status === "fulfilled" ? assetRunsResult.value.items : [],
+    analysisSnapshots:
+      analysisSnapshotsResult.status === "fulfilled" ? analysisSnapshotsResult.value.items : [],
+    analysisSnapshotTotal:
+      analysisSnapshotsResult.status === "fulfilled" ? analysisSnapshotsResult.value.total : 0,
+    analysisSnapshotDetail:
+      analysisSnapshotDetailResult.status === "fulfilled"
+        ? analysisSnapshotDetailResult.value
+        : null,
     tasks: taskResult.status === "fulfilled" ? taskResult.value.items : [],
     openTaskCount: taskResult.status === "fulfilled" ? taskResult.value.open_total : null,
     openTaskCounts: taskResult.status === "fulfilled" ? taskResult.value.open_totals : null,
@@ -368,6 +404,14 @@ async function loadDashboardData(
       assetSummaryResult.status === "rejected" ? stableError(assetSummaryResult.reason) : null,
     assetRunsError:
       assetRunsResult.status === "rejected" ? stableError(assetRunsResult.reason) : null,
+    analysisSnapshotsError:
+      analysisSnapshotsResult.status === "rejected"
+        ? stableError(analysisSnapshotsResult.reason)
+        : null,
+    analysisSnapshotDetailError:
+      analysisSnapshotDetailResult.status === "rejected"
+        ? stableError(analysisSnapshotDetailResult.reason)
+        : null,
     loadedAt: new Date().toISOString()
   };
 }
@@ -881,7 +925,9 @@ function getApiState(data: DashboardData) {
     data.platformSettingsError ||
     data.platformSettingAuditError ||
     data.assetSummaryError ||
-    data.assetRunsError
+    data.assetRunsError ||
+    data.analysisSnapshotsError ||
+    data.analysisSnapshotDetailError
   ) {
     return {
       tone: "partial",
@@ -900,6 +946,22 @@ async function resolveSearchParams(
   searchParams: PageProps["searchParams"]
 ): Promise<Record<string, string | string[] | undefined>> {
   return searchParams ? await searchParams : {};
+}
+
+function getSnapshotSelection(
+  searchParams: Record<string, string | string[] | undefined>
+): { analysisRunId: string | null; error: string | null } {
+  const analysisRunId = queryString(searchParams.snapshot);
+  if (!analysisRunId) {
+    return { analysisRunId: null, error: null };
+  }
+  if (!/^analysis_[a-z0-9_-]{1,119}$/i.test(analysisRunId)) {
+    return {
+      analysisRunId: null,
+      error: "analysis_snapshot_selection_invalid"
+    };
+  }
+  return { analysisRunId, error: null };
 }
 
 function getRedditCaptureStatus(

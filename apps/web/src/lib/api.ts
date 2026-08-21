@@ -105,6 +105,53 @@ export type DataAssetRunsResponse = {
   offset: number;
 };
 
+export type AnalysisArtifactType =
+  | "relation_edge"
+  | "enriched_voc_signal"
+  | "strategy_note"
+  | "insight_brief";
+
+export type AnalysisRunSnapshot = {
+  analysis_run_id: string;
+  platform: VocPlatform;
+  language: string;
+  scope: Record<string, JsonValue>;
+  collection_run_ids: string[];
+  input_digest: string;
+  template_contract: Record<string, JsonValue>;
+  snapshot_schema_version: string;
+  generation_method: string;
+  source_unit_count: number;
+  analysis_unit_count: number;
+  truncated: boolean;
+  artifact_count: number;
+  output_digest: string;
+  created_at: string;
+};
+
+export type AnalysisArtifactSnapshot = {
+  analysis_snapshot_id: string;
+  analysis_run_id: string;
+  artifact_type: AnalysisArtifactType;
+  artifact_key: string;
+  schema_version: string;
+  payload: Record<string, JsonValue>;
+  payload_digest: string;
+  created_at: string;
+};
+
+export type AnalysisSnapshotsResponse = {
+  items: AnalysisRunSnapshot[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type AnalysisSnapshotDetail = {
+  run: AnalysisRunSnapshot;
+  artifacts: AnalysisArtifactSnapshot[];
+};
+
 export type CaptureCapabilityMode = "extension" | "server" | "fixture";
 export type CaptureCapabilityStatus =
   | "ready"
@@ -451,6 +498,37 @@ export async function fetchDataAssetRuns(
   return parseDataAssetRunsResponse(payload);
 }
 
+export async function fetchAnalysisSnapshots(
+  apiBaseUrl: string,
+  fetcher: ApiFetcher = async (url) => fetch(url)
+): Promise<AnalysisSnapshotsResponse> {
+  const response = await fetcher(buildAnalysisSnapshotsUrl(apiBaseUrl));
+  if (!response.ok) {
+    throw new Error(`analysis_snapshots_fetch_failed:${response.status}`);
+  }
+
+  const payload = await parseJson(response, "analysis_snapshots_invalid_response");
+  return parseAnalysisSnapshotsResponse(payload);
+}
+
+export async function fetchAnalysisSnapshotDetail(
+  apiBaseUrl: string,
+  analysisRunId: string,
+  fetcher: ApiFetcher = async (url) => fetch(url)
+): Promise<AnalysisSnapshotDetail> {
+  const response = await fetcher(buildAnalysisSnapshotDetailUrl(apiBaseUrl, analysisRunId));
+  if (!response.ok) {
+    throw new Error(`analysis_snapshot_detail_fetch_failed:${response.status}`);
+  }
+
+  const payload = await parseJson(response, "analysis_snapshot_detail_invalid_response");
+  const detail = parseAnalysisSnapshotDetail(payload);
+  if (detail.run.analysis_run_id !== analysisRunId) {
+    throw new Error("analysis_snapshot_detail_invalid_response:selected_run_mismatch");
+  }
+  return detail;
+}
+
 export async function fetchStrategyNotes(
   apiBaseUrl: string,
   platform: VocPlatformFilter,
@@ -655,6 +733,18 @@ function buildDataAssetSummaryUrl(
 
 function buildDataAssetRunsUrl(apiBaseUrl: string): string {
   return `${apiBaseUrl.trim().replace(/\/+$/, "")}/api/data-assets/runs?limit=50&offset=0`;
+}
+
+function buildAnalysisSnapshotsUrl(apiBaseUrl: string): string {
+  return `${apiBaseUrl.trim().replace(/\/+$/, "")}/api/insights/snapshots?limit=50&offset=0`;
+}
+
+function buildAnalysisSnapshotDetailUrl(
+  apiBaseUrl: string,
+  analysisRunId: string
+): string {
+  const normalizedBaseUrl = apiBaseUrl.trim().replace(/\/+$/, "");
+  return `${normalizedBaseUrl}/api/insights/snapshots/${encodeURIComponent(analysisRunId)}`;
 }
 
 function buildCollectionTasksUrl(apiBaseUrl: string, platform: VocPlatformFilter): string {
@@ -960,6 +1050,125 @@ function parseDataAssetRun(value: unknown): DataAssetRun {
       "data_asset_runs_invalid_response"
     ),
     asset_state: assetState
+  };
+}
+
+function parseAnalysisSnapshotsResponse(payload: unknown): AnalysisSnapshotsResponse {
+  const errorPrefix = "analysis_snapshots_invalid_response";
+  if (!isRecord(payload) || !Array.isArray(payload.items)) {
+    throw new Error(`${errorPrefix}:items_array_required`);
+  }
+  const pagination = optionalPagination(payload);
+  if (
+    pagination.total === undefined ||
+    pagination.limit === undefined ||
+    pagination.offset === undefined
+  ) {
+    throw new Error(`${errorPrefix}:pagination_required`);
+  }
+  return {
+    items: payload.items.map((item) => parseAnalysisRunSnapshot(item, errorPrefix)),
+    total: pagination.total,
+    limit: pagination.limit,
+    offset: pagination.offset
+  };
+}
+
+function parseAnalysisSnapshotDetail(payload: unknown): AnalysisSnapshotDetail {
+  const errorPrefix = "analysis_snapshot_detail_invalid_response";
+  if (!isRecord(payload) || !Array.isArray(payload.artifacts)) {
+    throw new Error(`${errorPrefix}:object_required`);
+  }
+  const run = parseAnalysisRunSnapshot(payload.run, errorPrefix);
+  const artifacts = payload.artifacts.map((artifact) =>
+    parseAnalysisArtifactSnapshot(artifact, errorPrefix)
+  );
+  if (artifacts.some((artifact) => artifact.analysis_run_id !== run.analysis_run_id)) {
+    throw new Error(`${errorPrefix}:artifact_run_mismatch`);
+  }
+  if (artifacts.length !== run.artifact_count) {
+    throw new Error(`${errorPrefix}:artifact_count_mismatch`);
+  }
+  if (new Set(artifacts.map((artifact) => artifact.analysis_snapshot_id)).size !== artifacts.length) {
+    throw new Error(`${errorPrefix}:duplicate_artifact_identity`);
+  }
+  return { run, artifacts };
+}
+
+function parseAnalysisRunSnapshot(
+  value: unknown,
+  errorPrefix: string
+): AnalysisRunSnapshot {
+  if (!isRecord(value)) {
+    throw new Error(`${errorPrefix}:run_object_required`);
+  }
+  return {
+    analysis_run_id: requiredStringFor(value.analysis_run_id, "analysis_run_id", errorPrefix),
+    platform: requiredPlatform(value.platform, errorPrefix),
+    language: requiredStringFor(value.language, "language", errorPrefix),
+    scope: requiredJsonObjectFor(value.scope, "scope", errorPrefix),
+    collection_run_ids: requiredStringListFor(
+      value.collection_run_ids,
+      "collection_run_ids",
+      errorPrefix
+    ),
+    input_digest: requiredStringFor(value.input_digest, "input_digest", errorPrefix),
+    template_contract: requiredJsonObjectFor(
+      value.template_contract,
+      "template_contract",
+      errorPrefix
+    ),
+    snapshot_schema_version: requiredStringFor(
+      value.snapshot_schema_version,
+      "snapshot_schema_version",
+      errorPrefix
+    ),
+    generation_method: requiredStringFor(
+      value.generation_method,
+      "generation_method",
+      errorPrefix
+    ),
+    source_unit_count: requiredNonNegativeIntegerFor(
+      value.source_unit_count,
+      "source_unit_count",
+      errorPrefix
+    ),
+    analysis_unit_count: requiredNonNegativeIntegerFor(
+      value.analysis_unit_count,
+      "analysis_unit_count",
+      errorPrefix
+    ),
+    truncated: requiredBooleanFor(value.truncated, "truncated", errorPrefix),
+    artifact_count: requiredNonNegativeIntegerFor(
+      value.artifact_count,
+      "artifact_count",
+      errorPrefix
+    ),
+    output_digest: requiredStringFor(value.output_digest, "output_digest", errorPrefix),
+    created_at: requiredStringFor(value.created_at, "created_at", errorPrefix)
+  };
+}
+
+function parseAnalysisArtifactSnapshot(
+  value: unknown,
+  errorPrefix: string
+): AnalysisArtifactSnapshot {
+  if (!isRecord(value)) {
+    throw new Error(`${errorPrefix}:artifact_object_required`);
+  }
+  return {
+    analysis_snapshot_id: requiredStringFor(
+      value.analysis_snapshot_id,
+      "analysis_snapshot_id",
+      errorPrefix
+    ),
+    analysis_run_id: requiredStringFor(value.analysis_run_id, "analysis_run_id", errorPrefix),
+    artifact_type: requiredAnalysisArtifactType(value.artifact_type, errorPrefix),
+    artifact_key: requiredStringFor(value.artifact_key, "artifact_key", errorPrefix),
+    schema_version: requiredStringFor(value.schema_version, "schema_version", errorPrefix),
+    payload: requiredJsonObjectFor(value.payload, "payload", errorPrefix),
+    payload_digest: requiredStringFor(value.payload_digest, "payload_digest", errorPrefix),
+    created_at: requiredStringFor(value.created_at, "created_at", errorPrefix)
   };
 }
 
@@ -1590,6 +1799,21 @@ function requiredPlatformSettingSource(
   throw new Error(`${errorPrefix}:source_required`);
 }
 
+function requiredAnalysisArtifactType(
+  value: unknown,
+  errorPrefix: string
+): AnalysisArtifactType {
+  if (
+    value === "relation_edge" ||
+    value === "enriched_voc_signal" ||
+    value === "strategy_note" ||
+    value === "insight_brief"
+  ) {
+    return value;
+  }
+  throw new Error(`${errorPrefix}:artifact_type_required`);
+}
+
 function optionalString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
@@ -1622,6 +1846,18 @@ function requiredFiniteIntegerFor(value: unknown, field: string, errorPrefix: st
   throw new Error(`${errorPrefix}:${field}_required`);
 }
 
+function requiredNonNegativeIntegerFor(
+  value: unknown,
+  field: string,
+  errorPrefix: string
+): number {
+  const parsed = requiredFiniteIntegerFor(value, field, errorPrefix);
+  if (parsed < 0) {
+    throw new Error(`${errorPrefix}:${field}_required`);
+  }
+  return parsed;
+}
+
 function requiredBooleanFor(value: unknown, field: string, errorPrefix: string): boolean {
   if (typeof value === "boolean") {
     return value;
@@ -1642,6 +1878,17 @@ function stringList(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === "string");
 }
 
+function requiredStringListFor(
+  value: unknown,
+  field: string,
+  errorPrefix: string
+): string[] {
+  if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) {
+    throw new Error(`${errorPrefix}:${field}_array_required`);
+  }
+  return value;
+}
+
 function jsonObject(value: unknown): Record<string, JsonValue> {
   if (!isRecord(value)) {
     return {};
@@ -1654,6 +1901,17 @@ function jsonObject(value: unknown): Record<string, JsonValue> {
     }
   }
   return output;
+}
+
+function requiredJsonObjectFor(
+  value: unknown,
+  field: string,
+  errorPrefix: string
+): Record<string, JsonValue> {
+  if (!isRecord(value) || !Object.values(value).every(isJsonValue)) {
+    throw new Error(`${errorPrefix}:${field}_object_required`);
+  }
+  return value as Record<string, JsonValue>;
 }
 
 function jsonList(value: unknown): JsonValue[] {
