@@ -3,9 +3,10 @@
   "private": true,
   "packageManager": "pnpm@9.15.4",
   "scripts": {
-    "test": "pnpm test:api && pnpm -r test && pnpm test:extension-version",
+    "test": "pnpm test:api && pnpm -r test && pnpm test:extension-version && pnpm test:bundle-size",
     "test:api": "uv --directory apps/api run pytest",
     "test:extension-version": "node --test scripts/tests/extension-version-utils.test.mjs",
+    "test:bundle-size": "node --test scripts/tests/bundle-size-budget.test.mjs",
     "lint": "pnpm lint:api && pnpm -r lint",
     "lint:api": "uv --directory apps/api run ruff check .",
     "typecheck": "pnpm typecheck:api && pnpm -r typecheck",
@@ -22,6 +23,7 @@
     "verify:extension:amazon": "node scripts/verify-extension-package.mjs amazon",
     "verify:extension:reddit": "node scripts/verify-extension-package.mjs reddit",
     "verify:extension:instagram": "node scripts/verify-extension-package.mjs instagram",
+    "check:bundle-size": "node scripts/check-bundle-size-budget.mjs",
     "version:extension:list": "node scripts/manage-extension-version.mjs list",
     "version:extension:check": "node scripts/manage-extension-version.mjs check",
     "version:extension:bump": "node scripts/manage-extension-version.mjs bump"

@@ -85,8 +85,14 @@ jobs:
       - name: Verify extension version governance
         run: pnpm test:extension-version && pnpm version:extension:check
 
+      - name: Test bundle size governance
+        run: pnpm test:bundle-size
+
       - name: Package and verify all extensions
         run: pnpm package:extension && pnpm verify:extension
+
+      - name: Enforce bundle size budgets
+        run: pnpm check:bundle-size
 
   deployment-config:
     name: Deployment Config

@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "units": "bytes",
+  "web": {
+    "route_loaded_js_gzip": 115000,
+    "page_client_raw": 20000,
+    "server_page_raw": 160000
+  },
+  "extension": {
+    "content_script_raw": 300000,
+    "content_script_gzip": 85000,
+    "popup_raw": 360000,
+    "popup_gzip": 85000,
+    "service_worker_raw": 16000,
+    "target_dist_raw": 650000,
+    "package_zip_raw": 180000
+  }
+}
